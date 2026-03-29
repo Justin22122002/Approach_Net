@@ -35,6 +35,9 @@ class Renderable(pygame.sprite.Sprite, metaclass=ABCMeta):
         raise NotImplementedError
 
 
+"""
+JsonSerializable lets the class to be serialized to json and deserialized from json
+"""
 class JsonSerializable(metaclass=ABCMeta):
 
     @abstractmethod

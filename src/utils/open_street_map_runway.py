@@ -7,20 +7,16 @@ from pygame import Surface
 from pyproj import Geod
 
 from src.rendering.renderable import JsonSerializable, Renderable
-from src.utils.approach import Approach
+from src.utils.arinc_runway import Approach
+from src.utils.geo_types import Coordinate
 
 geod = Geod(ellps="WGS84")
 
-@dataclass
-class Coordinate:
-    lat: float
-    lon: float
 
-
-class Runway(Renderable, JsonSerializable):
+class OpenStreetMapRunway(Renderable, JsonSerializable):
     def __init__(
             self,
-            id: str,
+            open_street_map_id: str,
             centerline_coordinates: list[Coordinate],
             approaches: list[Approach],
             polygon_coordinates: list[Coordinate],
@@ -31,7 +27,7 @@ class Runway(Renderable, JsonSerializable):
             **kwargs
     ) -> None:
         super().__init__(*args, **kwargs)
-        self.id: str = id
+        self.open_street_map_id: str = open_street_map_id
         self.centerline_coordinates: list[Coordinate] = centerline_coordinates
         self.ref: str | None = ref
         self.name: str | None = name
@@ -85,7 +81,7 @@ class Runway(Renderable, JsonSerializable):
 
         pygame.draw.polygon(
             surface=screen,
-            color=(220, 220, 220),
+            color=(105, 105, 105),
             points=points,
             width=0,
         )
@@ -119,39 +115,39 @@ class Runway(Renderable, JsonSerializable):
     @override
     def to_dict(self) -> dict:
         return {
-            "id": self.id,
+            "open_street_map_id": self.open_street_map_id,
             "ref": self.ref,
             "name": self.name,
             "width": self.width,
-            "polygon_coordinates": [{"lat": c.lat, "lon": c.lon} for c in self.polygon_coordinates]
+            "centerline_coordinates": [{"lat": c.lat, "lon": c.lon} for c in self.centerline_coordinates]
         }
 
     @override
     @classmethod
-    def from_dict(cls, data: dict) -> "Runway":
-        polygon_coordinates = [Coordinate(lat=c["lat"], lon=c["lon"]) for c in data.get("polygon_coordinates", [])]
+    def from_dict(cls: type["OpenStreetMapRunway"], data: dict) -> "OpenStreetMapRunway":
+        centerline_coordinates = [Coordinate(lat=c["lat"], lon=c["lon"]) for c in data.get("centerline_coordinates", [])]
 
         return cls(
-            id=data["id"],
-            centerline_coordinates=[],
-            polygon_coordinates=polygon_coordinates,
+            open_street_map_id=data["open_street_map_id"],
+            centerline_coordinates=centerline_coordinates,
+            polygon_coordinates=[],
             approaches=[],
             ref=data.get("ref"),
             name=data.get("name"),
             width=data.get("width"),
         )
 
-class Taxiway(Renderable):
+class Taxiway(Renderable, JsonSerializable):
     def __init__(
             self,
-            id: str,
+            open_street_map_id: str,
             coordinates: list[Coordinate],
             width: float | None = None,
             *args,
             **kwargs,
     ) -> None:
         super().__init__(*args, **kwargs)
-        self.id: str = id
+        self.open_street_map_id: str = open_street_map_id
         self.coordinates: list[Coordinate] = coordinates
         self.width: float = float(width) if width else 1
 
@@ -167,9 +163,35 @@ class Taxiway(Renderable):
         points = [geo_to_screen(c.lat, c.lon) for c in self.coordinates]
         pygame.draw.lines(
             surface=screen,
-            color=(120, 120, 120),
+            color=(230, 232, 49),
             closed=False,
             points=points,
             width=1,
         )
+
+    @override
+    def to_dict(self) -> dict:
+        return {
+            "open_street_map_id": self.open_street_map_id,
+            "width": self.width,
+            "coordinates": [
+                {"lat": c.lat, "lon": c.lon}
+                for c in self.coordinates
+            ],
+        }
+
+    @override
+    @classmethod
+    def from_dict(cls: type["Taxiway"], data: dict) -> "Taxiway":
+        coordinates = [
+            Coordinate(lat=c["lat"], lon=c["lon"])
+            for c in data.get("coordinates", [])
+        ]
+
+        return cls(
+            open_street_map_id=data["open_street_map_id"],
+            coordinates=coordinates,
+            width=data.get("width"),
+        )
+
 

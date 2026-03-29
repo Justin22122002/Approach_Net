@@ -132,6 +132,10 @@ class OpenSkyRestClient:
 
 
 if __name__ == "__main__":
+    from pyopensky.config import opensky_config_dir
+
+    print(opensky_config_dir)
+
     client = OpenSkyRestClient()
 
     lat_center = 50.0379

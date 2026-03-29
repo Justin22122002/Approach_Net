@@ -4,29 +4,37 @@ from pathlib import Path
 import requests
 from pyproj import Geod
 
-from src.utils.airport import Airport, AirportTerminal
-from src.utils.runway import Coordinate, Runway, Taxiway
+from src.utils.airport import Airport, AirportTerminal, Terrain
+from src.utils.open_street_map_runway import Coordinate, OpenStreetMapRunway, Taxiway
+from src.utils.sqlite_airinc24_database_client import SQLiteArInC24DatabaseClient
 
 
-class AirportClient:
+class OpenStreetMapAirportClient:
     OVERPASS_URL: str = "https://overpass-api.de/api/interpreter"
 
-    def __init__(self, cache_dir: str = ".cache") -> None:
-        self.cache_dir: Path = Path(cache_dir)
+    def __init__(self, cache_dir: Path = Path(".cache"), arinc_db_path: Path = Path("FAACIFP18")) -> None:
+        self.cache_dir: Path = cache_dir
         self.cache_dir.mkdir(parents=True, exist_ok=True)
+        self.arinc_client = SQLiteArInC24DatabaseClient(arinc_db_path)
 
-    def get_airport(self, icao: str, lat: float, lon: float, radius_km: float = 10) -> Airport:
+    """
+    This method will load a new airport with all respected client
+    """
+    def load_new_airport(self, icao: str, lat: float, lon: float, radius_km: float = 10) -> Airport:
         data = self._load_or_fetch(lat, lon, radius_km, icao)
 
         runways, taxiways, terminals = self._parse(data)
+        arinc_runways = self.arinc_client.get_all_runways_with_approaches_for_airport(icao)
 
         return Airport(
             icao=icao,
             lat=lat,
             lon=lon,
-            runways=runways,
+            open_street_map_runway=runways,
+            arinc_424_runway=arinc_runways,
             taxiways=taxiways,
             terminals=terminals,
+            terrain=Terrain(),
         )
 
     def _load_or_fetch(
@@ -88,7 +96,7 @@ class AirportClient:
         out geom;
         """
 
-    def _parse(self, data: dict) -> tuple[list[Runway], list[Taxiway], list[AirportTerminal]]:
+    def _parse(self, data: dict) -> tuple[list[OpenStreetMapRunway], list[Taxiway], list[AirportTerminal]]:
         elements = data.get("elements", [])
 
         runways = self.parse_runways(elements)
@@ -98,7 +106,7 @@ class AirportClient:
         return runways, taxiways, terminals
 
 
-    def parse_runways(self, elements: list[dict]) -> list[Runway]:
+    def parse_runways(self, elements: list[dict]) -> list[OpenStreetMapRunway]:
         best_runways: dict[str, dict] = {}
         for el in elements:
             coords = self._extract_coords(el)
@@ -119,8 +127,8 @@ class AirportClient:
                 }
 
         return [
-            Runway(
-                id=str(data["id"]),
+            OpenStreetMapRunway(
+                open_street_map_id=str(data["id"]),
                 centerline_coordinates=data["coords"],
                 polygon_coordinates=[],
                 ref=ref,
@@ -140,7 +148,7 @@ class AirportClient:
                 continue
             tags = el.get("tags", {})
             if tags.get("aeroway") == "taxiway":
-                taxiways.append(Taxiway(id=str(el["id"]), coordinates=coords, width=tags.get("width")))
+                taxiways.append(Taxiway(open_street_map_id=str(el["id"]), coordinates=coords, width=tags.get("width")))
         return taxiways
 
 
@@ -153,7 +161,7 @@ class AirportClient:
             tags = el.get("tags", {})
             aeroway = tags.get("aeroway")
             if aeroway == "terminal" or tags.get("building") == "terminal" or "terminal" in tags.get("name", "").lower():
-                terminals.append(AirportTerminal(id=el["id"], coordinates=coords, name=tags.get("name")))
+                terminals.append(AirportTerminal(open_street_map_id=el["id"], coordinates=coords, name=tags.get("name")))
         return terminals
 
 
@@ -164,6 +172,6 @@ class AirportClient:
         elif el.get("type") == "relation":
             for member in el.get("members", []):
                 if member["type"] == "way" and "geometry" in member:
-                    if member.get("role") != "inner":  # nur outer
+                    if member.get("role") != "inner":
                         coords.extend([Coordinate(lat=g["lat"], lon=g["lon"]) for g in member["geometry"]])
         return coords

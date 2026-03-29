@@ -50,7 +50,7 @@ class Aircraft(Renderable):
 
         color = (0, 255, 0)
         if self.data.onground:
-            if self.data.groundspeed is None or self.data.groundspeed == 0:
+            if self.data.groundspeed is None or self.data.groundspeed == "NA" or self.data.groundspeed == 0:
                 color = (128, 128, 128)
             else:
                 color = (255, 165, 0)
@@ -60,5 +60,6 @@ class Aircraft(Renderable):
         if self.data.callsign:
             # todo: move in separate file
             font = pygame.font.SysFont("Arial", 14)
+
             text = font.render(self.data.callsign.strip(), True, (255, 255, 255))
             screen.blit(text, (x + 5, y - 5))

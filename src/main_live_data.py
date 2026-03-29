@@ -1,69 +1,81 @@
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import pygame
 from pyproj import Transformer
 
 from src.rendering.visualizer import Visualizer
 from src.utils.aircraft import Aircraft, AircraftData
-from src.utils.airport_client import AirportClient
+from src.utils.airport_client import OpenStreetMapAirportClient
+from src.utils.open_airport_map_client import OpenAirportMapClient, only_r_approaches
 from src.utils.open_sky_rest_client import OpenSkyRestClient
 
-if TYPE_CHECKING:
-    from src.utils.airport import Airport
+from src.utils.airport import Airport
 
 transformer = Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)
 
 def main():
-    client = AirportClient()
-    frankfurt: Airport = client.get_airport(
+    client = OpenStreetMapAirportClient()
+    client2 = OpenAirportMapClient()
+    frankfurt: Airport = client2.load_new_airport(
         icao="EDDF",
         lat=50.0379,
         lon=8.5622,
+        runway_approach_filter=only_r_approaches,
         radius_km=5
     )
 
-    toronto: Airport = client.get_airport(
+    toronto: Airport = client2.load_new_airport(
         icao="CYYZ",
         lat=43.6777,
         lon=-79.6248,
+        runway_approach_filter=only_r_approaches,
         radius_km=5
     )
 
-    jfk = client.get_airport(
+    vancouver: Airport = client2.load_new_airport(
+        icao="CYVR",
+        lat=49.1947,
+        lon=-123.1792,
+        runway_approach_filter=only_r_approaches,
+        radius_km=5
+    )
+
+    jfk = client2.load_new_airport(
         icao="KJFK",
         lat=40.63993,
         lon=-73.77869,
+        runway_approach_filter=only_r_approaches,
         radius_km=5
     )
 
     basePath: Path = Path("data")
-    frankfurt.save_runways_to_json(basePath / Path("frankfurt_runways.json"))
-    frankfurt.load_runways_from_json(basePath / Path("frankfurt_runways.json"))
+    frankfurt.save_to_folder(basePath)
+    toronto.save_to_folder(basePath)
+    jfk.save_to_folder(basePath)
+    vancouver.save_to_folder(basePath)
 
-    toronto.save_runways_to_json(basePath / Path("toronto_runways.json"))
-    toronto.load_runways_from_json(basePath / Path("toronto_runways.json"))
+    frankfurt = Airport.load_from_folder(basePath, "EDDF")
+    toronto = Airport.load_from_folder(basePath, "CYYZ")
+    jfk = Airport.load_from_folder(basePath, "KJFK")
+    vancouver = Airport.load_from_folder(basePath, "CYVR")
 
-    jfk.save_runways_to_json(basePath / Path("jfk_runways.json"))
-    jfk.load_runways_from_json(basePath / Path("jfk_runways.json"))
-
-    airport = jfk
+    airport = toronto
 
     opensky_client = OpenSkyRestClient()
 
     half_edge_km = 10
 
-    print("Runways:", len(airport.runways))
+    print("Runways:", len(airport.open_street_map_runway))
     print("Taxiways:", len(airport.taxiways))
-    for idx, runway in enumerate(airport.runways):
+    for idx, runway in enumerate(airport.open_street_map_runway):
         print(f"index: {idx + 1}, coordinates amount: {len(runway.centerline_coordinates)}, name: {runway.name}, ref: {runway.ref}")
 
     visualizer = Visualizer(width=1080, height=1080)
 
-    all_lats = [c.lat for rwy in airport.runways for c in rwy.centerline_coordinates] + \
+    all_lats = [c.lat for rwy in airport.open_street_map_runway for c in rwy.centerline_coordinates] + \
                [c.lat for twy in airport.taxiways for c in twy.coordinates]
-    all_lons = [c.lon for rwy in airport.runways for c in rwy.centerline_coordinates] + \
+    all_lons = [c.lon for rwy in airport.open_street_map_runway for c in rwy.centerline_coordinates] + \
                [c.lon for twy in airport.taxiways for c in twy.coordinates]
 
     lamin = min(all_lats)
