@@ -5,7 +5,6 @@ import pandas as pd
 import pygame
 from pyproj import Transformer
 
-from old_code.visualize_with_runway_2 import runway
 from src.rendering.visualizer import Visualizer
 from src.utils.aircraft import Aircraft, AircraftData
 from src.utils.aircraft_history_interpolator import AircraftHistoryInterpolator, plot_aircraft_trajectory

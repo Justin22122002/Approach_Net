@@ -20,6 +20,7 @@ class OpenStreetMapAirportClient:
     """
     This method will load a new airport with all respected client
     """
+
     def load_new_airport(self, icao: str, lat: float, lon: float, radius_km: float = 10) -> Airport:
         data = self._load_or_fetch(lat, lon, radius_km, icao)
 
@@ -38,11 +39,11 @@ class OpenStreetMapAirportClient:
         )
 
     def _load_or_fetch(
-        self,
-        lat: float,
-        lon: float,
-        radius_km: float,
-        icao: str,
+            self,
+            lat: float,
+            lon: float,
+            radius_km: float,
+            icao: str,
     ) -> dict:
         cache_file = self.cache_dir / f"{icao}.json"
 
@@ -69,9 +70,9 @@ class OpenStreetMapAirportClient:
         radius_m = radius_km * 1000
         geod = Geod(ellps="WGS84")
 
-        lon_n, lat_n, _ = geod.fwd(lon, lat, 0, radius_m)    # north
+        lon_n, lat_n, _ = geod.fwd(lon, lat, 0, radius_m)  # north
         lon_s, lat_s, _ = geod.fwd(lon, lat, 180, radius_m)  # south
-        lon_e, lat_e, _ = geod.fwd(lon, lat, 90, radius_m)   # east
+        lon_e, lat_e, _ = geod.fwd(lon, lat, 90, radius_m)  # east
         lon_w, lat_w, _ = geod.fwd(lon, lat, 270, radius_m)  # west
 
         lamin = min(lat_s, lat_n)
@@ -88,7 +89,7 @@ class OpenStreetMapAirportClient:
         (
           way["aeroway"="runway"]({lamin},{lomin},{lamax},{lomax});
           way["aeroway"="taxiway"]({lamin},{lomin},{lamax},{lomax});
-        
+
           way["aeroway"="terminal"]({lamin},{lomin},{lamax},{lomax});
 
           relation["building"]({lamin},{lomin},{lamax},{lomax});
@@ -104,7 +105,6 @@ class OpenStreetMapAirportClient:
         terminals = self.parse_terminals(elements)
 
         return runways, taxiways, terminals
-
 
     def parse_runways(self, elements: list[dict]) -> list[OpenStreetMapRunway]:
         best_runways: dict[str, dict] = {}
@@ -139,7 +139,6 @@ class OpenStreetMapAirportClient:
             for ref, data in best_runways.items()
         ]
 
-
     def parse_taxiways(self, elements: list[dict]) -> list[Taxiway]:
         taxiways: list[Taxiway] = []
         for el in elements:
@@ -151,7 +150,6 @@ class OpenStreetMapAirportClient:
                 taxiways.append(Taxiway(open_street_map_id=str(el["id"]), coordinates=coords, width=tags.get("width")))
         return taxiways
 
-
     def parse_terminals(self, elements: list[dict]) -> list[AirportTerminal]:
         terminals: list[AirportTerminal] = []
         for el in elements:
@@ -160,10 +158,10 @@ class OpenStreetMapAirportClient:
                 continue
             tags = el.get("tags", {})
             aeroway = tags.get("aeroway")
-            if aeroway == "terminal" or tags.get("building") == "terminal" or "terminal" in tags.get("name", "").lower():
-                terminals.append(AirportTerminal(open_street_map_id=el["id"], coordinates=coords, name=tags.get("name")))
+            if aeroway == "terminal" or tags.get("building") == "terminal" or "terminal" in tags.get("name","").lower():
+                terminals.append(
+                    AirportTerminal(open_street_map_id=el["id"], coordinates=coords, name=tags.get("name")))
         return terminals
-
 
     def _extract_coords(self, el: dict) -> list[Coordinate]:
         coords = []

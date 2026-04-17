@@ -133,12 +133,13 @@ class SQLiteArInC24DatabaseClient:
                 if proc_runway != runway_norm:
                     continue
 
-                grouped_by_type = defaultdict(list)
+                grouped_by_procedure = defaultdict(list)
                 for e in entries:
                     rtype = e.get("Route_Type") or "Unknown"
-                    grouped_by_type[rtype].append(e)
+                    procedure = e.get("Procedure_Identifier") or "Unknown"
+                    grouped_by_procedure[procedure].append(e)
 
-                for rtype, r_entries in grouped_by_type.items():
+                for procedure, r_entries in grouped_by_procedure.items():
                     fixes: list[FixIdentifier] = []
 
                     for entry in r_entries:
