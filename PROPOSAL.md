@@ -1,4 +1,4 @@
-# Proposal (Constraint-Aware Deep Learning for Safe Air Traffic Control Assistance)
+# Proposal Title: Multi-Agent Generative Modeling with Hard Constraints for Air Traffic Control
 
 ## Problem and Motivation
 Air Traffic Control (ATC) is a highly safety-critical domain in which human operators are required to make rapid, 
@@ -8,30 +8,30 @@ Due to the dynamic and complex nature of airspace environments,
 even minor errors or delays in decision-making can lead to severe consequences, 
 including loss of separation or, in the worst case, collisions.
 
-The motivation of this work is to enhance the decision-making capabilities of air traffic controllers
-through intelligent assistance. Rather than replacing human operators, the goal is to provide a system
-that continuously analyzes the current air traffic situation and suggests optimal control actions in real time.
-In particular, it is designed to propose safe and efficient motion vectors for individual aircraft, 
-allowing controllers to make informed decisions more quickly.
-By acting as an additional safety layer, such a system can help mitigate human error,
-improve situational awareness, and contribute to safer and more efficient air traffic management.
+The motivation of this work is to develop a model capable of learning and generating air traffic control decisions.
+The system is designed to analyze the current air traffic situation and predict safe and efficient control actions in real time, 
+represented as motion vectors for individual aircraft.
+While the primary focus of this work is on building such a decision-making model, 
+a long-term objective is to integrate it as an intelligent assistance system for human air traffic controllers.
+In this context, the model could support controllers by providing decision recommendations, improving situational awareness, and reducing workload.
 
 ## related work e.g. state of the art
 Current approaches either rely on probabilistic safety estimates or deterministic models that do not scale well to complex scenarios.
 While probabilistic models can achieve high accuracy, they cannot guarantee absolute safety, 
 which is critical in safety-sensitive domains such as air traffic control.
 Recent research explores methods that embed safety constraints directly into the system design, 
-enabling provable guarantees of collision avoidance.
+like enabling provable guarantees of collision avoidance or other safety properties.
 
 ## Goal of this work
 The goal of this work is to develop a system where safety constraints are embedded into the model architecture, 
 ensuring that unsafe states (e.g., collisions) are unreachable. 
-The system focuses on a single airport environment, where all aircraft within a specified radius around the airport are considered.
-
-These constraints include RNAV approach templates with their minimum and maximum altitudes at designated approach points, 
+The system focuses on a single airport environment, where all aircraft within a specified radius around the airport are considered, 
+but the model is designed to be extensible to other airports.
+These constraints include RNAV approach plates with their minimum and maximum altitudes at designated approach points, 
 aircraft speed limits during runway landing, terrain avoidance, and required separation between aircraft.
-The model should predict the optimal vector for each aircraft in each timestep, 
-accounting for the constraints and real-time constraints. The main data for training is collected from real world data, but also synthetic data
+While the proposed model operates in discrete timesteps and predicts an optimal motion vector for each aircraft, 
+continuous-time formulations represent a promising extension to more accurately capture the dynamic nature of air traffic systems.
+The main data for training is collected from real-world data, but also synthetic data
 can be used for creating conflict scenarios, like two planes heading towards the same point.
 
 ## Methodology
@@ -45,15 +45,17 @@ Terrain data will be obtained from the Copernicus Data Space.
 
 ### model design / architecture:
 The model architecture can be based on Graph Neural Networks, Transformers, or a combination of both, 
-extended with constraint layers. It takes as input aircraft states and separation information, trajectories, airport data, 
-and terrain information, and outputs a three-dimensional motion vector for each aircraft or signs of potential conflicts. 
-Safety constraints, such as minimum separation and terrain avoidance, are directly integrated into the model architecture.
+extended with constraint layers. 
+The model integrates multiple data sources, including regulatory constraints (e.g., separation minima, obstacle avoidance), 
+geometric data (e.g., terrain and airport layouts), and historical flight information (e.g., ADS-B trajectories).
+Based on these inputs, the model predicts an optimal three-dimensional motion vector for each aircraft, 
+while strictly enforcing safety constraints within the model architecture.
 
 ### evaluation criteria:
 The evaluation criteria will be based on the following metrics:
 
   1. minimal separation
-  2. Trajectory Prediction Accuracy
+  2. Trajectory Prediction Accuracy (Comparison to real-world trajectories alone may not be enough, as these trajectories do not necessarily represent optimal or ideal behavior)
      - Accuracy of predicted trajectories compared to actual aircraft trajectories.
      - Metrics: RMSE, MAE, or deviation in horizontal and vertical directions
   3. Constraint Adherence
