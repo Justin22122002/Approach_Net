@@ -42,6 +42,28 @@ def normalize_runway(runway_id: str) -> str:
     """
     return runway_id.replace("RW", "").upper()
 
+def magnetic_variation_to_float(var_str: str) -> float:
+    """
+    Convert a magnetic variation string like 'W0130' or 'E0450' to decimal degrees.
+    W (west) -> negative, E (east) -> positive
+    Last two digits are minutes.
+    """
+    if len(var_str) != 5:
+        raise ValueError(f"Invalid variation string: {var_str}")
+
+    direction = var_str[0].upper()
+    degrees = int(var_str[1:4])  # 3 digits for degrees
+    minutes = int(var_str[4:5]) * 10  # last digit is tenths of minutes
+
+    decimal_degrees = degrees + minutes / 60.0
+
+    if direction == "W":
+        decimal_degrees *= -1
+    elif direction != "E":
+        raise ValueError(f"Unknown direction in variation string: {direction}")
+
+    return decimal_degrees
+
 class SQLiteArInC24DatabaseClient:
 
     def __init__(self, db_path: Path) -> None:
@@ -64,6 +86,16 @@ class SQLiteArInC24DatabaseClient:
                        WHERE Airport_Identifier = ?
                          AND Procedure_Identifier = ?
                        """, (airport, procedure))
+
+        return [dict(row) for row in cursor.fetchall()]
+
+    def get_airport_by_airport_identifier(self, airport_identifier: str) -> list[dict]:
+        cursor = self.conn.cursor()
+        cursor.execute("""
+                       SELECT *
+                       FROM airport
+                       WHERE Airport_Identifier = ?
+                       """, (airport_identifier,))
 
         return [dict(row) for row in cursor.fetchall()]
 
@@ -111,6 +143,14 @@ class SQLiteArInC24DatabaseClient:
 
     def get_all_runways_with_approaches_for_airport(self, airport: str) -> list[ArincRunway]:
         runways_data = self.get_runways_by_airport(airport)
+        airport_data = self.get_airport_by_airport_identifier(airport)
+        magnetic_variation = 0
+
+        if len(airport_data) == 1:
+            variation_string = airport_data[0].get("Magnetic_Variation")
+
+            if variation_string != "" and variation_string is not None:
+                magnetic_variation = magnetic_variation_to_float(variation_string)
 
         runways_dict = {r["Runway_Identifier"]: r for r in runways_data}
 
@@ -149,7 +189,7 @@ class SQLiteArInC24DatabaseClient:
                         seq_num = entry.get("Sequence_Number", 0)
                         lat, lon = None, None
 
-                        if fix_name == runway_id:
+                        if fix_name == runway_id and path_term == "TF":
                             lat, lon = runway_lat, runway_lon
                         else:
                             waypoint_data = self.get_waypoints(airport, fix_name)
@@ -185,6 +225,8 @@ class SQLiteArInC24DatabaseClient:
                 width=float(runway_info.get("Width", 0.0)),
                 stopway=float(safe_float(runway_info.get("Stopway"))),
                 displaced_threshold=float(runway_info.get("Displaced_Threshold", 0.0)),
+                magnetic_variation=magnetic_variation,
+                runway_altitude=runway_info.get("Landing_Threshold_Elevation", 0.0),
                 approaches=approaches_for_runway
             ))
 
@@ -235,7 +277,7 @@ if __name__ == "__main__":
     arinc_runways = database_client.get_all_runways_with_approaches_for_airport("KJFK")
 
     for runway in arinc_runways:
-        print(f"Runway: {runway.runway_identifier} - Lat: {runway.latitude} - Lon: {runway.longitude}")
+        print(f"Runway: {runway.runway_identifier} - Lat: {runway.latitude} - Lon: {runway.longitude} - Magetic Variation: {runway.magnetic_variation} - runway_altitude: {runway.runway_altitude}")
 
         if not runway.approaches:
             print("  Keine Approaches für diese Runway gefunden.")
@@ -246,4 +288,4 @@ if __name__ == "__main__":
             for fix in approach.fixes:
                 lat_str = f"{fix.latitude:.6f}" if fix.latitude is not None else "None"
                 lon_str = f"{fix.longitude:.6f}" if fix.longitude is not None else "None"
-                print(f"    {fix.fix_identifier} - {fix.path_terminator} - {lat_str} - {lon_str}")
+                print(f"    {fix.fix_identifier} - {fix.path_terminator} - {lat_str} - {lon_str} - {fix.altitude}")

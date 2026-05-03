@@ -1,12 +1,38 @@
 import json
+import math
 from pathlib import Path
+from typing import Callable
 
+import numpy as np
 import requests
 from pyproj import Geod
 
 from src.utils.airport import Airport, AirportTerminal, Terrain
 from src.utils.open_street_map_runway import Coordinate, OpenStreetMapRunway, Taxiway
 from src.utils.sqlite_airinc24_database_client import SQLiteArInC24DatabaseClient
+from utils.airac_net_client import AiracNetClient
+from utils.arinc_runway import ArincRunway
+from utils.terrain_client import CopernicusDEMProvider
+
+def only_r_approaches(r: list[ArincRunway]) -> list[ArincRunway]:
+    for runway in r:
+        runway.approaches = [
+            app for app in runway.approaches
+            if app.route_type == "R"
+        ]
+    return r
+
+# todo: replace with pyproj package
+def get_bbox_simple(lat: float, lon: float, radius_km: float):
+    delta_lat = radius_km / 111.0
+    delta_lon = radius_km / (111.0 * math.cos(math.radians(lat)))
+
+    lat_min = lat - delta_lat
+    lat_max = lat + delta_lat
+    lon_min = lon - delta_lon
+    lon_max = lon + delta_lon
+
+    return lat_min, lon_min, lat_max, lon_max
 
 
 class OpenStreetMapAirportClient:
@@ -16,26 +42,57 @@ class OpenStreetMapAirportClient:
         self.cache_dir: Path = cache_dir
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.arinc_client = SQLiteArInC24DatabaseClient(arinc_db_path)
+        self.terrain_client: CopernicusDEMProvider = CopernicusDEMProvider("justin.groh@study.thws.de", "Copernicus2026!")
 
     """
     This method will load a new airport with all respected client
     """
-
-    def load_new_airport(self, icao: str, lat: float, lon: float, radius_km: float = 10) -> Airport:
+    def load_new_airport(
+            self,
+            icao: str,
+            lat: float,
+            lon: float,
+            runway_approach_filter: Callable[[list[ArincRunway]], list[ArincRunway]] = lambda r: r,
+            radius_km: float = 10.0
+    ) -> Airport:
         data = self._load_or_fetch(lat, lon, radius_km, icao)
 
         runways, taxiways, terminals = self._parse(data)
-        arinc_runways = self.arinc_client.get_all_runways_with_approaches_for_airport(icao)
+        arinc_runways: list[ArincRunway] = self.arinc_client.get_all_runways_with_approaches_for_airport(icao)
+        filtered_arinc_runways: list[ArincRunway] = runway_approach_filter(arinc_runways)
+
+        if len(arinc_runways) == 0:
+            print("Get Runways from AirAC.net")
+            client: AiracNetClient = AiracNetClient()
+            runways: list[ArincRunway] = client.get_airport_full(icao)
+            filtered_arinc_runways = runway_approach_filter(runways)
+
+        lat_min, lon_min, lat_max, lon_max = get_bbox_simple(
+            lat, lon, radius_km
+        )
+
+        grid: np.ndarray = self.terrain_client.get_terrain(
+            lat_min=lat_min,
+            lon_min=lon_min,
+            lat_max=lat_max,
+            lon_max=lon_max,
+        )
 
         return Airport(
             icao=icao,
             lat=lat,
             lon=lon,
             open_street_map_runway=runways,
-            arinc_424_runway=arinc_runways,
+            arinc_424_runway=filtered_arinc_runways,
             taxiways=taxiways,
             terminals=terminals,
-            terrain=Terrain(),
+            terrain=Terrain(
+                elevation_grid=grid,
+                lat_min=lat_min,
+                lon_min=lon_min,
+                lat_max=lat_max,
+                lon_max=lon_max,
+            ),
         )
 
     def _load_or_fetch(

@@ -117,12 +117,13 @@ class AiracNetClient:
             fixes=fixes,
         )
 
-    def get_runways(self, icao: str, approaches: list[Approach]) -> list[ArincRunway]:
+    def get_runways(self, icao: str, magnetic_variation:float, airport_elevation: float, approaches: list[Approach]) -> list[ArincRunway]:
         r = requests.get(
             f"{self.nav_base}/{icao}",
             headers=self.nav_headers
         )
 
+        # here we can also get the elevation of the airport -> response.delevation
         r.raise_for_status()
         data = r.json()
         runways = data.get("runways", [])
@@ -141,13 +142,19 @@ class AiracNetClient:
 
             ends = rw.get("ends", [])
             end1, end2 = ends[0], ends[1]
-            lat1, lon1= end1["lat"], end1["lon"]
-            lat2, lon2= end2["lat"], end2["lon"]
+            lat1, lon1 = end1["lat"], end1["lon"]
+            lat2, lon2 = end2["lat"], end2["lon"]
 
             rw_approaches = [
                 app for app in approaches
                 if extract_runway_from_procedure(app.procedure_identifier) == ident
             ]
+
+            for app in rw_approaches:
+                for fix in app.fixes:
+                    if self._is_runway_related_fix(fix.fix_identifier, ident) and fix.path_terminator == "TF":
+                        fix.latitude = lat1
+                        fix.longitude = lon1
 
             new_runway = ArincRunway(
                     runway_identifier=ident,
@@ -158,9 +165,11 @@ class AiracNetClient:
                     width=width,
                     stopway=overrunLength,
                     displaced_threshold=thresholdOffset,
+                    magnetic_variation=magnetic_variation,
+                    runway_altitude=airport_elevation,
                     approaches=rw_approaches,
                 )
-            new_runway.centerline_coordinates = new_runway.centerline_coordinates = (
+            new_runway.centerline_coordinates = (
                 Coordinate(lat=lat1, lon=lon1),
                 Coordinate(lat=lat2, lon=lon2),
             )
@@ -172,8 +181,25 @@ class AiracNetClient:
 
         return arinc_runways
 
+    @staticmethod
+    def _is_runway_related_fix(fix_name: str, runway_id: str) -> bool:
+        if not fix_name:
+            return False
+
+        fix = fix_name.upper().strip()
+        rw = runway_id.upper().strip()
+
+        return (
+            fix == rw
+            or fix == f"RW{rw}"
+            or rw in fix
+        )
+
     def get_airport_full(self, icao: str) -> list[ArincRunway]:
         airport = self.get_airport(icao)
+        airport_data = airport.get("data", {})
+        magnetic_variation = airport_data[0]["magnetic_variation"]
+        airport_elevation = airport_data[0]["elevation_ft"]
         procedures = self.get_all_procedures(icao)
 
         approaches: list[Approach] = []
@@ -181,7 +207,12 @@ class AiracNetClient:
             approach = self.get_procedure_detail(icao, proc["identifier"])
             approaches.append(approach)
 
-        runways = self.get_runways(icao, approaches)
+        runways = self.get_runways(
+            icao,
+            magnetic_variation,
+            airport_elevation,
+            approaches
+        )
 
         return runways
 
@@ -189,7 +220,7 @@ class AiracNetClient:
 if __name__ == "__main__":
     client = AiracNetClient()
 
-    icao = "EDDF"
+    icao = "CYVR" # CYVR, EDDF
 
     data = client.get_airport_full(icao)
 

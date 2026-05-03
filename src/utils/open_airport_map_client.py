@@ -42,8 +42,7 @@ class OpenAirportMapClient:
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.data: Any | None = None
         self.arinc_client: SQLiteArInC24DatabaseClient = SQLiteArInC24DatabaseClient(arinc_db_path)
-        # todo load by
-        self.terrain_client: CopernicusDEMProvider = CopernicusDEMProvider("justin.groh@study.thws.de", "Copernicus2026!");
+        self.terrain_client: CopernicusDEMProvider = CopernicusDEMProvider("justin.groh@study.thws.de", "Copernicus2026!")
 
     def get_airport(self, icao: str) -> Any:
         r = requests.get(f"{self.BASE_URL}/{icao}")

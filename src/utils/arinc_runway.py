@@ -8,28 +8,6 @@ from src.rendering.renderable import JsonSerializable, Renderable, GeoToScreenFu
 from src.utils.approch import Approach, FixIdentifier
 from src.utils.open_street_map_runway import Coordinate
 
-def magnetic_variation_to_float(var_str: str) -> float:
-    """
-    Convert a magnetic variation string like 'W0130' or 'E0450' to decimal degrees.
-    W (west) -> negative, E (east) -> positive
-    Last two digits are minutes.
-    """
-    if len(var_str) != 5:
-        raise ValueError(f"Invalid variation string: {var_str}")
-
-    direction = var_str[0].upper()
-    degrees = int(var_str[1:4])  # 3 digits for degrees
-    minutes = int(var_str[4:5]) * 10  # last digit is tenths of minutes
-
-    decimal_degrees = degrees + minutes / 60.0
-
-    if direction == "W":
-        decimal_degrees *= -1
-    elif direction != "E":
-        raise ValueError(f"Unknown direction in variation string: {direction}")
-
-    return decimal_degrees
-
 geod = Geod(ellps="WGS84")
 
 class ArincRunway(Renderable, JsonSerializable):
@@ -43,6 +21,8 @@ class ArincRunway(Renderable, JsonSerializable):
         width: float,
         stopway: float,
         displaced_threshold: float,
+        magnetic_variation: float,
+        runway_altitude: float,
         approaches: list[Approach] = None,
         *args,
         **kwargs
@@ -56,18 +36,39 @@ class ArincRunway(Renderable, JsonSerializable):
         self.width: float = width
         self.stopway: float = stopway
         self.displaced_threshold: float = displaced_threshold
+        self.magnetic_variation: float = magnetic_variation
+        self.runway_altitude = runway_altitude
         self.approaches: list[Approach] = approaches if approaches is not None else []
 
         self.centerline_coordinates: tuple[Coordinate, Coordinate] = self._compute_centerline()
         self.polygon_coordinates: list[Coordinate] = self._compute_polygon()
 
     def _compute_centerline(self) -> tuple[Coordinate, Coordinate]:
-        bearing = self.bearing / 10.0 + magnetic_variation_to_float("W0130")
+        bearing = self.bearing / 10.0 + self.magnetic_variation # this is for the faa database
+        bearing = self.bearing # this is for api.flightplandatabase.com
 
+        # for faa database, this is the start of the runway -> [displaced_threshold - length - stopway]
+        #                                                                           ^ start for lat and lon
+        # for api.flightplandatabase.com, this is the start of the runway -> [displaced_threshold - length - stopway]
+        #                                                                     ^ start for lat and lon
         start_lat = self.latitude
         start_lon = self.longitude
 
-        end_lon, end_lat, _ = geod.fwd(
+        end_lon, end_lat, _ = geod.fwd( # this is for the faa database
+            start_lon,
+            start_lat,
+            bearing,
+            self.ft_to_m(self.length - self.displaced_threshold - self.stopway)
+        )
+
+        start_lon, start_lat, _ = geod.fwd( # this is for api.flightplandatabase.com
+            start_lon,
+            start_lat,
+            bearing,
+            self.ft_to_m(self.displaced_threshold)
+        )
+
+        end_lon, end_lat, _ = geod.fwd( # this is for api.flightplandatabase.com
             start_lon,
             start_lat,
             bearing,
@@ -121,13 +122,13 @@ class ArincRunway(Renderable, JsonSerializable):
         #pygame.draw.polygon(screen, (200, 200, 200), screen_points)
 
         start, end = self.centerline_coordinates
-        #pygame.draw.line(
-        #    screen,
-        #    (255, 255, 255),
-        #    geo_to_screen(start.lat, start.lon),
-        #    geo_to_screen(end.lat, end.lon),
-        #    2
-        #)
+        pygame.draw.line(
+            screen,
+            (255, 255, 255),
+            geo_to_screen(start.lat, start.lon),
+            geo_to_screen(end.lat, end.lon),
+            2
+        )
         pygame.draw.circle(screen, (0, 0, 255), (geo_to_screen(start.lat, start.lon)), 5)
         pygame.draw.circle(screen, (255, 0, 0), (geo_to_screen(end.lat, end.lon)), 5)
 
@@ -169,6 +170,8 @@ class ArincRunway(Renderable, JsonSerializable):
             width=data["width"],
             stopway=data.get("stopway", 0.0),
             displaced_threshold=data.get("displaced_threshold", 0.0),
+            magnetic_variation=data.get("magnetic_variation", 0.0),
+            runway_altitude=data.get("runway_altitude", 0.0),
             approaches=approaches,
         )
 
@@ -183,6 +186,8 @@ class ArincRunway(Renderable, JsonSerializable):
             "width": self.width,
             "stopway": self.stopway,
             "displaced_threshold": self.displaced_threshold,
+            "magnetic_variation": self.magnetic_variation,
+            "runway_altitude": self.runway_altitude,
             "approaches": [
                 {
                     "procedure_identifier": app.procedure_identifier,

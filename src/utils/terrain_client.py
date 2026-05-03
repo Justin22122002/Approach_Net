@@ -4,9 +4,11 @@ import requests
 import numpy as np
 from rasterio.io import MemoryFile
 
+# todo: convert height in feet instead of meter
 class CopernicusDEMProvider:
     TOKEN_URL = "https://identity.dataspace.copernicus.eu/auth/realms/CDSE/protocol/openid-connect/token"
     PROCESS_URL = "https://sh.dataspace.copernicus.eu/api/v1/process"
+    METER_TO_FEET = 3.28084
 
     def __init__(self, username: str, password: str) -> None:
         self.username: str = username
@@ -39,7 +41,8 @@ class CopernicusDEMProvider:
             lat_max: float,
             lon_max: float,
             width: int = 256,
-            height: int = 256
+            height: int = 256,
+            unit: str = "ft",
     ) -> np.ndarray:
         payload: dict[str, Any] = {
             "input": {
@@ -92,6 +95,9 @@ class CopernicusDEMProvider:
             with memfile.open() as dataset:
                 data: np.ndarray = dataset.read(1)
 
+        if unit == "ft":
+            return data * self.METER_TO_FEET
+
         return data
 
     def get_height(self, lat: float, lon: float) -> float:
@@ -134,3 +140,12 @@ if __name__ == "__main__":
     terrain.plot_terrain(grid_terrain)
 
     print("Grid shape:", grid_terrain.shape)
+
+    min_h_m = float(np.nanmin(grid_terrain))
+    max_h_m = float(np.nanmax(grid_terrain))
+
+    min_h_ft = min_h_m * 3.28084
+    max_h_ft = max_h_m * 3.28084
+
+    print(f"Min height: {min_h_m:.2f} m / {min_h_ft:.2f} ft")
+    print(f"Max height: {max_h_m:.2f} m / {max_h_ft:.2f} ft")
