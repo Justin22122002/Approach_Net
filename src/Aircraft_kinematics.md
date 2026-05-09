@@ -199,8 +199,8 @@ n = \frac{\dot{v_n}}{g} = \frac{L}{m \cdot g}
 $
 
 ### which factors can be influenced by the pilot of the aircraft ?
-1. thrust
-2. flight path angle $ \rightarrow \gamma, \theta$
+1. thrust $T$
+2. flight path angle $ \rightarrow \gamma$
 3. roll of the aircraft $\phi$ e.g. $\chi = \frac{g \cdot \tan(\phi)}{v} \rightarrow \frac{g \cdot \tan(\phi)}{v} \cdot \triangle t$ where t denotes the time in seconds
 
 Aerodynamic model:
@@ -297,3 +297,51 @@ $
 \dot{\chi_{k + 1}} = \chi_k + \dot{\chi}  \cdot \Delta t
 $
 ---
+
+## 6. Inverse Problem, start and end are given:
+
+find:
+1. thrust $T$
+2. flight path angle $ \rightarrow \gamma$
+3. roll of the aircraft $\phi$
+
+where:
+$
+T = const
+\qquad
+\gamma = const
+\qquad
+\phi = const
+$
+
+Known quantities:
+initial state
+$
+\mathbf{s}_0 =
+\begin{bmatrix}
+x_0 \
+y_0 \
+h_0 \
+v_0 \
+\gamma_0 \
+\chi_0
+\end{bmatrix}
+$
+
+goal state
+$
+\mathbf{s}_{goal} =
+\begin{bmatrix}
+x_g \
+y_g \
+h_g \
+v_g \
+\gamma_g \
+\chi_g
+\end{bmatrix}
+$
+
+fixed flight time
+$
+T_f
+$

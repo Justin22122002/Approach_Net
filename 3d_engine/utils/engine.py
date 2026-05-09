@@ -49,7 +49,7 @@ class Engine:
             self,
             width: int = 800,
             height: int = 600,
-            title: str = "3d engien",
+            title: str = "3d engine",
             fps: int = 60,
             clear_color: Optional[Color] = None,
     ) -> None:
