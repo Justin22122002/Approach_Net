@@ -1,5 +1,8 @@
 from typing import Optional
 
+import numpy as np
+from numpy.typing import NDArray
+
 from utils.color import Color
 from utils.gameObject import GameObject
 from utils.directionalLight import DirectionalLight
@@ -7,16 +10,16 @@ from utils.vec3 import Vec3
 from utils.boxCollider import BoxCollider
 
 class Scene:
-    def __init__(self):
+    def __init__(self) -> None:
         self._objects: list[GameObject] = []
-        self.ambient_light    = Color(0.2, 0.2, 0.25, 1.0)
+        self.ambient_light: Color       = Color(0.2, 0.2, 0.25, 1.0)
         self.directional_light: Optional[DirectionalLight] = DirectionalLight(
             direction=Vec3(-1,-2,-1),
             color=Color(1.0, 0.95, 0.85),
             intensity=1.0
         )
 
-    def spawn(self, name="GameObject") -> GameObject:
+    def spawn(self, name: str = "GameObject") -> GameObject:
         go = GameObject(name)
         self._objects.append(go)
         return go
@@ -44,14 +47,18 @@ class Scene:
     def check_collision(self, a: BoxCollider) -> list[BoxCollider]:
         return [b for b in self.get_colliders() if b is not a and a.overlaps(b)]
 
-    def _start_all(self):
+    def _start_all(self) -> None:
         for o in self._objects:
             o._start()
 
-    def _update_all(self, dt):
+    def _update_all(self, dt: float) -> None:
         for o in list(self._objects):
             o._update(dt)
 
-    def _draw_all(self, view_mat, proj_mat):
+    def _draw_all(
+        self,
+        view_mat: NDArray[np.float32],
+        proj_mat: NDArray[np.float32]
+    ) -> None:
         for o in self._objects:
             o._draw(view_mat, proj_mat, self)

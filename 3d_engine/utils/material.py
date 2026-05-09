@@ -1,6 +1,9 @@
+from pathlib import Path
 from typing import Optional
 
 import numpy as np
+from numpy.typing import NDArray
+
 from utils.texture import Texture
 from utils.color import Color
 
@@ -21,64 +24,22 @@ from OpenGL.GL import (
 from OpenGL.GL.shaders import compileShader, compileProgram
 
 
-_VERT_SRC = """
-#version 330 core
-layout(location=0) in vec3 aPos;
-layout(location=1) in vec3 aNormal;
-layout(location=2) in vec2 aUV;
+def load_shader_source(path: Path) -> str:
+    return path.read_text(encoding="utf-8")
 
-uniform mat4 uModel;
-uniform mat4 uView;
-uniform mat4 uProjection;
-uniform mat3 uNormalMat;
-
-out vec3 vWorldPos;
-out vec3 vNormal;
-out vec2 vUV;
-
-void main() {
-    vec4 worldPos = uModel * vec4(aPos, 1.0);
-    vWorldPos = worldPos.xyz;
-    vNormal   = normalize(uNormalMat * aNormal);
-    vUV       = aUV;
-    gl_Position = uProjection * uView * worldPos;
-}
-"""
-
-_FRAG_SRC = """
-#version 330 core
-in vec3 vWorldPos;
-in vec3 vNormal;
-in vec2 vUV;
-
-uniform sampler2D uTexture;
-uniform vec3  uAmbient;
-uniform vec3  uLightDir;
-uniform vec3  uLightColor;
-uniform float uLightIntensity;
-uniform vec4  uColor;
-
-out vec4 FragColor;
-
-void main() {
-    vec4 texColor = texture(uTexture, vUV) * uColor;
-
-    // Diffuse (Lambert)
-    vec3  ld      = normalize(-uLightDir);
-    float diff    = max(dot(vNormal, ld), 0.0);
-    vec3  diffuse = diff * uLightColor * uLightIntensity;
-
-    vec3 result = (uAmbient + diffuse) * texColor.rgb;
-    FragColor   = vec4(result, texColor.a);
-}
-"""
+_VERT_SRC = load_shader_source(Path("utils/shaders/default.vert"))
+_FRAG_SRC = load_shader_source(Path("utils/shaders/default.frag"))
 
 class Material:
     _shared_program: Optional[int] = None
 
-    def __init__(self, texture: Optional[Texture] = None, color: Optional[Color] = None):
-        self.texture = texture or Texture.solid_color(1,1,1)
-        self.color   = color   or Color.white()
+    def __init__(
+            self,
+            texture: Optional[Texture] = None,
+            color: Optional[Color] = None
+    ) -> None:
+        self.texture: Texture = texture or Texture.solid_color(1,1,1)
+        self.color: Color     = color   or Color.white()
 
     @classmethod
     def _get_program(cls) -> int:
@@ -88,7 +49,13 @@ class Material:
             cls._shared_program = compileProgram(vert, frag)
         return cls._shared_program
 
-    def bind(self, model_mat, view_mat, proj_mat, scene):
+    def bind(
+        self,
+        model_mat: NDArray[np.float32],
+        view_mat: NDArray[np.float32],
+        proj_mat: NDArray[np.float32],
+        scene: "Scene"
+    ) -> None:
         prog = self._get_program()
         glUseProgram(prog)
 

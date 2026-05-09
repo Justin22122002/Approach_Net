@@ -39,7 +39,7 @@ class Mesh:
         self._vbo = None
         self._ebo = None
 
-    # ── GPU upload ─────────────────────────────────────────────────────────
+    # GPU upload
     def _upload(self):
         if self._vao is not None:
             return
@@ -81,7 +81,7 @@ class Mesh:
             glDeleteBuffers(1, [self._ebo])
             self._vao = None
 
-    # ── Built-in shapes ────────────────────────────────────────────────────
+    # Built-in shapes
     @staticmethod
     def cube():
         """Unit cube centred at origin."""

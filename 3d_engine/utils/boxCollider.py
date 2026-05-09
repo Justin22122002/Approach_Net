@@ -9,13 +9,13 @@ class BoxCollider(Component):
     half_extents: Vec3 = field(default_factory=lambda: Vec3(0.5, 0.5, 0.5))
 
     def world_min(self) -> Vec3:
-        p = self.owner.transform.position
-        h = self.half_extents
-        return Vec3(p.x-h.x, p.y-h.y, p.z-h.z)
+        p: Vec3 = self.owner.transform.position
+        h: Vec3 = self.half_extents
+        return Vec3(p.x - h.x, p.y - h.y, p.z - h.z)
 
     def world_max(self) -> Vec3:
-        p = self.owner.transform.position
-        h = self.half_extents
+        p: Vec3 = self.owner.transform.position
+        h: Vec3 = self.half_extents
         return Vec3(p.x+h.x, p.y+h.y, p.z+h.z)
 
     def overlaps(self, other: "BoxCollider") -> bool:

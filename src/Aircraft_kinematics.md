@@ -21,14 +21,14 @@ $$
 > **Assumption (coordinated flight):** The aircraft is modelled as a point mass. No sideslip angle — the nose always points in the direction of motion. Therefore no separate heading angle is needed. The track $\chi$ is fully determined by the start–end geometry.
 
 ### 1.2 Aircraft Maximum Constraints
-| Symbol         | Description                                    | Unit                                                        |
-|----------------|------------------------------------------------|-------------------------------------------------------------|
-| $vmin$         | min speed                                      | $[\text{m/s}]$                                              |
-| $vmax$         | max speed                                      | $[\text{m/s}]$                                              |
-| $rocmax$       | max rate of climb                              | $[\text{m/s}]$                                              |
-| $rodmax$       | max rate of decent                             | $[\text{m/s}]$ or $[\text{kts}]$ $\Rightarrow$ scalar value |
-| $gammadotmaxg$ | max change of the flight path angle per second | $[°/s]$                                                     |
-| $chidotmax$    | max change of course angle per second          | $[°/s]$                                                     |
+| Symbol            | Description                                    | Unit                                                        |
+|-------------------|------------------------------------------------|-------------------------------------------------------------|
+| $v_{min}$         | min speed                                      | $[\text{m/s}]$                                              |
+| $v_{max}$         | max speed                                      | $[\text{m/s}]$                                              |
+| $roc_{max}$       | max rate of climb                              | $[\text{m/s}]$                                              |
+| $rod_{max}$       | max rate of decent                             | $[\text{m/s}]$ or $[\text{kts}]$ $\Rightarrow$ scalar value |
+| $gammadot_{maxg}$ | max change of the flight path angle per second | $[°/s]$                                                     |
+| $chidot_{max}$    | max change of course angle per second          | $[°/s]$                                                     |
 
 
 ---
@@ -99,84 +99,201 @@ The speed $v$ and angles $\gamma$, $\chi$ are treated as **control inputs** (act
 
 ---
 
-## 4. Discrete-Time Propagation
+## 4. Basic Definitions of the aerodynamic kinetic model
 
-The model operates in discrete timesteps of duration $\Delta t$. A trajectory from start to goal consists of exactly $N$ steps, giving a total time horizon of:
+<img src="airplane_flight_dynamics.svg" alt="Aircraft Dynamics" width="600"/>
 
-$$
-T = N \cdot \Delta t
-$$
+As describes above the state vector for each aircraft:
+$
+\begin{bmatrix}
+x \\
+y \\
+z \\
+v \\
+\gamma \\
+\chi
+\end{bmatrix}
+$
 
-The action $(v, \gamma, \chi)$ is held **constant across all $N$ steps** (zero-order hold). Applying the Euler integration once per step:
+$
+\vec{v} = v \cdot
+\begin{bmatrix}
+\cos(\gamma)\cos(\chi) \\
+\cos(\gamma)\sin(\chi) \\
+\sin(\gamma)
+\end{bmatrix}
+$
 
-$$
-x(t + \Delta t) = x(t) + v \cdot \cos(\gamma) \cdot \sin(\chi) \cdot \Delta t
-$$
+Base definition of the aircraft:
+- Trust: \(T\)  
+- Drag: \(D\)  
+- Lift: \(L\)  
+- Gravitation: \(mg\)
 
-$$
-y(t + \Delta t) = y(t) + v \cdot \cos(\gamma) \cdot \cos(\chi) \cdot \Delta t
-$$
+Basic definitions:
+$
+\vec{g} = \begin{bmatrix}
+0 \\
+0 \\
+1
+\end{bmatrix} \cdot g = \begin{bmatrix}
+0 \\
+0 \\
+g
+\end{bmatrix}
+$
 
-$$
-h(t + \Delta t) = h(t) + v \cdot \sin(\gamma) \cdot \Delta t
-$$
+Force equation:
 
-Because the action is constant, each step contributes an identical displacement. After exactly $N$ steps the aircraft has travelled:
+$
+F = m \cdot a
+$
 
-$$
-\Delta x_{\text{total}} = v \cdot \cos(\gamma) \cdot \sin(\chi) \cdot T, \quad
-\Delta y_{\text{total}} = v \cdot \cos(\gamma) \cdot \cos(\chi) \cdot T, \quad
-\Delta h_{\text{total}} = v \cdot \sin(\gamma) \cdot T
-$$
+$
+F = m \cdot \vec{v}
+$
 
-> Higher-order integrators (Runge–Kutta) are possible extensions but are not necessary for this discrete-timestep formulation.
+$
+m \cdot \vec{v} = (T - D) \cdot \frac{\vec{v}}{\|\vec{v}\|} + L \cdot \vec{n} + m \cdot \vec{g} \quad note: F := \frac{\vec{v}}{\|\vec{v}\|}
+$
 
+this can also be written as:
+$
+\dot{v} = \frac{T - D}{m} \cdot \frac{\vec{v}}{\|\vec{v}\|} + \frac{L}{m} \cdot \vec{n} + \vec{g}
+ = g \cdot (n_x \cdot t + n \cdot \vec{n} + \begin{bmatrix} 0 \\ 0 \\ 1 \end{bmatrix}), \quad \vec{v} = v \cdot F
+$
+
+
+$\vec{n}$ is defined as follows:
+$
+\vec{n} = \frac{\vec{L}}{\|\vec{L}\|}
+$
+
+but we can also get $\vec{n}$ as follow
+
+$
+\vec{t} = \frac{\vec{v}}{\|\vec{v}\|}, \quad
+\vec{u} = 
+\begin{bmatrix}
+0 \\
+0 \\
+1
+\end{bmatrix}, \quad
+\vec{b} = \frac{\vec{t} \times \vec{u}}{\|\vec{t} \times \vec{u}\|}, \quad
+\vec{n} = \vec{b} \times \vec{L}, \quad
+and \quad so: \quad \vec{L} \perp \vec{v}
+$
+
+but we also need to consider the $\phi$ roll of the airplane:
+
+so 
+$
+\vec{L} \perp \vec{\phi} \rightarrow
+\vec{n}_{rot} = \vec{n} \cdot \cos{\phi} + (\vec{t} \times \vec{n}) \cdot \sin{\phi} + \vec{t} \cdot (\vec{t} \cdot \vec{n}) \cdot (1 - \cos{\phi})
+$ 
+
+load factor n is defined as follows:
+$
+n = \frac{L}{m \cdot g} \rightarrow \dot{v} = \frac{\sum \cdot F}{m} \rightarrow \dot{v_n} = \frac{L}{m} \rightarrow 
+n = \frac{\dot{v_n}}{g} = \frac{L}{m \cdot g}
+$
+
+### which factors can be influenced by the pilot of the aircraft ?
+1. thrust
+2. flight path angle $ \rightarrow \gamma, \theta$
+3. roll of the aircraft $\phi$ e.g. $\chi = \frac{g \cdot \tan(\phi)}{v} \rightarrow \frac{g \cdot \tan(\phi)}{v} \cdot \triangle t$ where t denotes the time in seconds
+
+Aerodynamic model:
+
+$
+D = \frac{1}{2} \rho v^2 C_D A
+$
+
+$
+L = \frac{1}{2} \rho v^2 C_L A
+$
+
+where:
+
+- $\rho$ air density $[kg/m^3]$
+- $v$ aircraft speed $[m/s]$
+- $C_D$ drag coefficient
+- $C_L$ lift coefficient
+- $A$ reference / wing area $[m^2]$
+
+## 5. ready point mass flight model as a discrete model:
+
+$
+\dot{v} = \frac{T - D}{m} \cdot \frac{\vec{v}}{\|\vec{v}\|} + \frac{L}{m} \cdot \vec{n} + \vec{g}
+$
+
+for now we define the update of the state in discrete steps not in continuous, so the position update.
+
+for that we define the change of time of the position as the velocity:
+$
+\mathbf{p} =
+\begin{bmatrix}
+x \\
+y \\
+h
+\end{bmatrix},
+\qquad
+\mathbf{v} =
+\begin{bmatrix}
+v_x \\
+v_y \\
+v_z
+\end{bmatrix}
+\rightarrow
+\dot{\mathbf{p}} = \mathbf{v}, \qquad
+\dot{x} = v_x, \qquad
+\dot{y} = v_y, \qquad
+\dot{h} = v_z
+$
+
+next we formulate the state update as an euler step:
+
+$
+\vec{x}_{k+1} = \vec{x}_{k} + \dot{v} \cdot \Delta t
+$
+
+so for every component in the current state p we multiply the change of $\vec{x}_{k+1}$
+
+$
+\vec{p}_{k+1} = \vec{p}_{k} + \vec{x}_{k+1} \cdot \Delta t
+$
+
+Flight path angle update
+
+$
+\Delta \gamma = \gamma_{command-input} - \gamma_{current-state} \rightarrow \gamma_{command-input} - \gamma
+$
+
+$
+\gamma_{k + 1} = \gamma_{k} - \Delta \gamma
+$
+
+State reconstruction from velocity
+
+$
+v = \|\vec{v}\|
+$
+
+$
+\gamma = arcsin(\frac{v_z}{v})
+$
+
+$
+\chi = atan2(v_x, v_y)
+$
+
+Heading dynamics
+
+$
+\dot{\chi} = \frac{g \cdot tan(\phi)}{v}
+$ see definition of $\phi$ above
+
+$
+\dot{\chi_{k + 1}} = \chi_k + \dot{\chi}  \cdot \Delta t
+$
 ---
-
-## 6. Inverse Problem — Required Parameters from Start and Goal
-
-Given a start state $\mathbf{s}_0$ and a goal position $(x_1, y_1, h_1)$ to be reached in **exactly $N$ steps**, the required constant action is derived once from the full start–goal geometry. The total time available is:
-
-$$
-T = N \cdot \Delta t
-$$
-
-### 6.1 Displacements
-
-$$
-\Delta x = x_1 - x_0, \qquad \Delta y = y_1 - y_0, \qquad \Delta h = h_1 - h_0
-$$
-
-### 6.2 Distances
-
-$$
-d_{\text{horiz}} = \sqrt{\Delta x^2 + \Delta y^2} \qquad \text{(horizontal distance)}
-$$
-
-$$
-d_{3D} = \sqrt{\Delta x^2 + \Delta y^2 + \Delta h^2} \qquad \text{(3D Euclidean distance)}
-$$
-
-### 6.3 Required Speed
-
-The aircraft must cover $d_{3D}$ in total time $T$. With a constant speed this gives:
-
-$$
-v_{\text{req}} = \frac{d_{3D}}{T} = \frac{d_{3D}}{N \cdot \Delta t}
-$$
-
-### 6.4 Required Flight Path Angle
-
-$$
-\gamma = \arctan\!\left(\frac{\Delta h}{d_{\text{horiz}}}\right)
-$$
-
-### 6.5 Required Track Angle
-
-$$
-\chi = \arctan2(\Delta x,\; \Delta y)
-$$
-
-> `arctan2` returns values in $(-180°, 180°]$. Add $360°$ if the result is negative to get the conventional $[0°, 360°)$ range.
-
-The angles $\gamma$ and $\chi$ are **fully determined by the geometry** of start and goal and do not depend on $N$ or $\Delta t$. Only $v_{\text{req}}$ changes if the time horizon is adjusted.

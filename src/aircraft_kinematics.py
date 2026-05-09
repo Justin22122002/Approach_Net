@@ -15,18 +15,21 @@ class AircraftKinematicsMaxConstrains:
             gamma_dot_max: float,
             chi_dot_max: float,
     ) -> None:
-        self.v_min: float = v_min # -> m/s
-        self.v_max: float = v_max # -> m/s
-        self.roc_max: float = roc_max # rate of climb max   -> m/s
-        self.rod_max: float = rod_max # rate of decent max  -> m/s
-        self.gamma_dot_max: float = gamma_dot_max # -> °/s
-        self.chi_dot_max: float = chi_dot_max # -> °/s
+        self.v_min: float = v_min                   # v_min        minimum speed (stall)            [m/s]
+        self.v_max: float = v_max                   # v_max        maximum speed                    [m/s]
+        self.roc_max: float = roc_max               # ROC_max      max rate of climb   ḣ ≤  ROC_max [m/s]
+        self.rod_max: float = rod_max               # ROD_max      max rate of descent ḣ ≥ -ROD_max [m/s]
+        self.gamma_dot_max: float = gamma_dot_max   # γ_max        max |Δγ/Δt|                      [°/s]
+        self.chi_dot_max: float = chi_dot_max       # χ_max        max |Δχ/Δt|                      [°/s]
 
 class AircraftGoal:
     def __init__(self, x: float, y: float, h: float) -> None:
-        self.x: float = x
-        self.y: float = y
-        self.h: float = h
+        self.x: float = x  # East  [m]
+        self.y: float = y  # North [m]
+        self.h: float = h  # Altitude [m]
+
+    def to_array(self) -> NDArray[np.float64]:
+        return np.array([self.x, self.y, self.h])
 
 class AircraftKinematicsState:
     def __init__(
@@ -36,174 +39,311 @@ class AircraftKinematicsState:
             h: float,
             v: float,
             gamma: float,
-            chi: float
+            chi: float,
+            mass: float,
+            C_D: float,
+            C_L: float,
+            area: float,
+            rho: float = 1.225
     ) -> None:
         self.x: float = x         # m or lon
         self.y: float = y         # m or lat
         self.h: float = h         # m or feet
         self.v: float = v         # m/s
-        self.gamma: float = gamma # flight path angle (Flugbahnwinkel)
-        self.chi: float = chi     # Track angle / Course angle (Kursbahnwinkel) from North, clockwise
+        self.gamma: float = gamma # γ / θ, flight path angle (Flugbahnwinkel)
+        self.chi: float = chi     # φ / χ, Track angle / Course angle (Kursbahnwinkel) from North, clockwise
+
+        self.mass: float = mass      # [kg]
+        self.C_D: float = C_D        # drag coefficient
+        self.C_L: float = C_L        # lift coefficient
+        self.area: float = area      # wing reference area [m²]
+        self.rho: float = rho        # air density [kg/m³]
+
+    def velocity_vector(self) -> NDArray[np.float64]:
+        """
+        3-D velocity vector in (East, North, Up):
+
+            ⎡ v·cos(γ)·sin(χ) ⎤   ⎡ ẋ ⎤
+        v⃗ = ⎢ v·cos(γ)·cos(χ) ⎥ = ⎢ ẏ ⎥
+            ⎣ v·sin(γ)        ⎦   ⎣ ḣ ⎦
+
+        γ = flight path angle
+        χ = track angle from True North, clockwise
+        """
+        return np.array([
+            self.v * np.cos(np.radians(self.gamma)) * np.sin(np.radians(self.chi)),
+            self.v * np.cos(np.radians(self.gamma)) * np.cos(np.radians(self.chi)),
+            self.v * np.sin(np.radians(self.gamma)),
+        ])
+
+    def drag_force(self) -> float:
+        """
+        D = 1/2 · ρ · v² · C_D · A
+        """
+        return 0.5 * self.rho * self.v ** 2 * self.C_D * self.area
+
+    def lift_force(self) -> float:
+        """
+        L = 1/2 · ρ · v² · C_L · A
+        """
+        base_lift = 0.5 * self.rho * self.v ** 2 * self.C_L * self.area
+        return base_lift
+
+    def to_array(self) -> NDArray[np.float64]:
+        return np.array([
+            self.x,
+            self.y,
+            self.h,
+            self.v,
+            self.gamma,
+            self.chi,
+            self.mass,
+            self.C_D,
+            self.C_L,
+            self.area
+        ])
+
+    @classmethod
+    def from_array(cls, arr: NDArray[np.float64]) -> "AircraftKinematicsState":
+        return cls(
+            x=arr[0],
+            y=arr[1],
+            h=arr[2],
+            v=arr[3],
+            gamma=arr[4],
+            chi=arr[5],
+            mass=arr[6],
+            C_D=arr[7],
+            C_L=arr[8],
+            area=arr[9],
+        )
+
 
 class AircraftEnvironment:
     """
-    Point-mass aircraft kinematics environment.
+    Point-mass aircraft kinematics (no sideslip / coordinated flight).
 
-    Assumptions:
-        - The aircraft is modeled as a point mass (kinematic model)
-        - No independent heading state is included
-        - The state consists of position (x, y, h) and speed magnitude v
-        - The direction of motion is fully defined by the velocity vector
-        - gamma defines the vertical inclination of the velocity vector
-        - chi defines the horizontal direction (track angle) of the velocity vector
-        - Coordinated flight is assumed: velocity direction fully determines motion direction
-        - Zero-order hold: control inputs are constant within each timestep
+    Force balance (Newton, vector form):
+        F = m · a = m · v⃗ =  (T − D) · t̂  +  L · n̂  +  m · g⃗
+
+        v̇ = ((T - D) / m) · (v⃗ / ‖v⃗‖) + (L / m) · n⃗ + g⃗
+
+        T   — thrust                     [N]
+        D   — drag                       [N]
+        L   — lift                       [N]
+        m   — aircraft mass              [kg]
+        g⃗  = [0, 0, −g]ᵀ   gravity     [m/s²]  (downward)
+
+    Aerodynamic model:
+        D = 1/2 · ρ · v² · C_D · A
+
+        L = 1/2 · ρ · v² · C_L · A
+
+        ρ    — air density               [kg/m³]
+        v    — aircraft speed            [m/s]
+        C_D  — drag coefficient          [-]
+        C_L  — lift coefficient          [-]
+        A    — reference / wing area     [m²]
+
+    Unit vectors n̂
+        t⃗ or F =  v⃗ / ‖v⃗‖                        unit tangent
+        u⃗      =  [0, 0, 1]ᵀ                     vertical unit vector
+        b⃗      =  (t⃗  × u⃗ ) / ‖t⃗  × u⃗ ‖          unit binormal  (wing direction)
+        n⃗      =  b⃗  × t⃗                         unit normal    (lift direction)
+
+    Load factor:
+        n  = L / (m · g)
     """
 
     def __init__(
             self,
-            state: AircraftKinematicsState,
-            goal: AircraftGoal,
-            dt: float
+            state:       AircraftKinematicsState,
+            goal:        AircraftGoal,
+            constraints: AircraftKinematicsMaxConstrains,
+            dt:          float,
     ) -> None:
-        self.state = state
-        self.goal = goal
-        self.dt = dt
+        self.state:       AircraftKinematicsState          = state
+        self.goal:        AircraftGoal                     = goal
+        self.constraints: AircraftKinematicsMaxConstrains  = constraints
+        self.dt:          float                            = dt
+        self.gravity:     NDArray[np.float64]              = np.array([0.0, 0.0, -9.81])
 
-    def step(self) -> None:
+    def unit_vectors(
+            self,
+    ) -> tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]:
         """
-        Propagate one timestep Δt
+        t⃗   =  v⃗ / ‖v⃗‖                        unit tangent
+        u⃗   =  [0, 0, 1]ᵀ                     vertical unit vector
+        b⃗   =  (t⃗  × u⃗ ) / ‖t⃗  × u⃗ ‖          unit binormal  (wing direction)
+        n⃗   =  b⃗  × t⃗                         unit normal    (lift direction)
 
-        Continuous model:
-            dx/dt = v * cos(gamma) * sin(chi)
-            dy/dt = v * cos(gamma) * cos(chi)
-            dh/dt = v * sin(gamma)
+        Note:  L⃗ ⊥ v⃗  →   lift is always perpendicular to velocity, but not L⃗ ⊥ φ (roll)
 
-        Discretization:
-            x(t+Δt) = x(t) + v*cos(gamma)*sin(chi)*Δt
-            y(t+Δt) = y(t) + v*cos(gamma)*cos(chi)*Δt
-            h(t+Δt) = h(t) + v*sin(gamma)*Δt
+        Returns  (t⃗ , b⃗ , n⃗ )
         """
+        # t⃗   =  v⃗ / ‖v⃗‖
+        v_vec: NDArray[np.float64] = self.state.velocity_vector()
+        t_hat = v_vec / np.linalg.norm(v_vec)
 
-        v: float = self.state.v
-        gamma: NDArray[np.float64] = np.radians(self.state.gamma)
-        chi: NDArray[np.float64] = np.radians(self.state.chi)
+        # u⃗   =  [0, 0, 1]ᵀ
+        u_hat = np.array([0.0, 0.0, 1.0])
 
-        self.state.x += v * np.cos(gamma) * np.sin(chi) * self.dt
-        self.state.y += v * np.cos(gamma) * np.cos(chi) * self.dt
-        self.state.h += v * np.sin(gamma) * self.dt
+        # b⃗   =  (t⃗  × u⃗ ) / ‖t⃗  × u⃗ ‖
+        b_hat = np.cross(t_hat, u_hat)
+        b_hat = b_hat / np.linalg.norm(b_hat)
 
-    def compute_required_action(self, N: int | None = None, mode: str = "multi_step") -> tuple[float, float, float]:
+        # n⃗   =  b⃗  × t⃗
+        n_hat = np.cross(b_hat, t_hat)
+
+        return t_hat, b_hat, n_hat
+
+    def unit_vectors_with_roll(
+            self,
+            roll: float
+    ) -> tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]:
         """
-        Computes required control action
+        t⃗   =  v⃗ / ‖v⃗‖                        unit tangent
+        u⃗   =  [0, 0, 1]ᵀ                     vertical unit vector
+        b⃗   =  (t⃗  × u⃗ ) / ‖t⃗  × u⃗ ‖          unit binormal  (wing direction)
+        n⃗   =  b⃗  × t⃗                         unit normal    (lift direction)
 
-        Modes:
-            - "multi_step": reach goal in N * dt (default)
-            - "single_step": reach goal in ONE dt
+        Note:  L⃗ ⊥ v⃗  →   lift is always perpendicular to velocity, L⃗ ⊥ φ (roll)
 
-        Returns:
-            v_req, gamma_deg, chi_deg
+        Roll φ:
+            rotation of lift vector n⃗ around t⃗
+
+        n⃗_rot = n⃗ cos(φ) + (t⃗ × n⃗) sinφ + t⃗ (t⃗ · n⃗)(1 - cos(φ))
+
+        Returns  (t⃗ , b⃗ , n⃗ )
         """
+        # t⃗   =  v⃗ / ‖v⃗‖
+        v_vec: NDArray[np.float64] = self.state.velocity_vector()
+        t_hat = v_vec / np.linalg.norm(v_vec)
 
-        dx: float = self.goal.x - self.state.x
-        dy: float = self.goal.y - self.state.y
-        dh: float = self.goal.h - self.state.h
+        # u⃗   =  [0, 0, 1]ᵀ
+        u_hat = np.array([0.0, 0.0, 1.0])
 
-        d_horiz: NDArray[np.float64] = np.sqrt(dx ** 2 + dy ** 2)
-        d_3d: NDArray[np.float64] = np.sqrt(dx ** 2 + dy ** 2 + dh ** 2)
+        # b⃗   =  (t⃗  × u⃗ ) / ‖t⃗  × u⃗ ‖
+        b_hat = np.cross(t_hat, u_hat)
+        b_hat = b_hat / np.linalg.norm(b_hat)
 
-        if mode == "multi_step":
-            if N is None:
-                raise ValueError("N must be provided for multi_step mode")
-            T = N * self.dt
+        # n⃗   =  b⃗  × t⃗
+        n_hat = np.cross(b_hat, t_hat)
 
-        elif mode == "single_step":
-            T = self.dt
+        # φ = roll angle
+        phi = np.radians(roll)
 
-        else:
-            raise ValueError("mode must be 'multi_step' or 'single_step'")
+        # n⃗_rot = n⃗ cos(φ) + (t⃗ × n⃗) sinφ + t⃗ (t⃗ · n⃗)(1 - cos(φ))
+        n_hat_rot = (
+                n_hat * np.cos(phi)
+                + np.cross(t_hat, n_hat) * np.sin(phi)
+                + t_hat * np.dot(t_hat, n_hat) * (1 - np.cos(phi))
+        )
 
-        v_req = d_3d / T
-        gamma: NDArray = np.arctan2(dh, d_horiz)
-        chi: NDArray = np.arctan2(dx, dy)
+        return t_hat, b_hat, n_hat_rot
 
-        return v_req, np.degrees(gamma), np.degrees(chi)
-
-
-class AircraftTrajectoryVisualizer:
-    """
-    Visualizes aircraft trajectory in:
-        - 3D space (x, y, h)
-        - 2D ground track (x, y)
-        - altitude over time
-    """
-
-    def __init__(self) -> None:
-        pass
-
-    def plot(self, trajectory: list[tuple[float, float, float]], goal, dt: float) -> None:
+    def apply_action(
+            self,
+            thrust: float,
+            flight_path_angle: float,
+            roll: float,
+    ) -> NDArray[np.float64]:
         """
-        trajectory: [(x, y, h), ...]
-        goal: AircraftGoal
-        dt: timestep
+        Velocity dynamics:
+            v̇ = ((T - D) / m) · (v⃗ / ‖v⃗‖) + (L / m) · n⃗ + g⃗
+
+        Position update:
+            ẋ = v_x
+            ẏ = v_y
+            ḣ = v_z
+
+        State update (Euler step):
+            v⃗_{k+1} = v⃗_k + v̇ · dt
+            p_{k+1} = p_k + v⃗_{k+1} · dt
+
+        Flight path angle update:
+            Δγ = γ_cmd - γ
+            γ_{k+1} = γ_k + Δγ
+
+        State reconstruction from velocity:
+            v = ||v⃗||
+            γ = arcsin(v_z / v)
+            𝒳 = arctan2(v_x, v_y)
+
+        Heading dynamics:
+            𝒳̇ = (g · tan(φ)) / v
+            𝒳̇ _{k+1} = 𝒳_k + 𝒳̇ · dt
+
+        Forces:
+            D = 1/2 · ρ · v² · C_D · A
+            L = 1/2 · ρ · v² · C_L · A
+
+        Unit vectors:
+            t⃗ = v⃗ / ||v⃗||
+            n⃗ = lift-normal direction (perpendicular to velocity in vertical plane)
         """
+        # Δγ = γ_cmd - γ
+        gamma_delta = flight_path_angle - self.state.gamma
+        # γ_{k+1} = γ_k + Δγ
+        self.state.gamma += gamma_delta
 
-        trajectory = np.array(trajectory)
+        # v⃗
+        v_vec = self.state.velocity_vector()
 
-        x = trajectory[:, 0]
-        y = trajectory[:, 1]
-        h = trajectory[:, 2]
+        # t⃗ , _, n⃗
+        t_hat, _, n_hat = self.unit_vectors()
+        t_hat, _, n_hat = self.unit_vectors_with_roll(roll)
 
-        t = np.arange(len(trajectory)) * dt
+        # D = 1/2 · ρ · v² · C_D · A
+        drag = self.state.drag_force()
+        # L = 1/2 · ρ · v² · C_L · A
+        lift = self.state.lift_force()
 
-        fig = plt.figure(figsize=(15, 5))
+        # v̇ = ((T - D) / m) · (v⃗ / ‖v⃗‖) + (L / m) · n⃗ + g⃗
+        v_dot = (
+                ((thrust - drag) / self.state.mass) * t_hat
+                + (lift / self.state.mass) * n_hat
+                + self.gravity
+        )
 
-        # -------------------------
-        # 1) 2D Top Down View
-        # -------------------------
-        ax1 = fig.add_subplot(1, 3, 1)
-        ax1.plot(x, y, label="trajectory")
-        ax1.scatter(x[0], y[0], c="green", label="start")
-        ax1.scatter(goal.x, goal.y, c="red", label="goal")
-        ax1.set_title("Top-Down View (x-y)")
-        ax1.set_xlabel("x [m]")
-        ax1.set_ylabel("y [m]")
-        ax1.legend()
-        ax1.axis("equal")
+        # v⃗_{k+1} = v⃗_k + v̇ · dt
+        v_vec = v_vec + v_dot * self.dt
 
-        # -------------------------
-        # 2) Altitude Profile
-        # -------------------------
-        ax2 = fig.add_subplot(1, 3, 2)
-        ax2.plot(t, h)
-        ax2.set_title("Altitude Profile")
-        ax2.set_xlabel("time [s]")
-        ax2.set_ylabel("h [m]")
+        # p_{k+1} = p_k + v⃗_{k+1} · dt
+        self.state.x += v_vec[0] * self.dt
+        self.state.y += v_vec[1] * self.dt
+        self.state.h += v_vec[2] * self.dt
 
-        # -------------------------
-        # 3) 3D Trajectory
-        # -------------------------
-        ax3 = fig.add_subplot(1, 3, 3, projection="3d")
-        ax3.plot(x, y, h, label="trajectory")
-        ax3.scatter(x[0], y[0], h[0], c="green", label="start")
-        ax3.scatter(goal.x, goal.y, goal.h, c="red", label="goal")
+        # v = ||v⃗||
+        self.state.v = np.linalg.norm(v_vec)
 
-        ax3.set_title("3D Trajectory")
-        ax3.set_xlabel("x [m]")
-        ax3.set_ylabel("y [m]")
-        ax3.set_zlabel("h [m]")
+        # γ = arcsin(v_z / v)
+        self.state.gamma = np.degrees(np.arcsin(v_vec[2] / self.state.v))
+        # 𝒳 = arctan2(v_x, v_y)
+        self.state.chi = np.degrees(np.arctan2(v_vec[0], v_vec[1]))
 
-        plt.tight_layout()
-        plt.show()
+        # 𝒳̇ = (g · tan(φ)) / v
+        chi_dot = (9.81 * np.tan(np.radians(roll))) / max(self.state.v, 1e-6)
+        # 𝒳̇ _{k+1} = 𝒳_k + 𝒳̇ · dt
+        self.state.chi += np.degrees(chi_dot * self.dt)
+
+        return self.state.to_array()
 
 def main():
+    dt = 0.1
+    steps = 500
+
     state: AircraftKinematicsState = AircraftKinematicsState(
         x=0.0,
         y=0.0,
         h=3000.0,
         v=120.0,
         gamma=0.0,
-        chi=45.0
+        chi=45.0,
+        mass=6000.0,
+        C_D=0.03,
+        C_L=0.8,
+        area=16.2
     )
 
     constraints: AircraftKinematicsMaxConstrains = AircraftKinematicsMaxConstrains(
@@ -221,47 +361,309 @@ def main():
         h=1000.0
     )
 
-    dt = 10.0
-    N = 40
-
-    env: AircraftEnvironment = AircraftEnvironment(state=state, goal=goal, dt=dt)
-
-    mode = "single_step" # single_step, multi_step
-
-    v_req, gamma_req, chi_req = env.compute_required_action(N, mode=mode)
-
-    print("Required Action:")
-    print(f"v_req    = {v_req:.2f} m/s")
-    print(f"gamma_req= {gamma_req:.2f} deg")
-    print(f"chi_req  = {chi_req:.2f} deg")
-
-    state.v = v_req
-    state.gamma = gamma_req
-    state.chi = chi_req
+    env: AircraftEnvironment = AircraftEnvironment(
+        state=state,
+        goal=goal,
+        constraints=constraints,
+        dt=dt
+    )
 
     trajectory = []
 
-    steps = 1 if mode == "single_step" else N
+    for _ in range(steps):
+        thrust = 20000.0
+
+        flight_path_angle = -2.0
+
+        roll = -30.0
+
+        state_vec = env.apply_action(
+            thrust=thrust,
+            flight_path_angle=flight_path_angle,
+            roll=roll
+        )
+
+        trajectory.append(state_vec.copy())
+
+    trajectory = np.array(trajectory)
+
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection='3d')
+
+    ax.plot(
+        trajectory[:, 0],
+        trajectory[:, 1],
+        trajectory[:, 2],
+        label="Trajectory"
+    )
+
+    ax.scatter(
+        trajectory[0, 0],
+        trajectory[0, 1],
+        trajectory[0, 2],
+        color="green",
+        s=80,
+        label="Start"
+    )
+
+    ax.scatter(
+        trajectory[-1, 0],
+        trajectory[-1, 1],
+        trajectory[-1, 2],
+        color="red",
+        s=80,
+        label="End"
+    )
+
+    ax.set_xlabel("East [m]")
+    ax.set_ylabel("North [m]")
+    ax.set_zlabel("Altitude [m]")
+
+    plt.title("Aircraft Trajectory Simulation")
+    plt.legend()
+
+    plt.show()
+
+def main2():
+    dt = 0.1
+    steps = 500
+
+    constraints = AircraftKinematicsMaxConstrains(
+        v_min=60,
+        v_max=250,
+        roc_max=20,
+        rod_max=20,
+        gamma_dot_max=15,
+        chi_dot_max=15
+    )
+
+    goal = AircraftGoal(
+        x=40000.0,
+        y=25000.0,
+        h=1000.0
+    )
+
+    state_left = AircraftKinematicsState(
+        x=0.0, y=0.0, h=3000.0,
+        v=120.0, gamma=0.0, chi=0.0,
+        mass=6000.0, C_D=0.03, C_L=0.8, area=16.2
+    )
+
+    env_left = AircraftEnvironment(state_left, goal, constraints, dt)
+
+    state_right = AircraftKinematicsState(
+        x=0.0, y=0.0, h=3000.0,
+        v=120.0, gamma=0.0, chi=0.0,
+        mass=6000.0, C_D=0.03, C_L=0.8, area=16.2
+    )
+
+    env_right = AircraftEnvironment(state_right, goal, constraints, dt)
+
+    traj_left = []
+    traj_right = []
+
+    thrust_1 = 20000.0
+    thrust_2 = 20000.0
+    flight_path_angle_1 = 10.0
+    flight_path_angle_2 = -10.0
+
+    roll_left = -30.0
+    roll_right = +30.0
 
     for _ in range(steps):
-        trajectory.append((state.x, state.y, state.h))
-        env.step()
+        traj_left.append(
+            env_left.apply_action(
+                thrust=thrust_1,
+                flight_path_angle=flight_path_angle_1,
+                roll=roll_left
+            ).copy()
+        )
 
-    trajectory.append((state.x, state.y, state.h))
+        traj_right.append(
+            env_right.apply_action(
+                thrust=thrust_2,
+                flight_path_angle=flight_path_angle_2,
+                roll=roll_right
+            ).copy()
+        )
 
-    dx = state.x - goal.x
-    dy = state.y - goal.y
-    dh = state.h - goal.h
+    traj_left = np.array(traj_left)
+    traj_right = np.array(traj_right)
 
-    error = np.sqrt(dx**2 + dy**2 + dh**2)
+    fig = plt.figure(figsize=(10, 7))
+    ax = fig.add_subplot(111, projection='3d')
 
-    print("\nFinal State:")
-    print(f"x = {state.x:.2f}, y = {state.y:.2f}, h = {state.h:.2f}")
-    print(f"Total error to goal = {error:.3f} m")
+    ax.plot(
+        traj_left[:, 0],
+        traj_left[:, 1],
+        traj_left[:, 2],
+        label="Left Turn",
+        color="blue"
+    )
 
-    visualizer = AircraftTrajectoryVisualizer()
-    visualizer.plot(trajectory, goal, dt)
+    ax.plot(
+        traj_right[:, 0],
+        traj_right[:, 1],
+        traj_right[:, 2],
+        label="Right Turn",
+        color="orange"
+    )
 
+    # Start points
+    ax.scatter(traj_left[0, 0], traj_left[0, 1], traj_left[0, 2], color="green", s=60)
+    ax.scatter(traj_right[0, 0], traj_right[1, 1], traj_right[0, 2], color="green", s=60)
+
+    ax.set_xlabel("East [m]")
+    ax.set_ylabel("North [m]")
+    ax.set_zlabel("Altitude [m]")
+    ax.set_title("Opposite Bank Angle Test (Left vs Right Turn)")
+    ax.legend()
+
+    plt.show()
+
+    fig2, ax2 = plt.subplots(figsize=(8, 8))
+
+    ax2.plot(
+        traj_left[:, 0],
+        traj_left[:, 1],
+        label="Left Turn"
+    )
+
+    ax2.plot(
+        traj_right[:, 0],
+        traj_right[:, 1],
+        label="Right Turn"
+    )
+
+    ax2.scatter(
+        traj_left[0, 0],
+        traj_left[0, 1],
+        s=80,
+        label="Start"
+    )
+
+    ax2.scatter(
+        traj_left[-1, 0],
+        traj_left[-1, 1],
+        s=80,
+        label="Left End"
+    )
+
+    ax2.scatter(
+        traj_right[-1, 0],
+        traj_right[-1, 1],
+        s=80,
+        label="Right End"
+    )
+
+    ax2.set_xlabel("East [m]")
+    ax2.set_ylabel("North [m]")
+
+    ax2.set_title("Top View (East-North Plane)")
+
+    ax2.axis("equal")
+    ax2.grid(True)
+    ax2.legend()
+
+    plt.show()
+
+def main3():
+    dt = 0.1
+    steps = 500
+
+    constraints = AircraftKinematicsMaxConstrains(
+        v_min=60,
+        v_max=300,
+        roc_max=20,
+        rod_max=20,
+        gamma_dot_max=15,
+        chi_dot_max=15
+    )
+
+    goal = AircraftGoal(
+        x=40000.0,
+        y=25000.0,
+        h=1000.0
+    )
+
+    # Boeing 777
+    b777 = AircraftKinematicsState(
+        x=0.0, y=0.0, h=3000.0,
+        v=230.0, gamma=0.0, chi=0.0,
+        mass=297000.0,
+        C_D=0.025,
+        C_L=0.7,
+        area=427.8
+    )
+
+    # Boeing 737
+    b737 = AircraftKinematicsState(
+        x=0.0, y=0.0, h=3000.0,
+        v=220.0, gamma=0.0, chi=0.0,
+        mass=65000.0,
+        C_D=0.028,
+        C_L=0.7,
+        area=124.6
+    )
+
+    # A380
+    a380 = AircraftKinematicsState(
+        x=0.0, y=0.0, h=3000.0,
+        v=240.0, gamma=0.0, chi=0.0,
+        mass=560000.0,
+        C_D=0.025,
+        C_L=0.65,
+        area=845.0
+    )
+
+    env_b777 = AircraftEnvironment(b777, goal, constraints, dt)
+    env_b737 = AircraftEnvironment(b737, goal, constraints, dt)
+    env_a380 = AircraftEnvironment(a380, goal, constraints, dt)
+
+    traj_777, traj_b, traj_a = [], [], []
+
+    thrust = 20000.0
+    flight_path_angle = -5.0
+    roll = 30.0
+
+    for _ in range(steps):
+        traj_777.append(env_b777.apply_action(thrust, flight_path_angle, roll).copy())
+        traj_b.append(env_b737.apply_action(thrust, flight_path_angle, roll).copy())
+        traj_a.append(env_a380.apply_action(thrust, flight_path_angle, roll).copy())
+
+    traj_777 = np.array(traj_777)
+    traj_b = np.array(traj_b)
+    traj_a = np.array(traj_a)
+
+    fig = plt.figure(figsize=(10, 7))
+    ax = fig.add_subplot(111, projection='3d')
+
+    ax.plot(traj_777[:, 0], traj_777[:, 1], traj_777[:, 2], label="B777", color="green")
+    ax.plot(traj_b[:, 0], traj_b[:, 1], traj_b[:, 2], label="B737", color="blue")
+    ax.plot(traj_a[:, 0], traj_a[:, 1], traj_a[:, 2], label="A380", color="red")
+
+    ax.set_xlabel("East [m]")
+    ax.set_ylabel("North [m]")
+    ax.set_zlabel("Altitude [m]")
+    ax.set_title("Aircraft Comparison Simulation")
+    ax.legend()
+
+    plt.show()
+
+    fig2, ax2 = plt.subplots(figsize=(8, 8))
+
+    ax2.plot(traj_777[:, 0], traj_777[:, 1], label="B777")
+    ax2.plot(traj_b[:, 0], traj_b[:, 1], label="B737")
+    ax2.plot(traj_a[:, 0], traj_a[:, 1], label="A380")
+
+    ax2.set_xlabel("East [m]")
+    ax2.set_ylabel("North [m]")
+    ax2.set_title("Top View Comparison")
+    ax2.axis("equal")
+    ax2.grid(True)
+    ax2.legend()
+
+    plt.show()
 
 if __name__ == "__main__":
-    main()
+    main3()

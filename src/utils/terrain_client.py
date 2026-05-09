@@ -3,9 +3,21 @@ from typing import Any
 import requests
 import numpy as np
 from rasterio.io import MemoryFile
+import matplotlib.pyplot as plt
 
-# todo: convert height in feet instead of meter
+
 class CopernicusDEMProvider:
+    """
+    The Copernicus DEM instances are available in Geographic Coordinates (DGED and DTED format) and
+    the corresponding horizontal reference datum is the World Geodetic System 1984 (WGS84-G1150;
+    EPSG 4326). In addition, the Copernicus DEM is available in INSPIRE format with projected coordinates
+    (Lambert Azimuth Equal Area for continental Europe) with horizontal reference datum ETRS89-GRS80;
+    Universal Transverse Mercator for French Overseas Territories (DOMs) with horizontal reference Datum
+    WGS84-G1150).
+    The vertical reference datum is the Earth Gravitational Model 20081 (EGM2008; EPSG 3855).
+
+    [https://dataspace.copernicus.eu/sites/default/files/media/files/2024-06/geo1988-copernicusdem-spe-002_producthandbook_i5.0.pdf] -> 1.2.1
+    """
     TOKEN_URL = "https://identity.dataspace.copernicus.eu/auth/realms/CDSE/protocol/openid-connect/token"
     PROCESS_URL = "https://sh.dataspace.copernicus.eu/api/v1/process"
     METER_TO_FEET = 3.28084
@@ -16,14 +28,14 @@ class CopernicusDEMProvider:
         self.access_token: str = self._authenticate()
 
     def _authenticate(self) -> str:
-        data = {
+        data: dict[str, str] = {
             "client_id": "cdse-public",
             "username": self.username,
             "password": self.password,
             "grant_type": "password"
         }
 
-        r = requests.post(self.TOKEN_URL, data=data)
+        r: requests.Response = requests.post(self.TOKEN_URL, data=data)
         r.raise_for_status()
 
         return r.json()["access_token"]
@@ -42,7 +54,6 @@ class CopernicusDEMProvider:
             lon_max: float,
             width: int = 256,
             height: int = 256,
-            unit: str = "ft",
     ) -> np.ndarray:
         payload: dict[str, Any] = {
             "input": {
@@ -95,9 +106,6 @@ class CopernicusDEMProvider:
             with memfile.open() as dataset:
                 data: np.ndarray = dataset.read(1)
 
-        if unit == "ft":
-            return data * self.METER_TO_FEET
-
         return data
 
     def get_height(self, lat: float, lon: float) -> float:
@@ -121,8 +129,6 @@ class CopernicusDEMProvider:
         plt.xlabel("X")
         plt.ylabel("Y")
         plt.show()
-
-import matplotlib.pyplot as plt
 
 if __name__ == "__main__":
     password = "Copernicus2026!"

@@ -1,50 +1,52 @@
 import math
 
 import numpy as np
+from numpy.typing import NDArray
+
 from utils.vec3 import Vec3
 
-def _mat4_identity():
+def _mat4_identity() -> NDArray[np.float32]:
     return np.eye(4, dtype=np.float32)
 
-def _mat4_translate(v: Vec3):
+def _mat4_translate(v: Vec3) -> NDArray[np.float32]:
     m = _mat4_identity()
     m[0,3] = v.x; m[1,3] = v.y; m[2,3] = v.z
     return m
 
-def _mat4_scale(v: Vec3):
+def _mat4_scale(v: Vec3) -> NDArray[np.float32]:
     m = _mat4_identity()
     m[0,0] = v.x; m[1,1] = v.y; m[2,2] = v.z
     return m
 
-def _mat4_rotate_x(a):
+def _mat4_rotate_x(a) -> NDArray[np.float32]:
     c, s = math.cos(a), math.sin(a)
     m = _mat4_identity()
     m[1,1]=c; m[1,2]=-s; m[2,1]=s; m[2,2]=c
     return m
 
-def _mat4_rotate_y(a):
+def _mat4_rotate_y(a) -> NDArray[np.float32]:
     c, s = math.cos(a), math.sin(a)
     m = _mat4_identity()
     m[0,0]=c; m[0,2]=s; m[2,0]=-s; m[2,2]=c
     return m
 
-def _mat4_rotate_z(a):
+def _mat4_rotate_z(a) -> NDArray[np.float32]:
     c, s = math.cos(a), math.sin(a)
     m = _mat4_identity()
     m[0,0]=c; m[0,1]=-s; m[1,0]=s; m[1,1]=c
     return m
 
-def _mat4_perspective(fov_deg, aspect, near, far):
+def _mat4_perspective(fov_deg: float, aspect: float, near: float, far: float) -> NDArray[np.float32]:
     f = 1.0 / math.tan(math.radians(fov_deg) / 2.0)
     m = np.zeros((4,4), dtype=np.float32)
     m[0,0] = f / aspect
     m[1,1] = f
-    m[2,2] = (far + near) / (near - far)
-    m[2,3] = (2*far*near) / (near - far)
+    m[2,2] = (far + near)     / (near - far)
+    m[2,3] = (2 * far * near) / (near - far)
     m[3,2] = -1.0
     return m
 
-def _mat4_look_at(eye: Vec3, center: Vec3, up: Vec3):
+def _mat4_look_at(eye: Vec3, center: Vec3, up: Vec3) -> NDArray[np.float32]:
     f = (center - eye).normalized()
     r = f.cross(up).normalized()
     u = r.cross(f)

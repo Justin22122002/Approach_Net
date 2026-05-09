@@ -7,16 +7,16 @@ class Color:
     g: float = 1.0
     b: float = 1.0
     a: float = 1.0
-    def to_list(self): return [self.r, self.g, self.b, self.a]
-    def to_rgb(self):  return [self.r, self.g, self.b]
+    def to_list(self) -> list[float]: return [self.r, self.g, self.b, self.a]
+    def to_rgb(self)-> list[float]:  return [self.r, self.g, self.b]
 
     @staticmethod
-    def white():  return Color(1,1,1,1)
+    def white() -> "Color":  return Color(1,1,1,1)
     @staticmethod
-    def black():  return Color(0,0,0,1)
+    def black() -> "Color":  return Color(0,0,0,1)
     @staticmethod
-    def red():    return Color(1,0,0,1)
+    def red() -> "Color":    return Color(1,0,0,1)
     @staticmethod
-    def green():  return Color(0,1,0,1)
+    def green() -> "Color":  return Color(0,1,0,1)
     @staticmethod
-    def blue():   return Color(0,0,1,1)
+    def blue() -> "Color":   return Color(0,0,1,1)

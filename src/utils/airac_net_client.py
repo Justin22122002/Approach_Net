@@ -11,7 +11,7 @@ from src.utils.sqlite_airinc24_database_client import extract_runway_from_proced
 class AiracNetClient:
     def __init__(self) -> None:
         self.airac_base: str = "https://airac.net/api/v1"
-        self.nav_base: str = "https://api.flightplandatabase.com/nav/airport"
+        self.nav_base: str = "https://api.flightplandatabase.com/nav/airport" # https://flightplandb-py.readthedocs.io/en/v0.8.0/api/main.html -> python client, interesting -> plan -> from to icao
 
         self.airac_headers: dict[str, str] = {
             "Accept": "application/json",

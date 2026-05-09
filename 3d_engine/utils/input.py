@@ -1,15 +1,15 @@
 import pygame
-
+from pygame.event import Event
 
 class Input:
-    def __init__(self):
-        self._keys_down: set = set()
-        self._keys_just: set = set()
-        self._mouse_buttons: set = set()
-        self._mouse_pos = (0, 0)
-        self._mouse_delta = (0, 0)
+    def __init__(self) -> None:
+        self._keys_down: set[int] = set()
+        self._keys_just: set[int] = set()
+        self._mouse_buttons: set[int] = set()
+        self._mouse_pos: tuple[int, int] = (0, 0)
+        self._mouse_delta: tuple[int, int] = (0, 0)
 
-    def _process_event(self, event):
+    def _process_event(self, event: Event) -> None:
         if event.type == pygame.KEYDOWN:
             self._keys_down.add(event.key)
             self._keys_just.add(event.key)
@@ -23,14 +23,14 @@ class Input:
             self._mouse_pos   = event.pos
             self._mouse_delta = event.rel
 
-    def _end_frame(self):
+    def _end_frame(self) -> None:
         self._keys_just.clear()
         self._mouse_delta = (0, 0)
 
-    def get_key(self, key) -> bool:        return key in self._keys_down
-    def get_key_down(self, key) -> bool:   return key in self._keys_just
-    def get_mouse_button(self, btn) -> bool: return btn in self._mouse_buttons
+    def get_key(self, key: int) -> bool:        return key in self._keys_down
+    def get_key_down(self, key: int) -> bool:   return key in self._keys_just
+    def get_mouse_button(self, btn: int) -> bool: return btn in self._mouse_buttons
     @property
-    def mouse_pos(self): return self._mouse_pos
+    def mouse_pos(self) -> tuple[int, int]: return self._mouse_pos
     @property
-    def mouse_delta(self): return self._mouse_delta
+    def mouse_delta(self) -> tuple[int, int]: return self._mouse_delta

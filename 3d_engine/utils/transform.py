@@ -12,10 +12,10 @@ import numpy as np
 
 class Transform:
     """Position, rotation (Euler degrees), and scale for a GameObject."""
-    def __init__(self):
-        self.position = Vec3(0, 0, 0)
-        self.rotation = Vec3(0, 0, 0)   # Euler angles in degrees
-        self.scale    = Vec3(1, 1, 1)
+    def __init__(self) -> None:
+        self.position: Vec3 = Vec3(0, 0, 0)
+        self.rotation: Vec3 = Vec3(0, 0, 0)   # Euler angles in degrees
+        self.scale: Vec3    = Vec3(1, 1, 1)
 
     def matrix(self) -> np.ndarray:
         rx = math.radians(self.rotation.x)
