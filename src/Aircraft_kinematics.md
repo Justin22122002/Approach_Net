@@ -200,7 +200,7 @@ $
 
 ### which factors can be influenced by the pilot of the aircraft ?
 1. thrust $T$
-2. flight path angle $ \rightarrow \gamma$
+2. old: flight path angle $ \rightarrow \gamma$, new: the load factor $n = \frac{\dot{v_n}}{g} = \frac{L}{m \cdot g}$ , so $L = n \cdot m \cdot g$
 3. roll of the aircraft $\phi$ e.g. $\chi = \frac{g \cdot \tan(\phi)}{v} \rightarrow \frac{g \cdot \tan(\phi)}{v} \cdot \triangle t$ where t denotes the time in seconds
 
 Aerodynamic model:
@@ -224,8 +224,60 @@ where:
 ## 5. ready point mass flight model as a discrete model:
 
 $
+\dot{v}
+=
+\begin{bmatrix}
+\dot v_x \\
+\dot v_y \\
+\dot v_z
+\end{bmatrix}
+$
+
+$
 \dot{v} = \frac{T - D}{m} \cdot \frac{\vec{v}}{\|\vec{v}\|} + \frac{L}{m} \cdot \vec{n} + \vec{g}
 $
+
+$
+\dot v_x = \frac{T-D}{m}\cos(\gamma)\cos(\chi) + \frac{L}{m}n_x
+$
+
+$
+\dot v_y = \frac{T-D}{m}\cos(\gamma)\sin(\chi) + \frac{L}{m}n_y
+$
+
+$
+\dot v_z = \frac{T-D}{m}\sin(\gamma) + \frac{L}{m}n_z - g
+$
+
+$
+\begin{bmatrix}
+\dot v_x \\
+\dot v_y \\
+\dot v_z
+\end{bmatrix} =
+\frac{T-D}{m}
+\begin{bmatrix}
+\cos(\gamma)\cos(\chi) \\
+\cos(\gamma)\sin(\chi) \\
+\sin(\gamma)
+\end{bmatrix} +
+\frac{L}{m}
+\begin{bmatrix}
+n_x \\
+n_y \\
+n_z
+\end{bmatrix} +
+\begin{bmatrix}
+0 \\
+0 \\
+-g
+\end{bmatrix}
+$
+
+$
+\dot{\chi} = \frac{g \cdot tan(\phi)}{v}
+$ see definition of $\phi$ above
+
 
 for now we define the update of the state in discrete steps not in continuous, so the position update.
 
@@ -287,7 +339,7 @@ $
 \chi = atan2(v_x, v_y)
 $
 
-Heading dynamics
+State generation via derivation:
 
 $
 \dot{\chi} = \frac{g \cdot tan(\phi)}{v}
@@ -295,6 +347,16 @@ $ see definition of $\phi$ above
 
 $
 \dot{\chi_{k + 1}} = \chi_k + \dot{\chi}  \cdot \Delta t
+$
+
+$
+\dot{\gamma}
+=
+\frac{v \, \dot{v}_z - v_z \, \dot{v}}{v_h^2}
+$
+
+$
+\dot{\gamma_{k + 1}} = \gamma_k + \dot{\gamma}  \cdot \Delta t
 $
 ---
 
@@ -344,4 +406,21 @@ $
 fixed flight time
 $
 T_f
+$
+
+### solution 
+
+Thrust
+$
+T = m \left( \dot{\vec{v}} \cdot \vec{t} \right) + D
+$
+
+Load factor
+$
+n = \frac{(\dot{\vec{v}} - \vec{g}) \cdot \vec{n}}{g}
+$
+
+Roll angle
+$
+\phi = \arctan\left(\frac{v \, \dot{\chi}}{g}\right)
 $

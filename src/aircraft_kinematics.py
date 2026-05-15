@@ -50,8 +50,8 @@ class AircraftKinematicsState:
         self.y: float = y         # m or lat
         self.h: float = h         # m or feet
         self.v: float = v         # m/s
-        self.gamma: float = gamma # γ / θ, flight path angle (Flugbahnwinkel)
-        self.chi: float = chi     # φ / χ, Track angle / Course angle (Kursbahnwinkel) from North, clockwise
+        self.gamma: float = gamma # γ flight path angle (Flugbahnwinkel)
+        self.chi: float = chi     # 𝒳 Track angle / Course angle (Kursbahnwinkel) from North, clockwise
 
         self.mass: float = mass      # [kg]
         self.C_D: float = C_D        # drag coefficient
@@ -124,7 +124,7 @@ class AircraftEnvironment:
     Point-mass aircraft kinematics (no sideslip / coordinated flight).
 
     Force balance (Newton, vector form):
-        F = m · a = m · v⃗ =  (T − D) · t̂  +  L · n̂  +  m · g⃗
+        F = m · a = m · v⃗ = (T − D) · t̂ + L · n̂ + m · g⃗
 
         v̇ = ((T - D) / m) · (v⃗ / ‖v⃗‖) + (L / m) · n⃗ + g⃗
 
@@ -146,10 +146,10 @@ class AircraftEnvironment:
         A    — reference / wing area     [m²]
 
     Unit vectors n̂
-        t⃗ or F =  v⃗ / ‖v⃗‖                        unit tangent
-        u⃗      =  [0, 0, 1]ᵀ                     vertical unit vector
-        b⃗      =  (t⃗  × u⃗ ) / ‖t⃗  × u⃗ ‖          unit binormal  (wing direction)
-        n⃗      =  b⃗  × t⃗                         unit normal    (lift direction)
+        t⃗ or F = v⃗ / ‖v⃗‖                        unit tangent
+        u⃗      = [0, 0, 1]ᵀ                     vertical unit vector
+        b⃗      = (t⃗ × u⃗) / ‖t⃗ × u⃗ ‖             unit binormal  (wing direction)
+        n⃗      = b⃗ × t⃗                          unit normal    (lift direction)
 
     Load factor:
         n  = L / (m · g)
@@ -212,7 +212,7 @@ class AircraftEnvironment:
         Roll φ:
             rotation of lift vector n⃗ around t⃗
 
-        n⃗_rot = n⃗ cos(φ) + (t⃗ × n⃗) sinφ + t⃗ (t⃗ · n⃗)(1 - cos(φ))
+        n⃗_rot = n⃗ cos(φ) + (t⃗ × n⃗) · sin(φ) + t⃗ (t⃗ · n⃗)(1 - cos(φ))
 
         Returns  (t⃗ , b⃗ , n⃗ )
         """
@@ -233,7 +233,7 @@ class AircraftEnvironment:
         # φ = roll angle
         phi = np.radians(roll)
 
-        # n⃗_rot = n⃗ cos(φ) + (t⃗ × n⃗) sinφ + t⃗ (t⃗ · n⃗)(1 - cos(φ))
+        # n⃗_rot = n⃗ cos(φ) + (t⃗ × n⃗) · sin(φ) + t⃗ (t⃗ · n⃗)(1 - cos(φ))
         n_hat_rot = (
                 n_hat * np.cos(phi)
                 + np.cross(t_hat, n_hat) * np.sin(phi)
@@ -293,6 +293,7 @@ class AircraftEnvironment:
         # t⃗ , _, n⃗
         t_hat, _, n_hat = self.unit_vectors()
         t_hat, _, n_hat = self.unit_vectors_with_roll(roll)
+        # maybe n is not right here
 
         # D = 1/2 · ρ · v² · C_D · A
         drag = self.state.drag_force()
@@ -319,8 +320,110 @@ class AircraftEnvironment:
 
         # γ = arcsin(v_z / v)
         self.state.gamma = np.degrees(np.arcsin(v_vec[2] / self.state.v))
+
         # 𝒳 = arctan2(v_x, v_y)
-        self.state.chi = np.degrees(np.arctan2(v_vec[0], v_vec[1]))
+        #self.state.chi = np.degrees(np.arctan2(v_vec[0], v_vec[1]))
+
+        # 𝒳̇ = (g · tan(φ)) / v
+        chi_dot = (9.81 * np.tan(np.radians(roll))) / max(self.state.v, 1e-6)
+        # 𝒳̇ _{k+1} = 𝒳_k + 𝒳̇ · dt
+        self.state.chi += np.degrees(chi_dot * self.dt)
+
+        return self.state.to_array()
+
+    def apply_action_2(
+            self,
+            thrust: float,
+            load_factor: float,
+            roll: float,
+    ) -> NDArray[np.float64]:
+        """
+        Velocity dynamics:
+            v̇ = ((T - D) / m) · (v⃗ / ‖v⃗‖) + (L / m) · n⃗ + g⃗
+
+        Position update:
+            ẋ = v_x
+            ẏ = v_y
+            ḣ = v_z
+
+        State update (Euler step):
+            v⃗_{k+1} = v⃗_k + v̇ · dt
+            p_{k+1} = p_k + v⃗_{k+1} · dt
+
+        Flight path angle update:
+            Δγ = γ_cmd - γ
+            γ_{k+1} = γ_k + Δγ
+
+        State reconstruction from velocity:
+            v = ||v⃗||
+            γ = arcsin(v_z / v)
+            𝒳 = arctan2(v_x, v_y)
+
+        Heading dynamics:
+            𝒳̇ = (g · tan(φ)) / v
+            𝒳̇ _{k+1} = 𝒳_k + 𝒳̇ · dt
+
+        Forces:
+            D = 1/2 · ρ · v² · C_D · A
+            L = 1/2 · ρ · v² · C_L · A
+
+        Unit vectors:
+            t⃗ = v⃗ / ||v⃗||
+            n⃗ = lift-normal direction (perpendicular to velocity in vertical plane)
+            n⃗ = L / (m · g)
+        """
+        # v⃗
+        v_vec = self.state.velocity_vector()
+
+        # t⃗ , _, n⃗
+        t_hat, _, n_hat = self.unit_vectors()
+        t_hat, _, n_hat = self.unit_vectors_with_roll(roll)
+
+        # D = 1/2 · ρ · v² · C_D · A
+        drag = self.state.drag_force()
+        # L = 1/2 · ρ · v² · C_L · A
+        # lift is included in the load factor now
+        max_lift = self.state.lift_force()
+        # L = n · m · g
+        requested_lift = load_factor * self.state.mass * 9.81
+        actual_lift = min(requested_lift, max_lift)
+
+        # v̇ = ((T - D) / m) · (v⃗ / ‖v⃗‖) + (L / m) · n⃗ + g⃗
+        v_dot = (
+                ((thrust - drag) / self.state.mass) * t_hat
+                + (actual_lift / self.state.mass) * n_hat # old code: + (lift / self.state.mass) * n_hat
+                + self.gravity
+        )
+
+        # v⃗_{k+1} = v⃗_k + v̇ · dt
+        v_vec = v_vec + v_dot * self.dt
+
+        # p_{k+1} = p_k + v⃗_{k+1} · dt
+        self.state.x += v_vec[0] * self.dt
+        self.state.y += v_vec[1] * self.dt
+        self.state.h += v_vec[2] * self.dt
+
+        # v = ||v⃗||
+        self.state.v = np.linalg.norm(v_vec)
+
+        # γ = arcsin(v_z / v)
+        #self.state.gamma = np.degrees(np.arcsin(v_vec[2] / self.state.v))
+
+        # 𝒳 = arctan2(v_x, v_y)
+        # self.state.chi = np.degrees(np.arctan2(v_vec[0], v_vec[1]))
+
+        # γ̇ = (v * v̇_z - v_z * v̇) / (v² * cos(γ))
+        # v = ||v⃗||
+        # v̇ = (v⃗ · v̇⃗) / ||v⃗||   (scalar speed derivative)
+        v_dot_scalar = np.dot(v_vec, v_dot) / max(self.state.v, 1e-6)
+
+        # γ̇ = (v * v̇_z - v_z * v̇) / (v² * cos(γ))
+        gamma_dot = (
+                (self.state.v * v_dot[2] - v_vec[2] * v_dot_scalar)
+                / max(self.state.v ** 2 * np.cos(np.radians(self.state.gamma)), 1e-6)
+        )
+        # γ_{k+1} = γ_k + γ̇ · dt
+        self.state.gamma += np.degrees(gamma_dot * self.dt)
 
         # 𝒳̇ = (g · tan(φ)) / v
         chi_dot = (9.81 * np.tan(np.radians(roll))) / max(self.state.v, 1e-6)
@@ -569,7 +672,7 @@ def main2():
 
 def main3():
     dt = 0.1
-    steps = 500
+    steps = 2000
 
     constraints = AircraftKinematicsMaxConstrains(
         v_min=60,
@@ -623,13 +726,14 @@ def main3():
     traj_777, traj_b, traj_a = [], [], []
 
     thrust = 20000.0
-    flight_path_angle = -5.0
+    flight_path_angle = 0.0
+    load_factor = 1.15
     roll = 30.0
 
     for _ in range(steps):
-        traj_777.append(env_b777.apply_action(thrust, flight_path_angle, roll).copy())
-        traj_b.append(env_b737.apply_action(thrust, flight_path_angle, roll).copy())
-        traj_a.append(env_a380.apply_action(thrust, flight_path_angle, roll).copy())
+        traj_777.append(env_b777.apply_action_2(thrust, load_factor, roll).copy())
+        traj_b.append(env_b737.apply_action_2(thrust, load_factor, roll).copy())
+        traj_a.append(env_a380.apply_action_2(thrust, load_factor, roll).copy())
 
     traj_777 = np.array(traj_777)
     traj_b = np.array(traj_b)
