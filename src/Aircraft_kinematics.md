@@ -225,6 +225,13 @@ $
 \rho(h)=\rho_0 e^{-\frac{h}{H}}
 $
 
+
+$
+C_L = \frac{2 n m g}{\rho v^2 S}
+$
+
+
+
 where:
 
 - $\rho$ air density $[kg/m^3]$
