@@ -388,6 +388,12 @@ class AircraftEnvironment:
         requested_lift = load_factor * self.state.mass * 9.81
         actual_lift = min(requested_lift, max_lift)
 
+        # when thrust is 1.0, then the velocity stays the same, otherwise increase or decrease
+        # todo: this can cause an overflow
+        # gamma = np.radians(self.state.gamma)
+        # T_trim = drag + self.state.mass * 9.81 * np.sin(gamma)
+        # thrust = T_trim * thrust
+
         # v̇ = ((T - D) / m) · (v⃗ / ‖v⃗‖) + (L / m) · n⃗ + g⃗
         v_dot = (
                 ((thrust - drag) / self.state.mass) * t_hat
@@ -725,9 +731,8 @@ def main3():
 
     traj_777, traj_b, traj_a = [], [], []
 
-    thrust = 20000.0
-    flight_path_angle = 0.0
-    load_factor = 1.15
+    thrust = 10000.0
+    load_factor = 1.1
     roll = 30.0
 
     for _ in range(steps):
@@ -767,6 +772,100 @@ def main3():
     ax2.grid(True)
     ax2.legend()
 
+    plt.show()
+
+def main4():
+    dt = 0.1
+    steps = 500
+
+    state = AircraftKinematicsState(
+        x=0.0,
+        y=0.0,
+        h=3000.0,
+        v=120.0,
+        gamma=0.0,
+        chi=0.0,
+        mass=6000.0,
+        C_D=0.03,
+        C_L=0.8,
+        area=16.2
+    )
+
+    constraints = AircraftKinematicsMaxConstrains(
+        v_min=60,
+        v_max=250,
+        roc_max=20,
+        rod_max=20,
+        gamma_dot_max=15,
+        chi_dot_max=15
+    )
+
+    goal = np.array([4000.0, 2500.0, 3000.0])
+
+    env = AircraftEnvironment(state, AircraftGoal(*goal), constraints, dt)
+
+    trajectory = []
+
+    Tf = steps * dt
+
+    for _ in range(steps):
+        p0 = np.array([state.x, state.y, state.h])
+
+        v_vec = state.velocity_vector()
+
+        v_req = (goal - p0) / Tf
+        a_req = (v_req - v_vec) / Tf
+
+        t_hat, _, n_hat = env.unit_vectors()
+
+        g_vec = env.gravity
+
+        drag = state.drag_force()
+
+        # T = m ( v̇ · t̂ ) + D
+        T = state.mass * np.dot(a_req, t_hat) + drag
+
+        lift_needed = state.mass * np.dot(a_req - g_vec, n_hat)
+        # n = ((v̇ - g) · n̂) / g
+        n = lift_needed / (state.mass * 9.81)
+
+        chi_dot_req = np.arctan2(
+            goal[1] - state.y,
+            goal[0] - state.x
+        ) - np.radians(state.chi)
+
+        # φ = arctan( v · 𝒳̇ / g )
+        phi = np.arctan((state.v * chi_dot_req) / 9.81)
+
+        state_vec = env.apply_action_2(
+            thrust=T,
+            load_factor=n,
+            roll=np.degrees(phi)
+        )
+
+        trajectory.append(state_vec.copy())
+
+    trajectory = np.array(trajectory)
+
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection='3d')
+
+    ax.plot(
+        trajectory[:, 0],
+        trajectory[:, 1],
+        trajectory[:, 2],
+        label="Inverse Trajectory"
+    )
+
+    ax.scatter(0, 0, 3000, color="green", s=80, label="Start")
+    ax.scatter(goal[0], goal[1], goal[2], color="red", s=80, label="Goal")
+
+    ax.set_xlabel("East [m]")
+    ax.set_ylabel("North [m]")
+    ax.set_zlabel("Altitude [m]")
+
+    plt.title("Inverse Aircraft Control (T, n, φ)")
+    plt.legend()
     plt.show()
 
 if __name__ == "__main__":

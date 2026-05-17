@@ -162,3 +162,11 @@ $
 \phi = \arctan\left(\frac{v \, \dot{\chi}}{g}\right)
 }
 $
+
+$
+C_L = \frac{2 n m g}{\rho v^2 S}
+$
+
+$
+C_D = C_{D0} + k C_L^2
+$

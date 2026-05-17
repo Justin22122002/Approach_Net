@@ -213,6 +213,18 @@ $
 L = \frac{1}{2} \rho v^2 C_L A
 $
 
+$
+C_L \rightarrow C_L(\alpha) = C_{L_\alpha} \cdot \alpha + C_{L_0}
+$ because we habe a directed flight, $\alpha$ is always 0
+
+$
+C_D = C_{D_0} + k \cdot C_L^2
+$
+
+$
+\rho(h)=\rho_0 e^{-\frac{h}{H}}
+$
+
 where:
 
 - $\rho$ air density $[kg/m^3]$
@@ -220,6 +232,8 @@ where:
 - $C_D$ drag coefficient
 - $C_L$ lift coefficient
 - $A$ reference / wing area $[m^2]$
+- $C_{L_0}$: $C_L$ value for $\alpha = 0$
+- $C_{L_\alpha}$: slope of the $C_L$ curve
 
 ## 5. ready point mass flight model as a discrete model:
 
@@ -278,6 +292,11 @@ $
 \dot{\chi} = \frac{g \cdot tan(\phi)}{v}
 $ see definition of $\phi$ above
 
+$
+\dot{\gamma}
+=
+\frac{v \, \dot{v}_z - v_z \, \dot{v}}{v_h^2}
+$
 
 for now we define the update of the state in discrete steps not in continuous, so the position update.
 

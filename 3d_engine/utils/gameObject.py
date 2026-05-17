@@ -1,4 +1,6 @@
 from utils.component import Component
+from utils.lineRenderer import LineRenderer
+from utils.pointRenderer import PointRenderer
 from utils.transform import Transform
 from utils.meshRenderer import MeshRenderer
 
@@ -33,7 +35,7 @@ class GameObject:
     def _draw(self, view_mat, proj_mat, scene) -> None:
         if not self.active: return
         for c in self._components:
-            if isinstance(c, MeshRenderer):
+            if isinstance(c, (MeshRenderer, LineRenderer, PointRenderer)):
                 c.draw(view_mat, proj_mat, scene)
 
     def destroy(self) -> None:

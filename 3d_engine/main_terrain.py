@@ -35,8 +35,8 @@ grid = provider.get_terrain(
     lon_min=LON_MIN,
     lat_max=LAT_MAX,
     lon_max=LON_MAX,
-    width=255,
-    height=255
+    width=1024,
+    height=1024
 )
 
 horizontal_scale = 0.01

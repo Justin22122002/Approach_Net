@@ -137,4 +137,4 @@ class OrbitCamera(Camera):
 
     @override
     def update(self, dt, keys):
-        raise NotImplementedError
+        pass

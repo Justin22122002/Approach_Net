@@ -26,6 +26,7 @@ from pygame.time import Clock
 
 from utils.color import Color
 from utils.camera import Camera, FlyCamera
+from utils.hud import HUD
 from utils.scene import Scene
 from utils.input import Input
 
@@ -74,6 +75,7 @@ class Engine:
         self._running: bool              = False
         self._window: Optional[Surface]  = None
         self._clock: Optional[Clock]     = None
+        self.hud: HUD = HUD(self)
 
     def _init_pygame(self) -> None:
         pygame.init()
@@ -153,6 +155,11 @@ class Engine:
             view = self.camera.get_view()
             proj = self.camera.get_projection(self.width, self.height)
             self.scene._draw_all(view, proj)
+
+            self.hud._begin()
+            if self.on_gui:
+                self.on_gui()
+            self.hud._end()
 
             pygame.display.flip()
             self.input._end_frame()

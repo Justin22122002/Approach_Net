@@ -2,7 +2,6 @@ import ctypes
 import math
 
 import numpy as np
-from pyproj import Transformer
 
 from OpenGL.GL import (
     GL_ARRAY_BUFFER,
@@ -216,72 +215,3 @@ class Mesh:
                 indices.append(cache[key])
         return Mesh(np.array(verts, dtype=np.float32),
                     np.array(indices, dtype=np.uint32))
-
-    @staticmethod
-    def from_heightmap(
-            grid: np.ndarray,
-            lat_min: float,
-            lon_min: float,
-            lat_max: float,
-            lon_max: float,
-            size: float = 50.0,
-            height_scale: float = None
-    ) -> "Mesh":
-
-        rows, cols = grid.shape
-        min_h = float(grid.min())
-
-        utm_zone = int(((lon_min + lon_max) / 2 + 180) / 6) + 1
-        epsg_utm = 32600 + utm_zone
-        to_utm = Transformer.from_crs("EPSG:4326", f"EPSG:{epsg_utm}", always_xy=True)
-
-        x0, y0 = to_utm.transform(lon_min, lat_min)
-        x1, y1 = to_utm.transform(lon_max, lat_min)
-        x2, y2 = to_utm.transform(lon_min, lat_max)
-
-        real_w_m = abs(x1 - x0)
-        real_h_m = abs(y2 - y0)
-        real_world_m = max(real_w_m, real_h_m)
-        metres_to_world = size / real_world_m
-
-        def world_x(col):
-            lon = lon_min + (col / (cols - 1)) * (lon_max - lon_min)
-            ux, _ = to_utm.transform(lon, lat_min)
-            return (ux - x0) / real_w_m * size - size / 2
-
-        def world_z(row):
-            lat = lat_min + (row / (rows - 1)) * (lat_max - lat_min)
-            _, uy = to_utm.transform(lon_min, lat)
-            return (uy - y0) / real_h_m * size - size / 2
-
-        def world_y(r, c):
-            r = max(0, min(rows - 1, r))
-            c = max(0, min(cols - 1, c))
-            elev_m = float(grid[r, c]) - min_h
-            if metres_to_world is not None:
-                return elev_m * metres_to_world
-            else:
-                h_range = max(float(grid.max()) - min_h, 1.0)
-                return (elev_m / h_range) * size * (height_scale or 0.05)
-
-        verts = []
-        for j in range(rows):
-            for i in range(cols):
-                x = world_x(i)
-                z = world_z(j)
-                y = world_y(j, i)
-
-                dx = Vec3(world_x(i + 1) - world_x(i - 1), world_y(j, i + 1) - world_y(j, i - 1),0.0)
-                dz = Vec3(0.0, world_y(j + 1, i) - world_y(j - 1, i), world_z(j + 1) - world_z(j - 1))
-                n = dz.cross(dx).normalized()
-
-                verts += [x, y, z, n.x, n.y, n.z, i / (cols - 1), j / (rows - 1)]
-
-        idx = []
-        for j in range(rows - 1):
-            for i in range(cols - 1):
-                tl = j * cols + i
-                idx += [tl, tl + cols, tl + 1,
-                        tl + 1, tl + cols, tl + cols + 1]
-
-        return Mesh(np.array(verts, dtype=np.float32), np.array(idx, dtype=np.uint32))

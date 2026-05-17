@@ -1,0 +1,146 @@
+"""
+PointRenderer – Component for drawing points in a 3d room wiht GL_POINTS.
+
+how to use:
+    # single points
+    go = scene.spawn("Point")
+    go.transform.position = Vec3(1, 2, 3)
+    go.add_component(PointRenderer(color=Color.red(), size=8.0))
+
+    # multiple points
+    go = scene.spawn("Cloud")
+    go.add_component(PointRenderer(
+        points=[Vec3(0,0,0), Vec3(1,1,1), Vec3(2,0,1)],
+        colors=[Color.red(), Color.green(), Color.blue()],
+        size=10.0,
+    ))
+
+note: glPointSize > 1 is in the core profile for most treiber allowed, but not guaranteed
+         Can cause problems on macOS.
+"""
+
+import ctypes
+from pathlib import Path
+from typing import Optional
+
+import numpy as np
+from OpenGL.GL import (
+    GL_ARRAY_BUFFER,
+    GL_FALSE,
+    GL_FLOAT,
+    GL_FRAGMENT_SHADER,
+    GL_POINTS,
+    GL_PROGRAM_POINT_SIZE,
+    GL_STATIC_DRAW,
+    GL_TRUE,
+    GL_VERTEX_SHADER,
+    glBindBuffer,
+    glBindVertexArray,
+    glBufferData,
+    glDeleteBuffers,
+    glDeleteVertexArrays,
+    glDrawArrays,
+    glEnable,
+    glEnableVertexAttribArray,
+    glGenBuffers,
+    glGenVertexArrays,
+    glGetUniformLocation,
+    glUniform1f,
+    glUniformMatrix4fv,
+    glUseProgram,
+    glVertexAttribPointer,
+)
+from OpenGL.GL.shaders import compileProgram, compileShader
+
+from utils.color import Color
+from utils.component import Component
+from utils.material import load_shader_source
+from utils.vec3 import Vec3
+
+_VERT_SRC = load_shader_source(Path("utils/shaders/point.vert"))
+_FRAG_SRC = load_shader_source(Path("utils/shaders/point.frag"))
+
+class PointRenderer(Component):
+    """
+    renders a single or multiple points in 3D space.
+
+    points  – list of Vec3. empty = only transform.position will be used
+    color   – color of all points will be ignored when colors are set
+    colors  – per point color, needs to be the same length ad points
+    size    – point size ine pixel.
+    """
+
+    _program: Optional[int] = None
+
+    def __init__(
+            self,
+            points: Optional[list[Vec3]] = None,
+            color: Optional[Color] = None,
+            colors: Optional[list[Color]] = None,
+            size: float = 6.0,
+    ) -> None:
+        self.points: list[Vec3] = points or [Vec3.zero()]
+        self.color: Color = color or Color.white()
+        self.colors: Optional[list[Color]] = colors
+        self.size: float = size
+
+        self._vao: Optional[int] = None
+        self._vbo: Optional[int] = None
+
+    @classmethod
+    def _get_program(cls) -> int:
+        if cls._program is None:
+            glEnable(GL_PROGRAM_POINT_SIZE)
+            vert = compileShader(_VERT_SRC, GL_VERTEX_SHADER)
+            frag = compileShader(_FRAG_SRC, GL_FRAGMENT_SHADER)
+            cls._program = compileProgram(vert, frag)
+
+        if cls._program is None: raise ValueError(f"class program {cls._program} is not defined")
+
+        return cls._program
+
+    def _upload(self) -> None:
+        if self._vao is not None:
+            return
+
+        raw: list[float] = []
+        for i, p in enumerate(self.points):
+            raw += [p.x, p.y, p.z]
+            c = self.colors[i] if (self.colors and i < len(self.colors)) else self.color
+            raw += [c.r, c.g, c.b]
+
+        data = np.array(raw, dtype=np.float32)
+        stride = 6 * 4
+
+        self._vao = glGenVertexArrays(1)
+        self._vbo = glGenBuffers(1)
+        glBindVertexArray(self._vao)
+        glBindBuffer(GL_ARRAY_BUFFER, self._vbo)
+        glBufferData(GL_ARRAY_BUFFER, data.nbytes, data, GL_STATIC_DRAW)
+        glEnableVertexAttribArray(0)
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, ctypes.c_void_p(0))
+        glEnableVertexAttribArray(1)
+        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, stride, ctypes.c_void_p(12))
+        glBindVertexArray(0)
+
+    def draw(self, view_mat, proj_mat, scene) -> None:
+        self._upload()
+        prog = self._get_program()
+        glUseProgram(prog)
+
+        model = self.owner.transform.matrix()
+        glUniformMatrix4fv(glGetUniformLocation(prog, "uModel"), 1, GL_TRUE, model)
+        glUniformMatrix4fv(glGetUniformLocation(prog, "uView"), 1, GL_TRUE, view_mat)
+        glUniformMatrix4fv(glGetUniformLocation(prog, "uProjection"), 1, GL_TRUE, proj_mat)
+        glUniform1f(glGetUniformLocation(prog, "uPointSize"), self.size)
+
+        glBindVertexArray(self._vao)
+        glDrawArrays(GL_POINTS, 0, len(self.points))
+        glBindVertexArray(0)
+        glUseProgram(0)
+
+    def on_destroy(self) -> None:
+        if self._vao is not None:
+            glDeleteVertexArrays(1, [self._vao])
+            glDeleteBuffers(1, [self._vbo])
+            self._vao = None
