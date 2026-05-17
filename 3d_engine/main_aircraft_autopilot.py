@@ -118,13 +118,8 @@ def on_update(dt: float) -> None:
         v_vec = b737.velocity_vector()
 
         goal_vec = np.array([goal.x, goal.y, goal.h]) - p0
-        dist = np.linalg.norm(goal_vec)
-
-        if dist < 5.0:
-            break
 
         v_dot = goal_vec
-        a_vec = (v_dot - v_vec)
 
         t_hat, _, n_hat = env.unit_vectors_with_roll(roll)
         g_vec = env.gravity
@@ -133,11 +128,11 @@ def on_update(dt: float) -> None:
 
         # v̇ = ((T - D) / m) · (v⃗ / ‖v⃗‖) + (L / m) · n⃗ + g⃗
         # T = m ( v̇ · t̂ ) + D
-        thrust = b737.mass * np.dot(a_vec, t_hat) + drag
+        thrust = b737.mass * np.dot(v_dot, t_hat) + drag
         thrust = np.clip(thrust, 0.0, 350000.0)
 
         # n = ((v̇ - g) · n̂) / g
-        load_factor = np.dot((a_vec - g_vec), n_hat) / 9.81
+        load_factor = np.dot((v_dot - g_vec), n_hat) / 9.81
 
         # 𝒳̇ = (g · tan(φ)) / v
         desired_chi = np.arctan2(goal.x - b737.x, goal.y - b737.y)
