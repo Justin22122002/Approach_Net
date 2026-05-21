@@ -93,7 +93,7 @@ terrain_go.add_component(
 )
 
 terrain_go.transform.position = terrain_position
-
+rw = None
 for runway in runways:
     runway_mesh_builder = RunwayProjectMesh(
         lat=runway.latitude,
@@ -115,6 +115,7 @@ for runway in runways:
 
     runway_go.transform.position = Vec3(cx, cy, cz)
 
+    rw = Vec3(cx, cy, cz)
     runway_go.add_component(
         MeshRenderer(
             runway_mesh,
@@ -133,9 +134,9 @@ scene.directional_light = DirectionalLight(
 engine.camera = FlyCamera(speed=10.0)
 
 engine.camera.position = Vec3(
-    terrain_position.x,
+    rw.x,
     geo.altitude_to_local(terrain_project_mesh.base_altitude) + 50,
-    terrain_position.z
+    rw.z
 )
 
 def on_gui():

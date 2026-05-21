@@ -236,16 +236,21 @@ class RunwayProjectMesh(ProjectMesh):
         p2_lon, p2_lat, _ = self.geod.fwd(lon1, lat1, right_az, half_width)
         p3_lon, p3_lat, _ = self.geod.fwd(lon1, lat1, left_az, half_width)
 
-        geo = GeoTransformer(
-            lat=self.lat,
-            lon=self.lon,
-            horizontal_scale=self.horizontal_scale,
-            vertical_scale=self.vertical_scale
+        utm_transformer = Transformer.from_crs(
+            "EPSG:4326",
+            "EPSG:32632",
+            always_xy=True
         )
 
         def proj(lat, lon):
-            x, z = geo.to_local(lat, lon)
-            return Vec3(x, 0.0, z)
+            x, y = utm_transformer.transform(lon, lat)
+
+            x0, y0 = utm_transformer.transform(self.lon, self.lat)
+
+            dx = (x - x0) * self.horizontal_scale
+            dz = (y - y0) * self.horizontal_scale
+
+            return Vec3(dx, 0.0, -dz)
 
         v0 = proj(p0_lat, p0_lon)
         v1 = proj(p1_lat, p1_lon)
