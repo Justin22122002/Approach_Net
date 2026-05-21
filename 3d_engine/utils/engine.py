@@ -29,14 +29,13 @@ from utils.camera import Camera, FlyCamera
 from utils.hud import HUD
 from utils.scene import Scene
 from utils.input import Input
+from utils.sky import Sky
+
 
 class Engine:
     """
-    The top-level engine object.
-
     Usage:
-        engine = pygine3d.Engine(800, 600, "My Game")
-        # ... set up scene ...
+        engine = Engine(800, 600, "My Game")
         engine.run()
 
     Lifecycle callbacks (attach to engine):
@@ -60,11 +59,12 @@ class Engine:
         self.target_fps: int    = fps
         self.clear_color: Color = clear_color or Color(0.1, 0.1, 0.15, 1.0)
 
-        self.scene: Scene   = Scene()
-        self.camera: Camera = FlyCamera()
-        self.input: Input   = Input()
-        self.time: float    = 0.0       # total elapsed seconds
-        self.frame: int     = 0
+        self.scene: Scene       = Scene()
+        self.camera: Camera     = FlyCamera()
+        self.input: Input       = Input()
+        self.time: float        = 0.0       # total elapsed seconds
+        self.frame: int         = 0
+        self.sky: Optional[Sky] = None
 
         # lifecycle hooks (assign lambdas or functions)
         self.on_start:  Optional[Callable[[], None]]      = None
@@ -154,6 +154,16 @@ class Engine:
 
             view = self.camera.get_view()
             proj = self.camera.get_projection(self.width, self.height)
+
+            if self.sky:
+                self.sky.render(
+                    view_mat=view,
+                    proj_mat=proj,
+                    time=self.time,
+                    width=self.width,
+                    height=self.height,
+                )
+
             self.scene._draw_all(view, proj)
 
             self.hud._begin()

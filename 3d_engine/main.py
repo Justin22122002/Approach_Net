@@ -1,5 +1,6 @@
 from utils.engine import Engine
 from utils.meshRenderer import MeshRenderer
+from utils.sky import Sky
 from utils.vec3 import Vec3
 from utils.color import Color
 from utils.directionalLight import DirectionalLight
@@ -31,5 +32,36 @@ scene.directional_light = DirectionalLight(
 
 # Camera
 engine.camera = FlyCamera(speed=5.0)
+
+engine.sky = Sky(
+    sun_elevation=30.0,
+    sun_azimuth=45.0,
+    cloud_density=1.0,
+    cloud_speed=0.012,
+    zenith_color=(0.07, 0.22, 0.68),
+    horizon_color=(0.52, 0.75, 0.94),
+)
+scene.directional_light = engine.sky.directional_light
+
+def on_update(dt: float):
+    engine.sky.sun_elevation += dt * 3.0
+
+    if engine.sky.sun_elevation > 180.0:
+        engine.sky.sun_elevation = -10.0
+
+    scene.directional_light.direction = engine.sky.get_light_direction()
+
+    elev = engine.sky.sun_elevation
+
+    if elev > 25.0:
+        scene.directional_light.color = Color(1.0, 0.95, 0.85)
+
+    elif elev > 5.0:
+        scene.directional_light.color = Color(1.0, 0.7, 0.45)
+
+    else:
+        scene.directional_light.color = Color(1.0, 0.35, 0.2)
+
+engine.on_update = on_update
 
 engine.run()
