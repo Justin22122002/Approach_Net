@@ -6,6 +6,7 @@ from utils.material import Material
 from utils.color import Color
 from utils.directionalLight import DirectionalLight
 from utils.camera import FlyCamera
+from utils.sky import Sky
 from utils.terrain_client import CopernicusDEMProvider
 from utils.vec3 import Vec3
 
@@ -59,8 +60,8 @@ terrain_project_mesh = TerrainProjectMesh(
 terrain_mesh = terrain_project_mesh.generate_mesh()
 
 geo = GeoTransformer(
-    lat=LAT_MIN,
-    lon=LON_MIN,
+    lat=0.0,
+    lon=0.0,
     horizontal_scale=horizontal_scale,
     vertical_scale=vertical_scale
 )
