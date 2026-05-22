@@ -10,8 +10,6 @@ from utils_project.project_mesh import ProjectMesh
 
 
 class RunwayProjectMesh(ProjectMesh):
-    FT_TO_M = 0.3048
-
     def __init__(
         self,
         lat: float,
@@ -23,12 +21,11 @@ class RunwayProjectMesh(ProjectMesh):
         horizontal_scale: float,
         vertical_scale: float,
         displaced_threshold_ft: float,
+        transformer: Transformer,
     ) -> None:
         self.geod = Geod(ellps="WGS84")
-
         self.length_m: float = length_ft * self.FT_TO_M
         self.width_m: float = width_ft * self.FT_TO_M
-        self.altitude_m: float = altitude_ft * self.FT_TO_M
         self.displaced_threshold_m: float = displaced_threshold_ft * self.FT_TO_M
         self.bearing: float = bearing_deg
 
@@ -37,7 +34,8 @@ class RunwayProjectMesh(ProjectMesh):
             vertical_scale=vertical_scale,
             lat=lat,
             lon=lon,
-            altitude=self.altitude_m
+            altitude=altitude_ft * self.FT_TO_M,
+            transformer=transformer
         )
 
     def _compute_endpoints(self) -> tuple[tuple[float, float], tuple[float, float]]:
@@ -77,16 +75,10 @@ class RunwayProjectMesh(ProjectMesh):
         p2_lon, p2_lat, _ = self.geod.fwd(lon1, lat1, right_az, half_width)
         p3_lon, p3_lat, _ = self.geod.fwd(lon1, lat1, left_az, half_width)
 
-        utm_transformer = Transformer.from_crs(
-            "EPSG:4326",
-            "EPSG:32632",
-            always_xy=True
-        )
-
         def proj(lat, lon):
-            x, y = utm_transformer.transform(lon, lat)
+            x, y = self.transformer.transform(lon, lat)
 
-            x0, y0 = utm_transformer.transform(self.lon, self.lat)
+            x0, y0 = self.transformer.transform(self.lon, self.lat)
 
             dx = (x - x0) * self.horizontal_scale
             dz = (y - y0) * self.horizontal_scale

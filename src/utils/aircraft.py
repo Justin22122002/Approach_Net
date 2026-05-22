@@ -31,7 +31,6 @@ class AircraftData:
 
 
 class Aircraft(Renderable):
-
     def __init__(self, data: AircraftData, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.data: AircraftData = data

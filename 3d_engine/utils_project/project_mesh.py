@@ -1,5 +1,7 @@
 from abc import ABCMeta, abstractmethod
 
+from pyproj import Transformer
+
 from utils.mesh import Mesh
 
 class ProjectMesh(metaclass=ABCMeta):
@@ -11,6 +13,7 @@ class ProjectMesh(metaclass=ABCMeta):
     - scaling policy
     - mesh generation logic
     """
+    FT_TO_M = 0.3048
 
     def __init__(
             self,
@@ -19,6 +22,7 @@ class ProjectMesh(metaclass=ABCMeta):
             lat: float,
             lon: float,
             altitude: float,
+            transformer: Transformer
     ) -> None:
         """
         :param horizontal_scale:the height scale converts the height in meter to the scale into the mesh
@@ -37,14 +41,12 @@ class ProjectMesh(metaclass=ABCMeta):
         self.lon: float = lon
         # the altitude serves as an offset for the mesh in which it should be places later on,
         # e.g. for the plane the actual height or for the terrain the lowest point of the terrain
+        # note: this height should be in meters
         self.altitude: float = altitude
+
+        # WGS 84 / UTM zone xxx
+        self.transformer: Transformer = transformer
 
     @abstractmethod
     def generate_mesh(self) -> Mesh:
         pass
-
-
-
-def utm_epsg(lat: float, lon: float) -> str:
-    zone = int((lon + 180) // 6) + 1
-    return f"EPSG:{32600 + zone if lat >= 0 else 32700 + zone}"

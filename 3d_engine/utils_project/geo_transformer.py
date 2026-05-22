@@ -8,13 +8,9 @@ class GeoTransformer:
             lon: float,
             horizontal_scale: float,
             vertical_scale: float,
+            transformer: Transformer,
     ) -> None:
-        self.transformer = Transformer.from_crs(
-            "EPSG:4326",
-            "EPSG:32632",
-            always_xy=True
-        )
-
+        self.transformer: Transformer = transformer
         self.horizontal_scale = horizontal_scale
         self.vertical_scale = vertical_scale
 
@@ -33,3 +29,8 @@ class GeoTransformer:
 
     def altitude_to_local(self, alt_m: float):
         return alt_m * self.vertical_scale
+
+    @staticmethod
+    def utm_epsg(lat: float, lon: float) -> str:
+        zone = int((lon + 180) // 6) + 1
+        return f"EPSG:{32600 + zone if lat >= 0 else 32700 + zone}"

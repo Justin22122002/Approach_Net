@@ -1,6 +1,7 @@
 from pathlib import Path
 
-from utils.airac_net_client import AiracNetClient
+from pyproj import Transformer
+
 from utils.airport import Airport
 from utils.arinc_runway import ArincRunway
 from utils.engine import Engine
@@ -15,15 +16,31 @@ from utils_project.geo_transformer import GeoTransformer
 from utils_project.runway_project_mesh import RunwayProjectMesh
 from utils_project.terrain_project_mesh import TerrainProjectMesh
 
-icao = {
+icao_vancouver = {
+    "icao": "CYVR",
+    "lat": 49.1967,
+    "lon": -123.1815
+}
+
+icao_frankfurt = {
     "icao": "EDDF",
     "lat": 50.0379,
     "lon": 8.5622
 }
 
+icao = icao_frankfurt
+
+crs_to: str = GeoTransformer.utm_epsg(icao["lat"], icao["lon"])
+
+transformer: Transformer = Transformer.from_crs(
+    crs_from="EPSG:4326",
+    crs_to=crs_to,
+    always_xy=True
+)
+
 # --- load airport data section ---
 basePath: Path = Path("../src/data")
-frankfurt = Airport.load_from_folder(basePath, "EDDF")
+frankfurt = Airport.load_from_folder(basePath, icao["icao"])
 
 # instead of loading the runway data from the client via: AiracNetClient().get_airport_full(icao["icao"])
 # we load the pre saved data from the base path
@@ -51,7 +68,7 @@ grid = provider.get_terrain(
 )
 
 horizontal_scale = 0.01
-vertical_scale = 0.03
+vertical_scale = 0.01
 
 terrain_project_mesh = TerrainProjectMesh(
     grid=grid,
@@ -60,7 +77,8 @@ terrain_project_mesh = TerrainProjectMesh(
     lat_max=LAT_MAX,
     lon_max=LON_MAX,
     horizontal_scale=horizontal_scale,
-    vertical_scale=vertical_scale
+    vertical_scale=vertical_scale,
+    transformer=transformer
 )
 
 terrain_mesh = terrain_project_mesh.generate_mesh()
@@ -69,14 +87,15 @@ geo = GeoTransformer(
     lat=0.0,
     lon=0.0,
     horizontal_scale=horizontal_scale,
-    vertical_scale=vertical_scale
+    vertical_scale=vertical_scale,
+    transformer=transformer
 )
 
 dx, dz = geo.to_local(terrain_project_mesh.lat, terrain_project_mesh.lon)
 
 terrain_position = Vec3(
     dx,
-    geo.altitude_to_local(terrain_project_mesh.base_altitude),
+    geo.altitude_to_local(terrain_project_mesh.altitude),
     dz
 )
 
@@ -112,12 +131,13 @@ for runway in runways:
         horizontal_scale=horizontal_scale,
         vertical_scale=vertical_scale,
         displaced_threshold_ft=runway.displaced_threshold,
+        transformer=transformer
     )
 
     runway_mesh = runway_mesh_builder.generate_mesh()
 
-    cx, cz = geo.to_local(runway.latitude, runway.longitude)
-    cy = geo.altitude_to_local(runway.runway_altitude * 0.3048)
+    cx, cz = geo.to_local(runway_mesh_builder.lat, runway_mesh_builder.lon)
+    cy = geo.altitude_to_local(runway_mesh_builder.altitude)
 
     runway_go = scene.spawn(f"Runway_{runway.runway_identifier}")
 
@@ -143,7 +163,7 @@ engine.camera = FlyCamera(speed=100.0)
 
 engine.camera.position = Vec3(
     rw.x,
-    geo.altitude_to_local(terrain_project_mesh.base_altitude) + 50,
+    geo.altitude_to_local(terrain_project_mesh.altitude) + 50,
     rw.z
 )
 
