@@ -16,7 +16,6 @@ from src.utils.open_airport_map_client import OpenAirportMapClient, only_r_appro
 transformer = Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)
 
 def main():
-
     client = OpenStreetMapAirportClient()
     client2 = OpenAirportMapClient()
     frankfurt: Airport = client2.load_new_airport(

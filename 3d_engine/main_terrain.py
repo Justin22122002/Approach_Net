@@ -1,4 +1,7 @@
+from pathlib import Path
+
 from utils.airac_net_client import AiracNetClient
+from utils.airport import Airport
 from utils.arinc_runway import ArincRunway
 from utils.engine import Engine
 from utils.meshRenderer import MeshRenderer
@@ -6,14 +9,11 @@ from utils.material import Material
 from utils.color import Color
 from utils.directionalLight import DirectionalLight
 from utils.camera import FlyCamera
-from utils.sky import Sky
 from utils.terrain_client import CopernicusDEMProvider
 from utils.vec3 import Vec3
-
-from utils_project.project_mesh import (
-    GeoTransformer,
-    TerrainProjectMesh, RunwayProjectMesh
-)
+from utils_project.geo_transformer import GeoTransformer
+from utils_project.runway_project_mesh import RunwayProjectMesh
+from utils_project.terrain_project_mesh import TerrainProjectMesh
 
 icao = {
     "icao": "EDDF",
@@ -21,7 +21,13 @@ icao = {
     "lon": 8.5622
 }
 
-runways: list[ArincRunway] = AiracNetClient().get_airport_full(icao["icao"])
+# --- load airport data section ---
+basePath: Path = Path("../src/data")
+frankfurt = Airport.load_from_folder(basePath, "EDDF")
+
+# instead of loading the runway data from the client via: AiracNetClient().get_airport_full(icao["icao"])
+# we load the pre saved data from the base path
+runways: list[ArincRunway] = frankfurt.arinc_424_runway
 
 email = "justin.groh@study.thws.de"
 password = "Copernicus2026!"
@@ -104,7 +110,8 @@ for runway in runways:
         bearing_deg=runway.bearing,
         altitude_ft=runway.runway_altitude,
         horizontal_scale=horizontal_scale,
-        vertical_scale=vertical_scale
+        vertical_scale=vertical_scale,
+        displaced_threshold_ft=runway.displaced_threshold,
     )
 
     runway_mesh = runway_mesh_builder.generate_mesh()
@@ -132,7 +139,7 @@ scene.directional_light = DirectionalLight(
     intensity=1.0
 )
 
-engine.camera = FlyCamera(speed=10.0)
+engine.camera = FlyCamera(speed=100.0)
 
 engine.camera.position = Vec3(
     rw.x,

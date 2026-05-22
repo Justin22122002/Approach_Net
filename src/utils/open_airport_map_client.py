@@ -23,7 +23,7 @@ def only_r_approaches(r: list[ArincRunway]) -> list[ArincRunway]:
     return r
 
 # todo: replace with pyproj package
-def get_bbox_simple(lat: float, lon: float, radius_km: float):
+def get_bbox_simple(lat: float, lon: float, radius_km: float) -> tuple[float, float, float, float]:
     delta_lat = radius_km / 111.0
     delta_lon = radius_km / (111.0 * math.cos(math.radians(lat)))
 

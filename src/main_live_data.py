@@ -41,24 +41,24 @@ def main():
         radius_km=5
     )
 
-    # jfk = client2.load_new_airport(
-    #     icao="KJFK",
-    #     lat=40.63993,
-    #     lon=-73.77869,
-    #     runway_approach_filter=only_r_approaches,
-    #     radius_km=5
-    # )
+    jfk = client2.load_new_airport(
+        icao="KJFK",
+        lat=40.63993,
+        lon=-73.77869,
+        runway_approach_filter=only_r_approaches,
+        radius_km=5
+    )
 
     basePath: Path = Path("data")
     frankfurt.save_to_folder(basePath)
     toronto.save_to_folder(basePath)
-    # jfk.save_to_folder(basePath)
+    jfk.save_to_folder(basePath)
     vancouver.save_to_folder(basePath)
 
     frankfurt = Airport.load_from_folder(basePath, "EDDF")
     toronto = Airport.load_from_folder(basePath, "CYYZ")
     vancouver = Airport.load_from_folder(basePath, "CYVR")
-    # jfk = Airport.load_from_folder(basePath, "KJFK")
+    jfk = Airport.load_from_folder(basePath, "KJFK")
 
     airport = vancouver
 

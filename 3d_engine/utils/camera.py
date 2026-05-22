@@ -53,9 +53,9 @@ class FlyCamera(Camera):
 
     def _front(self) -> Vec3:
         y, p = math.radians(self.yaw), math.radians(self.pitch)
-        return Vec3(math.cos(p)*math.cos(y),
+        return Vec3(math.cos(p) * math.cos(y),
                     math.sin(p),
-                    math.cos(p)*math.sin(y)).normalized()
+                    math.cos(p) * math.sin(y)).normalized()
 
     @override
     def get_view(self) -> np.ndarray:
@@ -106,7 +106,7 @@ class OrbitCamera(Camera):
         self.pitch: float    = 20.0
         self._dragging: bool = False
 
-    def _calc_pos(self):
+    def _calc_pos(self) -> Vec3:
         y, p = math.radians(self.yaw), math.radians(self.pitch)
         x = self.distance * math.cos(p) * math.sin(y)
         yl= self.distance * math.sin(p)
