@@ -8,6 +8,9 @@ from utils_project.project_mesh import ProjectMesh
 
 
 class AircraftProjectMesh(ProjectMesh):
+    """
+    The vertical reference datum is the Earth Gravitational Model 20081 (EGM2008; EPSG 3855).
+    """
     def __init__(
             self,
             aircraft_data: AircraftData,
@@ -18,7 +21,7 @@ class AircraftProjectMesh(ProjectMesh):
         assert aircraft_data.latitude is not None
         assert aircraft_data.longitude is not None
 
-        aircraft_data: AircraftData = aircraft_data
+        self.aircraft_data: AircraftData = aircraft_data
 
         super().__init__(
             horizontal_scale=horizontal_scale,
@@ -31,4 +34,7 @@ class AircraftProjectMesh(ProjectMesh):
 
     @override
     def generate_mesh(self) -> Mesh:
+        """
+        cause aircrafts are represented as points, no mesh is generated
+        """
         pass

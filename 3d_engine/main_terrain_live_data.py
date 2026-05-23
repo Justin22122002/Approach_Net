@@ -175,7 +175,7 @@ engine.camera.position = Vec3(
 )
 
 ### fetch live aircraft data
-half_edge_km = 10
+half_edge_km = 20
 opensky_client = OpenSkyRestClient()
 last_update_time = 0
 aircraft_points: dict[str, Any] = {}
@@ -190,7 +190,7 @@ def on_update(dt: float) -> None:
         last_update_time = current_time
         print(f"Flüge aktualisiert: {len(flight_df) if flight_df is not None else 0}")
 
-        aircraft_objects = []
+        aircraft_objects: list[AircraftProjectMesh] = []
         if flight_df is not None and not flight_df.empty:
             for idx, row in flight_df.iterrows():
                 # todo: move mapping in an extra class
@@ -253,9 +253,22 @@ def on_update(dt: float) -> None:
                     if icao24 not in aircraft_points:
                         aircraft_go = scene.spawn(f"Aircraft_{icao24}")
 
+                        color: Color = Color(0.0, 1.0, 0.0)
+                        if (
+                                aircraft_object.aircraft_data.onground
+                                and aircraft_object.aircraft_data.groundspeed == 0.0
+                        ):
+                            color = Color(0.5, 0.5, 0.5)
+
+                        elif (
+                                aircraft_object.aircraft_data.onground
+                                and aircraft_object.aircraft_data.groundspeed > 0.0
+                        ):
+                            color = Color(1.0, 1.0, 0.0)
+
                         aircraft_go.add_component(
                             PointRenderer(
-                                color=Color(1.0, 0.0, 0.0),
+                                color=color,
                                 size=200.0
                             )
                         )

@@ -13,7 +13,7 @@ class ProjectMesh(metaclass=ABCMeta):
     - scaling policy
     - mesh generation logic
     """
-    FT_TO_M = 0.3048
+    FT_TO_M: float = 0.3048
 
     def __init__(
             self,

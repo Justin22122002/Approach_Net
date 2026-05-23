@@ -8,8 +8,11 @@ coordinate-Mapping  (Aircraft → Engine):
 import math
 import pygame
 
-from aircraft_kinemeatics_2 import AircraftKinematicsState, AircraftKinematicsMaxConstrains, AircraftEnvironment, \
-    AircraftGoal
+from physics.aircraft_environment import AircraftEnvironment
+from physics.aircraft_goal import AircraftGoal
+from physics.aircraft_kinematics_max_constrains import AircraftKinematicsMaxConstrains
+from physics.aircraft_kinematics_state import AircraftKinematicsState
+
 from utils.engine import Engine
 from utils.camera import OrbitCamera
 from utils.vec3 import Vec3
@@ -42,8 +45,8 @@ b737 = AircraftKinematicsState(
     x=0.0, y=0.0, h=3000.0,
     v=220.0, gamma=0.0, chi=0.0,
     mass=65000.0,
-    C_D=0.028,
-    C_L=0.7,
+    C_D0=0.028,
+    C_L0=0.7,
     area=124.6,
 )
 
@@ -117,7 +120,7 @@ def on_update(dt: float) -> None:
 
     _phys_acc += dt
     while _phys_acc >= PHYS_DT:
-        env.apply_action_2(
+        env.apply_action(
             thrust=thrust,
             load_factor=load_factor,
             roll=roll,

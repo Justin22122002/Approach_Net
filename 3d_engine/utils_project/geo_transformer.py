@@ -16,10 +16,10 @@ class GeoTransformer:
 
         self.origin_x, self.origin_y = self.latlon_to_utm(lat, lon)
 
-    def latlon_to_utm(self, lat: float, lon: float):
+    def latlon_to_utm(self, lat: float, lon: float) -> tuple[float, float]:
         return self.transformer.transform(lon, lat)
 
-    def to_local(self, lat: float, lon: float):
+    def to_local(self, lat: float, lon: float) -> tuple[float, float]:
         x, y = self.latlon_to_utm(lat, lon)
 
         dx = (x - self.origin_x) * self.horizontal_scale
@@ -27,7 +27,13 @@ class GeoTransformer:
 
         return dx, dz
 
-    def altitude_to_local(self, alt_m: float):
+    def to_local_in_m(self, x: float, y: float) -> tuple[float, float]:
+        dx = (x - self.origin_x) * self.horizontal_scale
+        dz = (self.origin_y - y) * self.horizontal_scale
+
+        return dx, dz
+
+    def altitude_to_local(self, alt_m: float) -> float:
         return alt_m * self.vertical_scale
 
     @staticmethod

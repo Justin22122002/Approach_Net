@@ -4,6 +4,7 @@ import requests
 import numpy as np
 from rasterio.io import MemoryFile
 import matplotlib.pyplot as plt
+from pyproj import Transformer
 
 
 class CopernicusDEMProvider:
@@ -18,9 +19,8 @@ class CopernicusDEMProvider:
 
     [https://dataspace.copernicus.eu/sites/default/files/media/files/2024-06/geo1988-copernicusdem-spe-002_producthandbook_i5.0.pdf] -> 1.2.1
     """
-    TOKEN_URL = "https://identity.dataspace.copernicus.eu/auth/realms/CDSE/protocol/openid-connect/token"
-    PROCESS_URL = "https://sh.dataspace.copernicus.eu/api/v1/process"
-    METER_TO_FEET = 3.28084
+    TOKEN_URL: str = "https://identity.dataspace.copernicus.eu/auth/realms/CDSE/protocol/openid-connect/token"
+    PROCESS_URL: str = "https://sh.dataspace.copernicus.eu/api/v1/process"
 
     def __init__(self, username: str, password: str) -> None:
         self.username: str = username
