@@ -22,7 +22,7 @@ coordinate standard / sphere projection: https://dataspace.copernicus.eu/sites/d
 
 ### flightplandatabase
 
-api: https://api.flightplandatabase.com/nav/airport
+api: https://api.flightplandatabase.com/nav/airport -> https://flightplandatabase.com/dev/api
 
 coordinate standard / sphere projection: -> WGS84
 

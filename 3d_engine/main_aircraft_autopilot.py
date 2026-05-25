@@ -42,6 +42,7 @@ cam = OrbitCamera(distance=25.0)
 cam.pitch = 15.0
 engine.camera = cam
 
+# chi is here set to 0.0, and so the plane will fly in y direction and so in opengl in -z
 b737 = AircraftKinematicsState(
     x=0.0, y=0.0, h=3000.0,
     v=220.0, gamma=0.0, chi=0.0,
@@ -52,9 +53,7 @@ b737 = AircraftKinematicsState(
 )
 
 constraints = AircraftKinematicsMaxConstrains(
-    v_min=60, v_max=300,
-    roc_max=25, rod_max=25,
-    gamma_dot_max=15, chi_dot_max=15,
+    cl_max=3.0
 )
 
 goal = AircraftGoal(x=10000.0, y=10000.0, h=1000.0)
@@ -119,14 +118,27 @@ def on_update(dt: float) -> None:
         p0 = np.array([b737.x, b737.y, b737.h])
         v_vec = b737.velocity_vector()
 
-        goal_vec = np.array([goal.x, goal.y, goal.h]) - p0
+        # ---- Regler system -> v_dot = np.array([goal.x, goal.y, goal.h]) - p0
+        pos_error = np.array([goal.x, goal.y, goal.h]) - p0
+        dist = np.linalg.norm(pos_error)
 
-        v_dot = goal_vec
+        if dist > 1e-6:
+            direction = pos_error / dist
+        else:
+            direction = np.zeros(3)
+
+        K = np.clip(dist * 0.0001, 0.2, 2.0)
+        v_desired = direction * min(dist * 0.5, 250.0)
+        v_dot = K * (v_desired - v_vec)
+        # ----
 
         t_hat, _, n_hat = env.unit_vectors_with_roll(roll)
         g_vec = env.gravity
 
-        drag = b737.drag_force()
+        requested_cl = b737.required_lift_coefficient(load_factor=load_factor)
+        actual_cl = min(requested_cl, constraints.cl_max)
+
+        drag = b737.drag_force(actual_cl)
 
         # v̇ = ((T - D) / m) · (v⃗ / ‖v⃗‖) + (L / m) · n⃗ + g⃗
         # T = m ( v̇ · t̂ ) + D

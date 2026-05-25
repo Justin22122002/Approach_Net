@@ -51,44 +51,68 @@ class AircraftKinematicsState:
             self.v * np.sin(np.radians(self.gamma)),
         ])
 
-    def drag_force(self) -> float:
+    def drag_force(self, cl: float,) -> float:
         """
         D = 1/2 · ρ · v² · C_D · A
         """
         rho = self.air_density()
-        CD = self.drag_coefficient()
+        CD = self.drag_coefficient(cl)
         return 0.5 * rho * self.v ** 2 * CD * self.area
 
-    def lift_force(self) -> float:
+    def lift_force(self, cl: float) -> float:
         """
         L = 1/2 · ρ · v² · C_L · A
         """
         rho = self.air_density()
-        CL = self.lift_coefficient()
-        base_lift = 0.5 * rho * self.v ** 2 * CL * self.area
-        return base_lift
+        return 0.5 * rho * self.v ** 2 * cl * self.area
 
     def air_density(self) -> float:
         """
         ρ(h) = ρ₀ · e^−h/H
         note: h is in meter
+        H = scale height
         """
         return self.rho0 * np.exp(-self.h / self.H)
 
     def lift_coefficient(self) -> float:
         """
+        old formula:
         C_L = C_L_alpha · alpha + C_L0
         note: alpha ist always 0, because of our directed flight model, e.g., see the formula:
         https://walter.bislins.ch/aviatik/index.asp?page=Berechnung+des+Auftriebs
         """
         return self.C_L0
 
-    def drag_coefficient(self) -> float:
+    def drag_coefficient(self, cl: float) -> float:
         """
         C_D = C_D0 + k · C_L²
         """
-        CL = self.lift_coefficient()
-        return self.C_D0 + self.k * CL ** 2
+        return self.C_D0 + self.k * cl ** 2
+
+    def required_lift_coefficient(
+            self,
+            load_factor: float,
+    ) -> float:
+        """
+        Required lift coefficient for a desired load factor.
+
+        Load factor:
+            n = L / (m·g) -> L = n·m·g
+
+        Lift equation:
+            L = 1/2 · ρ · v² · C_L · S
+
+        solving for C_L:
+            C_L = (2·L)  / (ρ · v² · S)
+            C_L = (2·n·m·g)  / (ρ · v² · S)
+        """
+
+        rho = self.air_density()
+
+        return (
+                2.0 * load_factor * self.mass * 9.81
+                / (rho * self.v ** 2 * self.area)
+        )
 
     def to_array(self) -> NDArray[np.float64]:
         return np.array([

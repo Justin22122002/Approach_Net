@@ -149,20 +149,22 @@ class AircraftEnvironment:
         # t⃗ , _, n⃗
         t_hat, _, n_hat = self.unit_vectors_with_roll(roll)
 
-        # D = 1/2 · ρ · v² · C_D · A
-        drag = self.state.drag_force()
-        # L = 1/2 · ρ · v² · C_L · A
-        # lift is included in the load factor now
-        max_lift = self.state.lift_force()
-        # L = n · m · g
-        requested_lift = load_factor * self.state.mass * 9.81
-        actual_lift = min(requested_lift, max_lift)
+        # C_L = (2·n·m·g)  / (ρ · v² · S)
+        requested_cl = self.state.required_lift_coefficient(
+            load_factor=load_factor
+        )
 
-        # when thrust is 1.0, then the velocity stays the same, otherwise increase or decrease
-        # todo: this can cause an overflow
-        # gamma = np.radians(self.state.gamma)
-        # T_trim = drag + self.state.mass * 9.81 * np.sin(gamma)
-        # thrust = T_trim * thrust
+        actual_cl = min(
+            requested_cl,
+            self.constraints.cl_max
+        )
+
+        # D = 1/2 · ρ · v² · C_D · A
+        drag = self.state.drag_force(actual_cl)
+        # L = n · m · g
+        # lift is included in the load factor now
+        # L = 1/2 · ρ · v² · C_L · A
+        actual_lift = self.state.lift_force(actual_cl)
 
         # v̇ = ((T - D) / m) · (v⃗ / ‖v⃗‖) + (L / m) · n⃗ + g⃗
         v_dot = (
@@ -181,12 +183,6 @@ class AircraftEnvironment:
 
         # v = ||v⃗||
         self.state.v = np.linalg.norm(v_vec)
-
-        # γ = arcsin(v_z / v)
-        #self.state.gamma = np.degrees(np.arcsin(v_vec[2] / self.state.v))
-
-        # 𝒳 = arctan2(v_x, v_y)
-        # self.state.chi = np.degrees(np.arctan2(v_vec[0], v_vec[1]))
 
         # γ̇ = (v * v̇_z - v_z * v̇) / (v² * cos(γ))
         # v = ||v⃗||

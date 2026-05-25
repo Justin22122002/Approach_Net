@@ -117,7 +117,13 @@ class AiracNetClient:
             fixes=fixes,
         )
 
-    def get_runways(self, icao: str, magnetic_variation: float, airport_elevation: float, approaches: list[Approach]) -> list[ArincRunway]:
+    def get_runways(
+            self,
+            icao: str,
+            magnetic_variation: float,
+            airport_elevation: float,
+            approaches: list[Approach]
+    ) -> list[ArincRunway]:
         r = requests.get(
             f"{self.nav_base}/{icao}",
             headers=self.nav_headers

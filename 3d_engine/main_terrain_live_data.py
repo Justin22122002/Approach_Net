@@ -23,6 +23,11 @@ from utils_project.geo_transformer import GeoTransformer
 from utils_project.runway_project_mesh import RunwayProjectMesh
 from utils_project.terrain_project_mesh import TerrainProjectMesh
 
+from pyproj import datadir
+
+path: Path = Path("../src/pyproj")
+datadir.append_data_dir(path)
+
 icao_vancouver = {
     "icao": "CYVR",
     "lat": 49.1967,

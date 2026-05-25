@@ -51,9 +51,7 @@ b737 = AircraftKinematicsState(
 )
 
 constraints = AircraftKinematicsMaxConstrains(
-    v_min=60, v_max=300,
-    roc_max=25, rod_max=25,
-    gamma_dot_max=15, chi_dot_max=15,
+    cl_max=3.0
 )
 
 goal = AircraftGoal(x=40000.0, y=25000.0, h=1000.0)
