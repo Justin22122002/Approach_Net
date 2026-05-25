@@ -1,5 +1,5 @@
 import math
-from typing import Optional
+from typing import Optional, Tuple
 
 import numpy as np
 from OpenGL.GL import (
@@ -104,10 +104,11 @@ void main() {
     float haze = exp(-abs(elev) * 5.0);
     skyColor   = mix(skyColor, vec3(0.82, 0.89, 0.97), haze * 0.35);
 
-    float distToCloud = uCloudAltitude;
+    float distToCloud = uCloudAltitude - uCamPos.y;
+    float cloudSign   = sign(distToCloud);
 
-    if (elev > 0.005) {
-        float tCloud   = distToCloud / max(dir.y, 0.001);
+    if (abs(distToCloud) > 0.01 && elev * cloudSign > 0.005) {
+        float tCloud   = abs(distToCloud) / max(abs(dir.y), 0.001);
         vec2  cloudHit = uCamPos.xz + dir.xz * tCloud;
         vec2  cloudUV  = cloudHit * 0.008;
 
@@ -116,22 +117,22 @@ void main() {
         float c2    = fbm(uv1 * 2.3 + vec2(5.7, 3.1));
         float cloud = c1 * 0.65 + c2 * 0.35;
 
-        vec2  uv2   = cloudUV * 3.3 + uTime * uCloudSpeed * 1.8 * vec2(0.6, 1.0);
+        vec2  uv2    = cloudUV * 3.3 + uTime * uCloudSpeed * 1.8 * vec2(0.6, 1.0);
         float cirrus = fbm(uv2) * 0.3;
 
         float threshold = 0.78 - uCloudDensity * 0.32;
         cloud  = smoothstep(threshold, threshold + 0.15, cloud);
         cirrus = smoothstep(0.62, 0.75, cirrus);
 
-        float horizonFade = smoothstep(0.0, 0.12, elev);
+        float horizonFade = smoothstep(0.005, 0.15, abs(elev));
         cloud  *= horizonFade;
         cirrus *= horizonFade * 0.5;
 
-        vec3  cloudNorm  = normalize(vec3(dir.x, 0.6, dir.z));
-        float cloudLit   = dot(cloudNorm, uSunDir) * 0.5 + 0.5;
-        vec3  cloudColor = mix(vec3(0.72, 0.76, 0.85), vec3(1.00, 0.97, 0.93), cloudLit);
-        cloudColor += vec3(1.0, 0.9, 0.7) * pow(max(dot(dir, uSunDir), 0.0), 12.0) * 0.15;
+        float litY    = cloudSign * 0.6;
+        float cloudLit = dot(normalize(vec3(dir.x, litY, dir.z)), uSunDir) * 0.5 + 0.5;
 
+        vec3 cloudColor  = mix(vec3(0.72, 0.76, 0.85), vec3(1.00, 0.97, 0.93), cloudLit);
+        cloudColor      += vec3(1.0, 0.9, 0.7) * pow(max(dot(dir, uSunDir), 0.0), 12.0) * 0.15;
         vec3 cirrusColor = mix(vec3(0.82, 0.87, 0.95), vec3(1.0, 0.98, 0.94), cloudLit);
 
         skyColor = mix(skyColor, cloudColor,  cloud);
