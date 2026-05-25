@@ -185,6 +185,19 @@ opensky_client = OpenSkyRestClient()
 last_update_time = 0
 aircraft_points: dict[str, Any] = {}
 
+"""
+    PROJ_DOWNLOAD_DIR="$(python -c 'import pyproj; print(pyproj.datadir.get_user_data_dir())')"
+    cd "$PROJ_DOWNLOAD_DIR"
+    curl -O 'https://cdn.proj.org/us_nga_egm08_25.tif'
+
+    see: https://gis.stackexchange.com/questions/454317/how-to-convert-wgs84-from-ellipsoidal-height-to-mean-sea-level-i-e-height-above
+"""
+tform = Transformer.from_crs(
+    "epsg:4979",
+    "epsg:4326+3855",
+    always_xy=True
+)
+
 def on_update(dt: float) -> None:
     global last_update_time
 
@@ -220,6 +233,13 @@ def on_update(dt: float) -> None:
 
                 if pd.isna(geoaltitude):
                      geoaltitude = airport_data.arinc_424_runway[0].runway_altitude * 0.3048
+                else:
+                    _, _, new_height = tform.transform(
+                        longitude,
+                        latitude,
+                        geoaltitude
+                    )
+                    geoaltitude = new_height
 
                 data = AircraftData(
                     icao24=icao24,

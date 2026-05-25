@@ -48,7 +48,6 @@ b737 = AircraftKinematicsState(
     v=220.0, gamma=0.0, chi=0.0,
     mass=65000.0,
     C_D0=0.028,
-    C_L0=0.7,
     area=124.6,
 )
 
@@ -56,7 +55,7 @@ constraints = AircraftKinematicsMaxConstrains(
     cl_max=3.0
 )
 
-goal = AircraftGoal(x=10000.0, y=10000.0, h=1000.0)
+goal = AircraftGoal(x=10000.0, y=10000.0, h=4000.0)
 env  = AircraftEnvironment(state=b737, goal=goal, constraints=constraints, dt=0.1)
 
 thrust      = 240000.0
@@ -115,51 +114,9 @@ def on_update(dt: float) -> None:
     _phys_acc += dt
 
     while _phys_acc >= PHYS_DT:
-        p0 = np.array([b737.x, b737.y, b737.h])
-        v_vec = b737.velocity_vector()
+        thrust, load_factor, roll = env.autopilot()
 
-        # ---- Regler system -> v_dot = np.array([goal.x, goal.y, goal.h]) - p0
-        pos_error = np.array([goal.x, goal.y, goal.h]) - p0
-        dist = np.linalg.norm(pos_error)
-
-        if dist > 1e-6:
-            direction = pos_error / dist
-        else:
-            direction = np.zeros(3)
-
-        K = np.clip(dist * 0.0001, 0.2, 2.0)
-        v_desired = direction * min(dist * 0.5, 250.0)
-        v_dot = K * (v_desired - v_vec)
-        # ----
-
-        t_hat, _, n_hat = env.unit_vectors_with_roll(roll)
-        g_vec = env.gravity
-
-        requested_cl = b737.required_lift_coefficient(load_factor=load_factor)
-        actual_cl = min(requested_cl, constraints.cl_max)
-
-        drag = b737.drag_force(actual_cl)
-
-        # v̇ = ((T - D) / m) · (v⃗ / ‖v⃗‖) + (L / m) · n⃗ + g⃗
-        # T = m ( v̇ · t̂ ) + D
-        thrust = b737.mass * np.dot(v_dot, t_hat) + drag
         thrust = np.clip(thrust, 0.0, 350000.0)
-
-        # n = ((v̇ - g) · n̂) / g
-        load_factor = np.dot((v_dot - g_vec), n_hat) / 9.81
-
-        # 𝒳̇ = (g · tan(φ)) / v
-        desired_chi = np.arctan2(goal.x - b737.x, goal.y - b737.y)
-
-        vx, vy, _ = v_vec
-        current_chi = np.arctan2(vx, vy)
-
-        chi_dot = (desired_chi - current_chi)
-
-        # φ = arctan( v · 𝒳̇ / g )
-        roll = np.arctan((b737.v * chi_dot) / 9.81)
-        roll = np.degrees(roll)
-
         roll = np.clip(roll, -60.0, 60.0)
 
         env.apply_action(

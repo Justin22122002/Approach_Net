@@ -12,6 +12,8 @@ class ProjectMesh(metaclass=ABCMeta):
     - geographic anchor (lat/lon)
     - scaling policy
     - mesh generation logic
+
+    note: every mesh or object should use wsg84 lat and lon and msl for the height reference
     """
     FT_TO_M: float = 0.3048
 

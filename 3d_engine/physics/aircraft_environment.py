@@ -203,3 +203,50 @@ class AircraftEnvironment:
         self.state.chi += np.degrees(chi_dot * self.dt)
 
         return self.state.to_array()
+
+    def autopilot(self) -> tuple[float, float, float]:
+        p0 = np.array([self.state.x, self.state.y, self.state.h])
+        v_vec = self.state.velocity_vector()
+
+        # ---- Regler system -> v_dot = np.array([goal.x, goal.y, goal.h]) - p0
+        pos_error = np.array([self.goal.x, self.goal.y, self.goal.h]) - p0
+        dist = np.linalg.norm(pos_error)
+
+        if dist > 1e-6:
+            direction = pos_error / dist
+        else:
+            direction = np.zeros(3)
+
+        K = np.clip(dist * 0.0001, 0.2, 2.0)
+        v_desired = direction * min(dist * 0.5, 250.0)
+        v_dot = K * (v_desired - v_vec)
+        # ----
+
+        t_hat, _, n_hat = self.unit_vectors_with_roll(0.0)
+        g_vec = self.gravity
+
+        requested_cl = self.state.required_lift_coefficient(load_factor=0.0)
+        actual_cl = min(requested_cl, self.constraints.cl_max)
+
+        drag = self.state.drag_force(actual_cl)
+
+        # v̇ = ((T - D) / m) · (v⃗ / ‖v⃗‖) + (L / m) · n⃗ + g⃗
+        # T = m ( v̇ · t̂ ) + D
+        thrust = self.state.mass * np.dot(v_dot, t_hat) + drag
+
+        # n = ((v̇ - g) · n̂) / g
+        load_factor = np.dot((v_dot - g_vec), n_hat) / 9.81
+
+        # 𝒳̇ = (g · tan(φ)) / v
+        desired_chi = np.arctan2(self.goal.x - self.state.x, self.goal.y - self.state.y)
+
+        vx, vy, _ = v_vec
+        current_chi = np.arctan2(vx, vy)
+
+        chi_dot = (desired_chi - current_chi)
+
+        # φ = arctan( v · 𝒳̇ / g )
+        roll = np.arctan((self.state.v * chi_dot) / 9.81)
+        roll = np.degrees(roll)
+
+        return thrust, load_factor, roll

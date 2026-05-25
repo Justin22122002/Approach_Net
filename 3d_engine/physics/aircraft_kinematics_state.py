@@ -13,7 +13,6 @@ class AircraftKinematicsState:
             chi: float,
             mass: float,
             C_D0: float,
-            C_L0: float,
             area: float,
             rho0: float = 1.225,
             k: float = 0.2,
@@ -28,7 +27,6 @@ class AircraftKinematicsState:
 
         self.mass: float = mass      # [kg]
         self.C_D0: float = C_D0        # drag coefficient
-        self.C_L0: float = C_L0        # lift coefficient
         self.area: float = area      # wing reference area [m²]
         self.rho0: float = rho0        # air density [kg/m³]
         self.k: float = k
@@ -74,15 +72,6 @@ class AircraftKinematicsState:
         """
         return self.rho0 * np.exp(-self.h / self.H)
 
-    def lift_coefficient(self) -> float:
-        """
-        old formula:
-        C_L = C_L_alpha · alpha + C_L0
-        note: alpha ist always 0, because of our directed flight model, e.g., see the formula:
-        https://walter.bislins.ch/aviatik/index.asp?page=Berechnung+des+Auftriebs
-        """
-        return self.C_L0
-
     def drag_coefficient(self, cl: float) -> float:
         """
         C_D = C_D0 + k · C_L²
@@ -105,6 +94,11 @@ class AircraftKinematicsState:
         solving for C_L:
             C_L = (2·L)  / (ρ · v² · S)
             C_L = (2·n·m·g)  / (ρ · v² · S)
+
+        old formula:
+        C_L = C_L_alpha · alpha + C_L0
+        note: alpha ist always 0, because of our directed flight model, e.g., see the formula:
+        https://walter.bislins.ch/aviatik/index.asp?page=Berechnung+des+Auftriebs
         """
 
         rho = self.air_density()
@@ -124,7 +118,6 @@ class AircraftKinematicsState:
             self.chi,
             self.mass,
             self.C_D0,
-            self.C_L0,
             self.area
         ])
 
@@ -139,6 +132,5 @@ class AircraftKinematicsState:
             chi=arr[5],
             mass=arr[6],
             C_D0=arr[7],
-            C_L0=arr[8],
-            area=arr[9],
+            area=arr[8],
         )

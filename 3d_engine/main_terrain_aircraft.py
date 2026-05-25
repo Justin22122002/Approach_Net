@@ -176,7 +176,6 @@ b737 = AircraftKinematicsState(
     v=220.0, gamma=0.0, chi=0.0,
     mass=65000.0,
     C_D0=0.028,
-    C_L0=0.7,
     area=124.6,
 )
 
