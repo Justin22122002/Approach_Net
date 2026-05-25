@@ -222,10 +222,31 @@ class AircraftEnvironment:
         v_dot = K * (v_desired - v_vec)
         # ----
 
-        t_hat, _, n_hat = self.unit_vectors_with_roll(0.0)
+        desired_chi = np.arctan2(
+            self.goal.x - self.state.x,
+            self.goal.y - self.state.y
+        )
+
+        vx, vy, _ = v_vec
+        current_chi = np.arctan2(vx, vy)
+
+        chi_dot = desired_chi - current_chi
+
+        roll = np.degrees(
+            np.arctan((self.state.v * chi_dot) / 9.81)
+        )
+
+        # this can be done, but we can also input for roll and load_factor = 0.0
+        t_hat, _, n_hat = self.unit_vectors_with_roll(roll=roll)
         g_vec = self.gravity
 
-        requested_cl = self.state.required_lift_coefficient(load_factor=0.0)
+        t_hat, _, n_hat = self.unit_vectors_with_roll(roll)
+        load_factor = np.dot(
+            (v_dot - self.gravity),
+            n_hat
+        ) / 9.81
+
+        requested_cl = self.state.required_lift_coefficient(load_factor=load_factor)
         actual_cl = min(requested_cl, self.constraints.cl_max)
 
         drag = self.state.drag_force(actual_cl)

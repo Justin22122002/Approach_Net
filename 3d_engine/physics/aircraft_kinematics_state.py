@@ -16,21 +16,25 @@ class AircraftKinematicsState:
             area: float,
             rho0: float = 1.225,
             k: float = 0.2,
-            H: float = 8500.0,
     ) -> None:
-        self.x: float = x         # m or lon
-        self.y: float = y         # m or lat
-        self.h: float = h         # m or feet
-        self.v: float = v         # m/s
-        self.gamma: float = gamma # γ flight path angle (Flugbahnwinkel)
-        self.chi: float = chi     # 𝒳 Track angle / Course angle (Kursbahnwinkel) from North, clockwise
+        self.x: float = x            # m or lon
+        self.y: float = y            # m or lat
+        self.h: float = h            # m or feet
+        self.v: float = v            # m/s
+        self.gamma: float = gamma    # γ flight path angle (Flugbahnwinkel)
+        self.chi: float = chi        # 𝒳 Track angle / Course angle (Kursbahnwinkel) from North, clockwise
 
         self.mass: float = mass      # [kg]
-        self.C_D0: float = C_D0        # drag coefficient
+        self.C_D0: float = C_D0      # drag coefficient
         self.area: float = area      # wing reference area [m²]
-        self.rho0: float = rho0        # air density [kg/m³]
+        self.rho0: float = rho0      # air density [kg/m³]
         self.k: float = k
-        self.H: float = H
+
+        self.g: float = 9.81         # earth gravity
+        self.R: float = 287.05       # gas constant for air [J/(kg·K)]
+        self.T: float = 288.15       # temperature in kelvin [K]
+        # H = (R · T) / g
+        self.H: float = (self.R * self.T) / self.g
 
     def velocity_vector(self) -> NDArray[np.float64]:
         """
@@ -66,6 +70,7 @@ class AircraftKinematicsState:
 
     def air_density(self) -> float:
         """
+        H = (R · T) / g
         ρ(h) = ρ₀ · e^−h/H
         note: h is in meter
         H = scale height
