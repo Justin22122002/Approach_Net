@@ -42,3 +42,7 @@ coordinate standard / sphere projection: rnav approch plates -> WGS84
 ## geoid correction
 
 see: https://en.wikipedia.org/wiki/Geoid
+Model	    Year	 Resolution
+EGM96	    1996	 (~30 km)
+EGM2008	    2008	 (~10 km)
+EGM08_25	aus 2008 (~5 km)

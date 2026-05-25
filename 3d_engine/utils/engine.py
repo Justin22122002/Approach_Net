@@ -162,6 +162,7 @@ class Engine:
                     time=self.time,
                     width=self.width,
                     height=self.height,
+                    cam_pos=self.camera.position
                 )
 
             self.scene._draw_all(view, proj)

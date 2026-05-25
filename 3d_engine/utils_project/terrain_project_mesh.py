@@ -64,11 +64,6 @@ class TerrainProjectMesh(ProjectMesh):
             c = max(0, min(cols - 1, c))
             return float(self.grid[r, c]) - min_h
 
-        def height_raw(r, c):
-            r = max(0, min(rows - 1, r))
-            c = max(0, min(cols - 1, c))
-            return float(self.grid[r, c])
-
         for j in range(rows):
             for i in range(cols):
                 lon = self.lon_min + (i / (cols - 1)) * (self.lon_max - self.lon_min)
@@ -82,10 +77,19 @@ class TerrainProjectMesh(ProjectMesh):
 
                 y = h(j, i) * self.vertical_scale
 
-                hx = height_raw(j, i + 1) - height_raw(j, i - 1)
-                hz = height_raw(j + 1, i) - height_raw(j - 1, i)
+                # compute change in height for normals of the mesh
+                dx = self.width_m / (cols - 1)
+                dz = self.height_m / (rows - 1)
 
-                n = Vec3(-hx, 2.0, -hz).normalized()
+                hl = h(j, i - 1) * self.vertical_scale
+                hr = h(j, i + 1) * self.vertical_scale
+                hd = h(j + 1, i) * self.vertical_scale
+                hu = h(j - 1, i) * self.vertical_scale
+
+                sx = (hr - hl) / (2.0 * dx * self.horizontal_scale)
+                sz = (hd - hu) / (2.0 * dz * self.horizontal_scale)
+
+                n = Vec3(-sx, 1.0, -sz).normalized()
 
                 verts += [
                     x, y, z,
@@ -106,3 +110,13 @@ class TerrainProjectMesh(ProjectMesh):
             np.array(verts, dtype=np.float32),
             np.array(idx, dtype=np.uint32)
         )
+
+# old normal code:
+# def height_raw(r, c):
+#     r = max(0, min(rows - 1, r))
+#     c = max(0, min(cols - 1, c))
+#     return float(self.grid[r, c])
+#
+# hx = height_raw(j, i + 1) - height_raw(j, i - 1)
+# hz = height_raw(j + 1, i) - height_raw(j - 1, i)
+# n = Vec3(-hx, 2.0, -hz).normalized()
