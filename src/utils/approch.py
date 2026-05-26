@@ -13,7 +13,7 @@ class FixIdentifier:
     path_terminator: str # e.g -> IF, TF etc
     latitude: float
     longitude: float
-    altitude: float # when receiving from arinc 424 format, this is the height above the runway in feet
+    altitude: float
     sequence_number: str
 
 

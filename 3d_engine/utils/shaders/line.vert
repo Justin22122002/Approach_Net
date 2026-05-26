@@ -9,6 +9,8 @@ uniform mat4 uProjection;
 out vec3 vColor;
 
 void main() {
-    gl_Position = uProjection * uView * uModel * vec4(aPos, 1.0);
-    vColor = aColor;
+    vec4 pos    = uProjection * uView * uModel * vec4(aPos, 1.0);
+    vColor      = aColor;
+    pos.z -= 0.0001 * pos.w; // this serves as a prevention for lines interseting with meshes
+    gl_Position = pos;
 }
