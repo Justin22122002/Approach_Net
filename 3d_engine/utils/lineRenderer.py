@@ -1,30 +1,3 @@
-"""
-LineRenderer – Component for drawing lines in a 3d room.
-
-Vertex-Layout: [x, y, z,  r, g, b]  → 6 floats per point
-drawn with GL_LINES (per 2 points = 1 Segment).
-
-how to use:
-    # single segments -> pairs
-    lr = LineRenderer.segments([
-        (Vec3(0,0,0), Vec3(1,0,0)),
-        (Vec3(0,0,0), Vec3(0,1,0)),
-    ], color=Color.yellow())
-    go.add_component(lr)
-
-    # connected line (Strip)
-    lr = LineRenderer.strip([Vec3(0,0,0), Vec3(1,1,0), Vec3(2,0,0)], color=Color.green())
-
-    # XZ-Gitter
-    go.add_component(LineRenderer.grid(size=20, divisions=20))
-
-    # XYZ-achis cross
-    go.add_component(LineRenderer.axes(length=5.0))
-
-    # wire-frame-cube (AABB)
-    go.add_component(LineRenderer.wire_box(Vec3(-1,-1,-1), Vec3(1,1,1), color=Color.red()))
-"""
-
 import ctypes
 from pathlib import Path
 from typing import Optional
@@ -54,16 +27,19 @@ from OpenGL.GL import (
     glVertexAttribPointer,
 )
 from OpenGL.GL.shaders import compileProgram, compileShader
+from numpy.typing import NDArray
+from typing_extensions import override
 
 from utils.color import Color
 from utils.component import Component
 from utils.material import load_shader_source
+from utils.renderer import Renderer
 from utils.vec3 import Vec3
 
 _VERT_SRC = load_shader_source(Path("utils/shaders/line.vert"))
 _FRAG_SRC = load_shader_source(Path("utils/shaders/line.frag"))
 
-class LineRenderer(Component):
+class LineRenderer(Component, Renderer):
     """
     Renders a set of line segments in 3D space.
 
@@ -129,7 +105,13 @@ class LineRenderer(Component):
 
         glBindVertexArray(0)
 
-    def draw(self, view_mat, proj_mat, scene) -> None:
+    @override
+    def draw(
+            self,
+            view_mat: NDArray[np.float32],
+            proj_mat: NDArray[np.float32],
+            scene: "Scene"
+    ) -> None:
         self._upload()
         prog = self._get_program()
         glUseProgram(prog)
@@ -156,7 +138,6 @@ class LineRenderer(Component):
         color: Optional[Color] = None,
         colors: Optional[list[tuple[Color, Color]]] = None,
     ) -> "LineRenderer":
-        """create lines form start and end pairs (A→B, C→D, …)"""
         points: list[Vec3]  = []
         vcols:  list[Color] = []
         for idx, (a, b) in enumerate(pairs):
@@ -172,7 +153,6 @@ class LineRenderer(Component):
         color: Optional[Color] = None,
         colors: Optional[list[Color]] = None,
     ) -> "LineRenderer":
-        """connects points on an ongoing line (p0-p1-p2-…)."""
         expanded: list[Vec3]  = []
         ecols:    list[Color] = []
         for i in range(len(points) - 1):
@@ -187,20 +167,18 @@ class LineRenderer(Component):
         divisions: int = 10,
         color: Optional[Color] = None,
     ) -> "LineRenderer":
-        """plane XZ-Gitter, centered in the coordinate origin."""
         c    = color or Color(0.35, 0.35, 0.35)
         half = size / 2.0
         step = size / divisions
         pts: list[Vec3] = []
         for i in range(divisions + 1):
             t = -half + i * step
-            pts += [Vec3(t, 0.0, -half), Vec3(t, 0.0,  half)]   # Z-Linie
-            pts += [Vec3(-half, 0.0, t), Vec3( half, 0.0, t)]   # X-Linie
+            pts += [Vec3(t, 0.0, -half), Vec3(t, 0.0,  half)]
+            pts += [Vec3(-half, 0.0, t), Vec3( half, 0.0, t)]
         return LineRenderer(pts, color=c)
 
     @staticmethod
     def axes(length: float = 1.0) -> "LineRenderer":
-        """XYZ-axis-cross: X=red, Y=green, Z=blue."""
         o = Vec3.zero()
         pts = [
             o, Vec3(length, 0, 0),   # X
@@ -220,7 +198,6 @@ class LineRenderer(Component):
         max_pt: Vec3,
         color: Optional[Color] = None,
     ) -> "LineRenderer":
-        """wire-frame-AABB based on two nodes (Ecken)"""
         c = color or Color.white()
         x0, y0, z0 = min_pt.x, min_pt.y, min_pt.z
         x1, y1, z1 = max_pt.x, max_pt.y, max_pt.z
@@ -265,11 +242,6 @@ class LineRenderer(Component):
         return LineRenderer(pts, color=c)
 
     def set_points_strip(self, ordered: list[Vec3], color: Optional[Color] = None) -> None:
-        """
-        Trajektorie dynamisch aktualisieren (jeder Frame aufrufbar).
-        ordered = [p0, p1, p2, …]  → intern zu Segment-Paaren expandiert.
-        Löscht und re-uploaded den GPU-Buffer.
-        """
         if len(ordered) < 2:
             return
         expanded: list[Vec3] = []

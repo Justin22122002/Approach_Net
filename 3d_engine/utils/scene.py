@@ -14,7 +14,7 @@ class Scene:
         self._objects: list[GameObject] = []
         self.ambient_light: Color       = Color(0.2, 0.2, 0.25, 1.0)
         self.directional_light: Optional[DirectionalLight] = DirectionalLight(
-            direction=Vec3(-1,-2,-1),
+            direction=Vec3(-1, -2, -1),
             color=Color(1.0, 0.95, 0.85),
             intensity=1.0
         )

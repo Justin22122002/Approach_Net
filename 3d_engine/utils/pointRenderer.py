@@ -1,24 +1,3 @@
-"""
-PointRenderer – Component for drawing points in a 3d room wiht GL_POINTS.
-
-how to use:
-    # single points
-    go = scene.spawn("Point")
-    go.transform.position = Vec3(1, 2, 3)
-    go.add_component(PointRenderer(color=Color.red(), size=8.0))
-
-    # multiple points
-    go = scene.spawn("Cloud")
-    go.add_component(PointRenderer(
-        points=[Vec3(0,0,0), Vec3(1,1,1), Vec3(2,0,1)],
-        colors=[Color.red(), Color.green(), Color.blue()],
-        size=10.0,
-    ))
-
-note: glPointSize > 1 is in the core profile for most treiber allowed, but not guaranteed
-         Can cause problems on macOS.
-"""
-
 import ctypes
 from pathlib import Path
 from typing import Optional
@@ -51,16 +30,19 @@ from OpenGL.GL import (
     glVertexAttribPointer,
 )
 from OpenGL.GL.shaders import compileProgram, compileShader
+from numpy.typing import NDArray
+from typing_extensions import override
 
 from utils.color import Color
 from utils.component import Component
 from utils.material import load_shader_source
+from utils.renderer import Renderer
 from utils.vec3 import Vec3
 
 _VERT_SRC = load_shader_source(Path("utils/shaders/point.vert"))
 _FRAG_SRC = load_shader_source(Path("utils/shaders/point.frag"))
 
-class PointRenderer(Component):
+class PointRenderer(Component, Renderer):
     """
     renders a single or multiple points in 3D space.
 
@@ -123,7 +105,13 @@ class PointRenderer(Component):
         glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, stride, ctypes.c_void_p(12))
         glBindVertexArray(0)
 
-    def draw(self, view_mat, proj_mat, scene) -> None:
+    @override
+    def draw(
+            self,
+            view_mat: NDArray[np.float32],
+            proj_mat: NDArray[np.float32],
+            scene: "Scene"
+    ) -> None:
         self._upload()
         prog = self._get_program()
         glUseProgram(prog)

@@ -1,8 +1,9 @@
+import numpy as np
+from numpy.typing import NDArray
+
 from utils.component import Component
-from utils.lineRenderer import LineRenderer
-from utils.pointRenderer import PointRenderer
+from utils.renderer import Renderer
 from utils.transform import Transform
-from utils.meshRenderer import MeshRenderer
 
 class GameObject:
     def __init__(self, name: str = "GameObject"):
@@ -32,10 +33,15 @@ class GameObject:
         for c in self._components:
             c.on_update(dt)
 
-    def _draw(self, view_mat, proj_mat, scene) -> None:
+    def _draw(
+        self,
+        view_mat: NDArray[np.float32],
+        proj_mat: NDArray[np.float32],
+        scene: "Scene"
+    ) -> None:
         if not self.active: return
         for c in self._components:
-            if isinstance(c, (MeshRenderer, LineRenderer, PointRenderer)):
+            if isinstance(c, Renderer): # e.g. MeshRenderer, LineRenderer, PointRenderer
                 c.draw(view_mat, proj_mat, scene)
 
     def destroy(self) -> None:
