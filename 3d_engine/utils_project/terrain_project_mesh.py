@@ -3,8 +3,14 @@ from typing import override
 import numpy as np
 from pyproj import Transformer
 
+from utils.color import Color
+from utils.gameObject import GameObject
+from utils.material import Material
 from utils.mesh import Mesh
+from utils.meshRenderer import MeshRenderer
+from utils.scene import Scene
 from utils.vec3 import Vec3
+from utils_project.geo_transformer import GeoTransformer
 from utils_project.project_mesh import ProjectMesh
 
 
@@ -50,6 +56,19 @@ class TerrainProjectMesh(ProjectMesh):
 
         self.width_m: float = abs(self.x1 - self.x0)
         self.height_m: float = abs(self.y1 - self.y0)
+
+    @override
+    def spawn(self, scene: Scene, geo: GeoTransformer) -> list[GameObject]:
+        dx, dz = geo.to_local(self.lat, self.lon)
+        dy = geo.altitude_to_local(self.altitude)
+
+        go = scene.spawn("Terrain")
+        go.transform.position = Vec3(dx, dy, dz)
+        go.add_component(MeshRenderer(
+            self.generate_mesh(),
+            Material(color=Color(0.4, 0.55, 0.3))
+        ))
+        return [go]
 
     @override
     def generate_mesh(self) -> Mesh:

@@ -2,8 +2,11 @@ from pyproj import Transformer
 from typing_extensions import override
 
 from utils.color import Color
+from utils.gameObject import GameObject
 from utils.mesh import Mesh
 from utils.pointRenderer import PointRenderer
+from utils.scene import Scene
+from utils.text_renderer import TextRenderer
 from utils.vec3 import Vec3
 
 from utils.approch import Approach
@@ -36,16 +39,13 @@ class ApproachProjectMesh(ProjectMesh):
             transformer=transformer
         )
 
-    # todo: add abstract method in ProjectMesh with Renderer as return type with generic specification of this method
-    def generate_renderer(
-        self,
-        geo_transformer: GeoTransformer
-    ) -> PointRenderer:
+    @override
+    def spawn(self, scene: Scene, geo_transformer: GeoTransformer) -> list[GameObject]:
+        spawned = []
         points: list[Vec3] = []
 
         for fix in self.approach.fixes:
             if fix.latitude is None or fix.longitude is None:
-                print(f"missing fix: {fix}")
                 continue
 
             dx, dz = geo_transformer.to_local(
@@ -53,28 +53,31 @@ class ApproachProjectMesh(ProjectMesh):
                 fix.longitude
             )
 
-            altitude_m = fix.altitude * self.FT_TO_M
-
             dy = geo_transformer.altitude_to_local(
-                altitude_m
+                fix.altitude * self.FT_TO_M
             )
 
-            points.append(
-                Vec3(dx, dy, dz)
-            )
+            points.append(Vec3(dx, dy, dz))
 
-        if len(points) < 2:
-            return PointRenderer(
-                [Vec3.zero(), Vec3.zero()],
+            label_go = scene.spawn(f"label_{fix.fix_identifier}")
+            label_go.transform.position = Vec3(dx, dy + 1, dz)
+            label_go.add_component(TextRenderer(
+                text=fix.fix_identifier,
+                font_size = 48,
                 color=self.color,
-                size=200.0
-            )
+                billboard=True,
+                world_height=0.6,
+            ))
+            spawned.append(label_go)
 
-        return PointRenderer(
+        approach_go = scene.spawn(f"Approach_{self.approach.procedure_identifier}")
+        approach_go.add_component(PointRenderer(
             points=points,
             color=self.color,
-            size=200.0
-        )
+            size=200.0,
+        ))
+        spawned.append(approach_go)
+        return spawned
 
     @override
     def generate_mesh(self) -> Mesh:

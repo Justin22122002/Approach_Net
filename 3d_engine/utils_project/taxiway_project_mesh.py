@@ -1,10 +1,12 @@
 from pyproj import Transformer
 from typing_extensions import override
 
+from utils.gameObject import GameObject
 from utils.geo_types import Coordinate
 from utils.lineRenderer import LineRenderer
 from utils.mesh import Mesh
 from utils.color import Color
+from utils.scene import Scene
 from utils.vec3 import Vec3
 from utils_project.geo_transformer import GeoTransformer
 from utils_project.project_mesh import ProjectMesh
@@ -35,22 +37,19 @@ class TaxiwayProjectMesh(ProjectMesh):
             transformer=transformer
         )
 
-    def generate_renderer(
-            self,
-            geo_transformer: GeoTransformer
-    ) -> LineRenderer:
-        if len(self.coordinates) < 2:
-            return LineRenderer([Vec3.zero(), Vec3.zero()], color=self.color)
-
-        dy: float = geo_transformer.altitude_to_local(self.altitude)
+    @override
+    def spawn(self, scene: Scene, geo: GeoTransformer) -> list[GameObject]:
+        dy: float = geo.altitude_to_local(self.altitude)
 
         points: list[Vec3] = [
             Vec3(dx, dy, dz)
             for c in self.coordinates
-            for dx, dz in (geo_transformer.to_local(c.lat, c.lon),)
+            for dx, dz in (geo.to_local(c.lat, c.lon),)
         ]
 
-        return LineRenderer.strip(points, color=self.color)
+        go = scene.spawn(f"Taxiway")
+        go.add_component(LineRenderer.strip(points, color=self.color))
+        return [go]
 
     @override
     def generate_mesh(self) -> Mesh:

@@ -1,6 +1,7 @@
 from utils.engine import Engine
 from utils.meshRenderer import MeshRenderer
 from utils.sky import Sky
+from utils.text_renderer import TextRenderer
 from utils.vec3 import Vec3
 from utils.color import Color
 from utils.directionalLight import DirectionalLight
@@ -23,6 +24,16 @@ cube2 = scene.spawn("Cube")
 cube2.add_component(MeshRenderer(Mesh.cube(), material=None))
 cube2.transform.position = Vec3(0, 0, -8)
 
+label = scene.spawn("Label")
+label.transform.position = Vec3(2, 1.5, 0)
+label.add_component(TextRenderer(
+    text="",
+    font_size=48,
+    color=Color.white(),
+    world_height=0.6,
+    billboard=True,
+))
+
 # Lighting
 scene.ambient_light = Color(0.2, 0.2, 0.2)
 scene.directional_light = DirectionalLight(
@@ -44,6 +55,8 @@ engine.sky = Sky(
 scene.directional_light = engine.sky.directional_light
 
 def on_update(dt: float):
+    label.get_component(TextRenderer).set_text(f"Zeit: {engine.time:.1f}s")
+
     engine.sky.sun_elevation += dt * 3.0
 
     if engine.sky.sun_elevation > 180.0:

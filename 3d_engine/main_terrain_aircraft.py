@@ -11,8 +11,6 @@ from utils.airport import Airport
 from utils.arinc_runway import ArincRunway
 from utils.engine import Engine
 from utils.lineRenderer import LineRenderer
-from utils.meshRenderer import MeshRenderer
-from utils.material import Material
 from utils.color import Color
 from utils.directionalLight import DirectionalLight
 from utils.camera import FlyCamera, OrbitCamera
@@ -77,6 +75,14 @@ grid = provider.get_terrain(
 horizontal_scale = 0.01
 vertical_scale = 0.01
 
+geo = GeoTransformer(
+    lat=0.0,
+    lon=0.0,
+    horizontal_scale=horizontal_scale,
+    vertical_scale=vertical_scale,
+    transformer=transformer
+)
+
 terrain_project_mesh = TerrainProjectMesh(
     grid=grid,
     lat_min=LAT_MIN,
@@ -88,24 +94,6 @@ terrain_project_mesh = TerrainProjectMesh(
     transformer=transformer
 )
 
-terrain_mesh = terrain_project_mesh.generate_mesh()
-
-geo = GeoTransformer(
-    lat=0.0,
-    lon=0.0,
-    horizontal_scale=horizontal_scale,
-    vertical_scale=vertical_scale,
-    transformer=transformer
-)
-
-dx, dz = geo.to_local(terrain_project_mesh.lat, terrain_project_mesh.lon)
-
-terrain_position = Vec3(
-    dx,
-    geo.altitude_to_local(terrain_project_mesh.altitude),
-    dz
-)
-
 engine = Engine(
     1280,
     720,
@@ -114,49 +102,18 @@ engine = Engine(
 
 scene = engine.scene
 
-terrain_go = scene.spawn("Terrain")
+terrain_project_mesh.spawn(scene=scene, geo=geo)
 
-terrain_go.add_component(
-    MeshRenderer(
-        terrain_mesh,
-        Material(
-            color=Color(0.4, 0.55, 0.3)
-        )
-    )
-)
-
-terrain_go.transform.position = terrain_position
 rw = None
 for runway in runways:
     runway_mesh_builder = RunwayProjectMesh(
-        lat=runway.latitude,
-        lon=runway.longitude,
-        length_ft=runway.length,
-        width_ft=runway.width,
-        bearing_deg=runway.bearing,
-        altitude_ft=runway.runway_altitude,
+        runway=runway,
         horizontal_scale=horizontal_scale,
         vertical_scale=vertical_scale,
-        displaced_threshold_ft=runway.displaced_threshold,
         transformer=transformer
     )
-
-    runway_mesh = runway_mesh_builder.generate_mesh()
-
-    cx, cz = geo.to_local(runway_mesh_builder.lat, runway_mesh_builder.lon)
-    cy = geo.altitude_to_local(runway_mesh_builder.altitude)
-
-    runway_go = scene.spawn(f"Runway_{runway.runway_identifier}")
-
-    runway_go.transform.position = Vec3(cx, cy, cz)
-
-    rw = Vec3(cx, cy, cz)
-    runway_go.add_component(
-        MeshRenderer(
-            runway_mesh,
-            Material(color=Color(1.0, 1.0, 1.0))
-        )
-    )
+    objects = runway_mesh_builder.spawn(scene, geo)
+    rw = objects[0].transform.position
 
 scene.ambient_light = Color(0.25, 0.25, 0.3)
 

@@ -2,39 +2,41 @@ from typing import override
 
 import numpy as np
 
+from utils.arinc_runway import ArincRunway
+from utils.color import Color
+from utils.gameObject import GameObject
+from utils.material import Material
 from utils.mesh import Mesh
 from pyproj import Transformer, Geod
 
+from utils.meshRenderer import MeshRenderer
+from utils.scene import Scene
 from utils.vec3 import Vec3
+from utils_project.geo_transformer import GeoTransformer
 from utils_project.project_mesh import ProjectMesh
 
 
 class RunwayProjectMesh(ProjectMesh):
     def __init__(
         self,
-        lat: float,
-        lon: float,
-        length_ft: float,
-        width_ft: float,
-        bearing_deg: float,
-        altitude_ft: float,
+        runway: ArincRunway,
         horizontal_scale: float,
         vertical_scale: float,
-        displaced_threshold_ft: float,
         transformer: Transformer,
     ) -> None:
         self.geod = Geod(ellps="WGS84")
-        self.length_m: float = length_ft * self.FT_TO_M
-        self.width_m: float = width_ft * self.FT_TO_M
-        self.displaced_threshold_m: float = displaced_threshold_ft * self.FT_TO_M
-        self.bearing: float = bearing_deg
+        self.runway: ArincRunway = runway
+        self.length_m: float = runway.length * self.FT_TO_M
+        self.width_m: float = runway.width * self.FT_TO_M
+        self.displaced_threshold_m: float = runway.displaced_threshold * self.FT_TO_M
+        self.bearing: float = runway.bearing
 
         super().__init__(
             horizontal_scale=horizontal_scale,
             vertical_scale=vertical_scale,
-            lat=lat,
-            lon=lon,
-            altitude=altitude_ft * self.FT_TO_M,
+            lat=runway.latitude,
+            lon=runway.longitude,
+            altitude=runway.runway_altitude * self.FT_TO_M,
             transformer=transformer
         )
 
@@ -57,6 +59,16 @@ class RunwayProjectMesh(ProjectMesh):
         )
 
         return (start_lat, start_lon), (end_lat, end_lon)
+
+    @override
+    def spawn(self, scene: Scene, geo: GeoTransformer) -> list[GameObject]:
+        cx, cz = geo.to_local(self.lat, self.lon)
+        cy = geo.altitude_to_local(self.altitude)
+
+        go = scene.spawn("Runway")
+        go.transform.position = Vec3(cx, cy, cz)
+        go.add_component(MeshRenderer(self.generate_mesh(), Material(color=Color.white())))
+        return [go]
 
     @override
     def generate_mesh(self) -> Mesh:

@@ -2,7 +2,11 @@ from abc import ABCMeta, abstractmethod
 
 from pyproj import Transformer
 
+from utils.gameObject import GameObject
 from utils.mesh import Mesh
+from utils.scene import Scene
+from utils_project.geo_transformer import GeoTransformer
+
 
 class ProjectMesh(metaclass=ABCMeta):
     """
@@ -51,4 +55,8 @@ class ProjectMesh(metaclass=ABCMeta):
 
     @abstractmethod
     def generate_mesh(self) -> Mesh:
+        pass
+
+    @abstractmethod
+    def spawn(self, scene: Scene, geo: GeoTransformer) -> list[GameObject]:
         pass
