@@ -36,6 +36,103 @@ class Material:
     def __init__(
             self,
             texture: Optional[Texture] = None,
+            color: Optional[Color] = None,
+            specular_strength: float = 0.5,
+            shininess: float = 16.0,
+    ) -> None:
+        self.texture: Texture           = texture or Texture.solid_color(1, 1, 1)
+        self.color: Color               = color   or Color.white()
+        self.specular_strength: float   = specular_strength
+        self.shininess:         float   = shininess
+
+    @classmethod
+    def _get_program(cls) -> int:
+        if cls._shared_program is None:
+            vert = compileShader(_VERT_SRC, GL_VERTEX_SHADER)
+            frag = compileShader(_FRAG_SRC, GL_FRAGMENT_SHADER)
+            cls._shared_program = compileProgram(vert, frag)
+        return cls._shared_program
+
+    def bind(
+        self,
+        model_mat: NDArray[np.float32],
+        view_mat: NDArray[np.float32],
+        proj_mat: NDArray[np.float32],
+        scene: "Scene"
+    ) -> None:
+        prog = self._get_program()
+        glUseProgram(prog)
+
+        # matrices
+        glUniformMatrix4fv(glGetUniformLocation(prog, "uModel"),      1, GL_TRUE, model_mat)
+        glUniformMatrix4fv(glGetUniformLocation(prog, "uView"),       1, GL_TRUE, view_mat)
+        glUniformMatrix4fv(glGetUniformLocation(prog, "uProjection"), 1, GL_TRUE, proj_mat)
+
+        # normal matrix (inverse transpose of upper-left 3×3)
+        nm = np.linalg.inv(model_mat[:3,:3]).T.astype(np.float32)
+        glUniformMatrix3fv(glGetUniformLocation(prog, "uNormalMat"), 1, GL_FALSE, nm)
+
+        cam_pos = np.linalg.inv(view_mat)[:3, 3].astype(np.float32)
+        glUniform3f(glGetUniformLocation(prog, "uCamPos"), float(cam_pos[0]), float(cam_pos[1]), float(cam_pos[2]))
+
+        # lighting
+        amb = scene.ambient_light
+        glUniform3f(glGetUniformLocation(prog, "uAmbient"), amb.r, amb.g, amb.b)
+
+        dl = scene.directional_light
+        if dl:
+            d = dl.direction.normalized()
+            glUniform1i(glGetUniformLocation(prog, "uDirLightEnabled"), 1)
+            glUniform3f(glGetUniformLocation(prog, "uDirLightDir"),       d.x,          d.y,          d.z)
+            glUniform3f(glGetUniformLocation(prog, "uDirLightColor"),     dl.color.r,   dl.color.g,   dl.color.b)
+            glUniform1f(glGetUniformLocation(prog, "uDirLightIntensity"), dl.intensity)
+        else:
+            glUniform1i(glGetUniformLocation(prog, "uDirLightEnabled"), 0)
+
+        # point lights
+        point_lights = scene.point_lights
+        n_pt = min(len(point_lights), 8)
+        glUniform1i(glGetUniformLocation(prog, "uNumPointLights"), n_pt)
+        for i, pl in enumerate(point_lights[:n_pt]):
+            p = pl.position
+            glUniform3f(glGetUniformLocation(prog, f"uPointLightPos[{i}]"),   p.x, p.y, p.z)
+            glUniform3f(glGetUniformLocation(prog, f"uPointLightColor[{i}]"), pl.color.r, pl.color.g, pl.color.b)
+            glUniform1f(glGetUniformLocation(prog, f"uPointLightIntensity[{i}]"), pl.intensity)
+            glUniform1f(glGetUniformLocation(prog, f"uPointLightA[{i}]"), pl.a)
+            glUniform1f(glGetUniformLocation(prog, f"uPointLightB[{i}]"), pl.b)
+
+        # Spot Lights
+        spot_lights = scene.spot_lights
+        n_sp = min(len(spot_lights), 4)
+        glUniform1i(glGetUniformLocation(prog, "uNumSpotLights"), n_sp)
+        for i, sl in enumerate(spot_lights[:n_sp]):
+            p = sl.position
+            d = sl.direction.normalized()
+            glUniform3f(glGetUniformLocation(prog, f"uSpotLightPos[{i}]"), p.x, p.y, p.z)
+            glUniform3f(glGetUniformLocation(prog, f"uSpotLightDir[{i}]"), d.x, d.y, d.z)
+            glUniform3f(glGetUniformLocation(prog, f"uSpotLightColor[{i}]"), sl.color.r, sl.color.g, sl.color.b)
+            glUniform1f(glGetUniformLocation(prog, f"uSpotLightIntensity[{i}]"), sl.intensity)
+            glUniform1f(glGetUniformLocation(prog, f"uSpotInnerCone[{i}]"), sl.inner_cos)
+            glUniform1f(glGetUniformLocation(prog, f"uSpotOuterCone[{i}]"), sl.outer_cos)
+
+        glUniform1f(glGetUniformLocation(prog, "uSpecularStrength"), self.specular_strength)
+        glUniform1f(glGetUniformLocation(prog, "uShininess"),        self.shininess)
+
+        # colour tint
+        c = self.color
+        glUniform4f(glGetUniformLocation(prog, "uColor"), c.r, c.g, c.b, c.a)
+
+        # texture
+        self.texture.bind(0)
+        glUniform1i(glGetUniformLocation(prog, "uTexture"), 0)
+
+
+class SimpleMaterial:
+    _shared_program: Optional[int] = None
+
+    def __init__(
+            self,
+            texture: Optional[Texture] = None,
             color: Optional[Color] = None
     ) -> None:
         self.texture: Texture = texture or Texture.solid_color(1,1,1)

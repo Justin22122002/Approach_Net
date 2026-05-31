@@ -5,7 +5,7 @@ from numpy.typing import NDArray
 
 from utils.color import Color
 from utils.gameObject import GameObject
-from utils.directionalLight import DirectionalLight
+from utils.directionalLight import DirectionalLight, PointLight, SpotLight
 from utils.vec3 import Vec3
 from utils.boxCollider import BoxCollider
 
@@ -18,6 +18,9 @@ class Scene:
             color=Color(1.0, 0.95, 0.85),
             intensity=1.0
         )
+
+        self.point_lights: list[PointLight] = []
+        self.spot_lights:  list[SpotLight]  = []
 
     def spawn(self, name: str = "GameObject") -> GameObject:
         go = GameObject(name)
