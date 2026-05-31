@@ -70,8 +70,7 @@ class Material:
 
         # lighting
         amb = scene.ambient_light
-        glUniform3f(glGetUniformLocation(prog, "uAmbient"),
-                    amb.r, amb.g, amb.b)
+        glUniform3f(glGetUniformLocation(prog, "uAmbient"), amb.r, amb.g, amb.b)
 
         dl = scene.directional_light
         if dl:
