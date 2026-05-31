@@ -67,7 +67,7 @@ class RunwayProjectMesh(ProjectMesh):
 
         go = scene.spawn("Runway")
         go.transform.position = Vec3(cx, cy, cz)
-        go.add_component(MeshRenderer(self.generate_mesh(), Material(color=Color.white())))
+        go.add_component(MeshRenderer(self.generate_mesh(), Material(color=Color.gray())))
         return [go]
 
     @override

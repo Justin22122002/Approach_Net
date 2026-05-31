@@ -4,7 +4,6 @@ import requests
 import numpy as np
 from rasterio.io import MemoryFile
 import matplotlib.pyplot as plt
-from pyproj import Transformer
 
 
 class CopernicusDEMProvider:

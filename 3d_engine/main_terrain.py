@@ -8,7 +8,6 @@ from utils.engine import Engine
 from utils.color import Color
 from utils.directionalLight import DirectionalLight
 from utils.camera import FlyCamera
-from utils.sky import Sky
 from utils.terrain_client import CopernicusDEMProvider
 from utils.vec3 import Vec3
 from utils_project.approach_project_mesh import ApproachProjectMesh
@@ -29,7 +28,7 @@ icao_frankfurt = {
     "lon": 8.5622
 }
 
-icao = icao_vancouver
+icao = icao_frankfurt
 
 crs_to: str = GeoTransformer.utm_epsg(icao["lat"], icao["lon"])
 
@@ -114,9 +113,6 @@ for runway in runways:
     for approach in runway.approaches:
         builder = ApproachProjectMesh(
             approach=approach,
-            airport_lat=icao["lat"],
-            airport_lon=icao["lon"],
-            airport_altitude_ft=runway.runway_altitude,
             horizontal_scale=horizontal_scale,
             vertical_scale=vertical_scale,
             transformer=transformer

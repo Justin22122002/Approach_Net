@@ -13,7 +13,7 @@ from utils.engine import Engine
 from utils.lineRenderer import LineRenderer
 from utils.color import Color
 from utils.directionalLight import DirectionalLight
-from utils.camera import FlyCamera, OrbitCamera
+from utils.camera import OrbitCamera
 from utils.pointRenderer import PointRenderer
 from utils.terrain_client import CopernicusDEMProvider
 from utils.vec3 import Vec3

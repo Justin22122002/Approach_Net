@@ -18,9 +18,6 @@ class ApproachProjectMesh(ProjectMesh):
     def __init__(
         self,
         approach: Approach,
-        airport_lat: float,
-        airport_lon: float,
-        airport_altitude_ft: float,
         horizontal_scale: float,
         vertical_scale: float,
         transformer: Transformer,
@@ -33,9 +30,9 @@ class ApproachProjectMesh(ProjectMesh):
         super().__init__(
             horizontal_scale=horizontal_scale,
             vertical_scale=vertical_scale,
-            lat=airport_lat,
-            lon=airport_lon,
-            altitude=airport_altitude_ft * self.FT_TO_M, # note: this is the airport height, cause one approach has multiple heights for each fix/way-point
+            lat=0.0,
+            lon=0.0,
+            altitude=0.0, # note: this is just a default value cause the approch consist out of multiple points
             transformer=transformer
         )
 
