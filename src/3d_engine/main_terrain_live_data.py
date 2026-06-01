@@ -16,14 +16,13 @@ from utils.open_sky_rest_client import OpenSkyRestClient
 from utils.terrain_client import CopernicusDEMProvider
 from utils.vec3 import Vec3
 from utils_project.aircraft_project_mesh import AircraftProjectMesh
-from utils_project.approach_project_mesh import ApproachProjectMesh
 from utils_project.geo_transformer import GeoTransformer
 from utils_project.runway_project_mesh import RunwayProjectMesh
 from utils_project.terrain_project_mesh import TerrainProjectMesh
 
 from pyproj import datadir
 
-path: Path = Path("../src/pyproj")
+path: Path = Path("../pyproj")
 datadir.append_data_dir(path)
 
 icao_vancouver = {
@@ -49,7 +48,7 @@ transformer: Transformer = Transformer.from_crs(
 )
 
 # --- load airport data section ---
-basePath: Path = Path("../src/data")
+basePath: Path = Path("../data")
 airport_data = Airport.load_from_folder(basePath, icao["icao"])
 
 # instead of loading the runway data from the client via: AiracNetClient().get_airport_full(icao["icao"])

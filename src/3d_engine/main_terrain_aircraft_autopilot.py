@@ -1,7 +1,6 @@
 from pathlib import Path
 
 import numpy as np
-import pygame
 from pyproj import Transformer
 
 from physics.aircraft_environment import AircraftEnvironment
@@ -12,11 +11,9 @@ from utils.airport import Airport
 from utils.arinc_runway import ArincRunway
 from utils.engine import Engine
 from utils.lineRenderer import LineRenderer
-from utils.meshRenderer import MeshRenderer
-from utils.material import Material
 from utils.color import Color
 from utils.directionalLight import DirectionalLight
-from utils.camera import FlyCamera, OrbitCamera
+from utils.camera import OrbitCamera
 from utils.pointRenderer import PointRenderer
 from utils.terrain_client import CopernicusDEMProvider
 from utils.vec3 import Vec3
@@ -47,7 +44,7 @@ transformer: Transformer = Transformer.from_crs(
 )
 
 # --- load airport data section ---
-basePath: Path = Path("../src/data")
+basePath: Path = Path("../data")
 airport = Airport.load_from_folder(basePath, icao["icao"])
 
 # instead of loading the runway data from the client via: AiracNetClient().get_airport_full(icao["icao"])

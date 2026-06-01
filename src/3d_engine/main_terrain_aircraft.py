@@ -44,7 +44,7 @@ transformer: Transformer = Transformer.from_crs(
 )
 
 # --- load airport data section ---
-basePath: Path = Path("../src/data")
+basePath: Path = Path("../data")
 airport = Airport.load_from_folder(basePath, icao["icao"])
 
 # instead of loading the runway data from the client via: AiracNetClient().get_airport_full(icao["icao"])
