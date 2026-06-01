@@ -69,6 +69,7 @@ class OpenAirportMapClient:
             runways: list[ArincRunway] = client.get_airport_full(icao)
             filtered_arinc_runways = runway_approach_filter(runways)
 
+        # todo: provide new option to inject this from the outside
         lat_min, lon_min, lat_max, lon_max = get_bbox_simple(
             lat, lon, radius_km
         )
