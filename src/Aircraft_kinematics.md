@@ -146,15 +146,15 @@ $
 Force equation:
 
 $
-F = m \cdot a
+F = m \cdot \vec{a}
 $
 
 $
-F = m \cdot \vec{v}
+F = m \cdot \dot{\vec{v}}
 $
 
 $
-m \cdot \vec{v} = (T - D) \cdot \frac{\vec{v}}{\|\vec{v}\|} + L \cdot \vec{n} + m \cdot \vec{g} \quad note: F := \frac{\vec{v}}{\|\vec{v}\|}
+m \cdot \dot{\vec{v}} = (T - D) \cdot \frac{\vec{v}}{\|\vec{v}\|} + L \cdot \vec{n} + m \cdot \vec{g} \quad note: F := \frac{\vec{v}}{\|\vec{v}\|}
 $
 
 this can also be written as:
