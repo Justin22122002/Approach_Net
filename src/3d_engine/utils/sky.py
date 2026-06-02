@@ -1,5 +1,4 @@
 import math
-from typing import Optional
 
 import numpy as np
 from OpenGL.GL import (
@@ -23,7 +22,7 @@ from OpenGL.GL import (
     glUseProgram,
     GL_FALSE,
 )
-from OpenGL.GL.shaders import compileProgram, compileShader
+from OpenGL.GL.shaders import compileProgram, compileShader, ShaderProgram
 
 from utils.color import Color
 from utils.directionalLight import DirectionalLight
@@ -180,8 +179,8 @@ class Sky:
             color=Color(1.0, 0.95, 0.85)
         )
 
-        self._prog: Optional[int] = None
-        self._vao:  Optional[int] = None
+        self._prog: ShaderProgram | None = None
+        self._vao:  int | None           = None
 
     def _ensure_gpu(self) -> None:
         if self._prog is not None:

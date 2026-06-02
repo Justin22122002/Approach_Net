@@ -1,6 +1,5 @@
 import ctypes
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 from OpenGL.GL import (
@@ -32,7 +31,7 @@ from typing_extensions import override
 
 from utils.color import Color
 from utils.component import Component
-from utils.material import load_shader_source
+from utils.simplematerial import load_shader_source
 from utils.renderer import Renderer
 from utils.vec3 import Vec3
 
@@ -48,20 +47,20 @@ class LineRenderer(Component, Renderer):
     colors  - per vertex-color, needs to be the same length as the points
     """
 
-    _program: Optional[int] = None  # shared across all instances
+    _program: int | None = None  # shared across all instances
 
     def __init__(
         self,
         points: list[Vec3],
-        color: Optional[Color] = None,
-        colors: Optional[list[Color]] = None,
+        color: Color | None = None,
+        colors: list[Color] | None = None,
     ) -> None:
         self.points: list[Vec3]          = points
         self.color:  Color               = color or Color.white()
-        self.colors: Optional[list[Color]] = colors
+        self.colors: list[Color] | None = colors
 
-        self._vao: Optional[int] = None
-        self._vbo: Optional[int] = None
+        self._vao: int | None = None
+        self._vbo: int | None = None
 
     @classmethod
     def _get_program(cls) -> int:
@@ -135,8 +134,8 @@ class LineRenderer(Component, Renderer):
     @staticmethod
     def segments(
         pairs: list[tuple[Vec3, Vec3]],
-        color: Optional[Color] = None,
-        colors: Optional[list[tuple[Color, Color]]] = None,
+        color: Color | None = None,
+        colors: list[tuple[Color, Color]] | None = None,
     ) -> "LineRenderer":
         points: list[Vec3]  = []
         vcols:  list[Color] = []
@@ -150,8 +149,8 @@ class LineRenderer(Component, Renderer):
     @staticmethod
     def strip(
         points: list[Vec3],
-        color: Optional[Color] = None,
-        colors: Optional[list[Color]] = None,
+        color: Color | None = None,
+        colors: list[Color] | None = None,
     ) -> "LineRenderer":
         expanded: list[Vec3]  = []
         ecols:    list[Color] = []
@@ -165,7 +164,7 @@ class LineRenderer(Component, Renderer):
     def grid(
         size: float = 10.0,
         divisions: int = 10,
-        color: Optional[Color] = None,
+        color: Color | None = None,
     ) -> "LineRenderer":
         c    = color or Color(0.35, 0.35, 0.35)
         half = size / 2.0
@@ -196,7 +195,7 @@ class LineRenderer(Component, Renderer):
     def wire_box(
         min_pt: Vec3,
         max_pt: Vec3,
-        color: Optional[Color] = None,
+        color: Color | None = None,
     ) -> "LineRenderer":
         c = color or Color.white()
         x0, y0, z0 = min_pt.x, min_pt.y, min_pt.z
@@ -222,7 +221,7 @@ class LineRenderer(Component, Renderer):
         radius: float = 1.0,
         segments: int = 32,
         axis: str = "y",
-        color: Optional[Color] = None,
+        color: Color | None = None,
     ) -> "LineRenderer":
         """circle in one of the three axes (axis='x'|'y'|'z')."""
         import math
@@ -241,7 +240,7 @@ class LineRenderer(Component, Renderer):
                 pts += [Vec3(c0, s0, 0), Vec3(c1, s1, 0)]
         return LineRenderer(pts, color=c)
 
-    def set_points_strip(self, ordered: list[Vec3], color: Optional[Color] = None) -> None:
+    def set_points_strip(self, ordered: list[Vec3], color: Color | None = None) -> None:
         if len(ordered) < 2:
             return
         expanded: list[Vec3] = []

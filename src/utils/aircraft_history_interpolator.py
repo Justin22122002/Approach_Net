@@ -7,6 +7,9 @@ from pandas import DataFrame
 
 
 class AircraftHistoryInterpolator:
+    """
+    this class serves for interpolating and cleaning the aircraft history data
+    """
     def __init__(
             self,
             filepath: Path,

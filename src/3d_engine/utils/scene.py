@@ -1,5 +1,3 @@
-from typing import Optional
-
 import numpy as np
 from numpy.typing import NDArray
 
@@ -13,12 +11,13 @@ class Scene:
     def __init__(self) -> None:
         self._objects: list[GameObject] = []
         self.ambient_light: Color       = Color(0.2, 0.2, 0.25, 1.0)
-        self.directional_light: Optional[DirectionalLight] = DirectionalLight(
+        self.directional_light: DirectionalLight | None = DirectionalLight(
             direction=Vec3(-1, -2, -1),
             color=Color(1.0, 0.95, 0.85),
             intensity=1.0
         )
 
+        # those are only used for the complex material, not for the simple material
         self.point_lights: list[PointLight] = []
         self.spot_lights:  list[SpotLight]  = []
 
@@ -31,7 +30,7 @@ class Scene:
         go.destroy()
         self._objects.remove(go)
 
-    def find(self, name: str) -> Optional[GameObject]:
+    def find(self, name: str) -> GameObject | None:
         for o in self._objects:
             if o.name == name:
                 return o

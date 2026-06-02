@@ -1,5 +1,3 @@
-from typing import Optional
-
 from PIL import Image
 
 from OpenGL.GL import (
@@ -26,8 +24,8 @@ from OpenGL.GL import (
 
 class Texture:
     def __init__(self, path: str) -> None:
-        self._id: Optional[int] = None
-        self._path: str         = path
+        self._id: int | None = None
+        self._path: str      = path
 
     def _upload(self) -> None:
         if self._id is not None:

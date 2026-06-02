@@ -1,18 +1,6 @@
-#  2D HUD / Overlay system
-#  Renders in screen space on top of the 3D scene.
-#  Uses pygame to draw onto a Surface, then blits it as an OpenGL texture.
-#
-#  Usage:
-#      hud = engine.hud                         # always available
-#      def on_gui():
-#          hud.rect(10, 10, 200, 40, color=(40,40,40,180))
-#          hud.text("Health: 100", 18, 18, size=20, color=(255,255,255))
-#          hud.image(my_texture_or_path, 10, 60, 64, 64)A
-#      engine.on_gui = on_gui
 from pathlib import Path
-from typing import Optional
-
 import pygame
+
 from OpenGL.GL import (
     GL_BLEND,
     GL_CULL_FACE,
@@ -44,36 +32,28 @@ from OpenGL.GL import (
     glUniform1i,
     glUseProgram,
 )
-from OpenGL.GL.shaders import compileProgram, compileShader
+from OpenGL.GL.shaders import compileProgram, compileShader, ShaderProgram
 
-from utils.material import load_shader_source
+from utils.simplematerial import load_shader_source
 
 RGBColor  = tuple[int, int, int]
 RGBAColor = tuple[int, int, int, int]
 AnyColor  = RGBColor | RGBAColor
 
 class HUD:
-    """
-    2D screen-space overlay drawn on top of the 3D scene every frame.
-    All coordinates are in pixels, origin top-left.
-    Call draw methods inside engine.on_gui.
-    """
-
     _HUD_VERT = load_shader_source(Path("utils/shaders/hud.vert"))
     _HUD_FRAG = load_shader_source(Path("utils/shaders/hud.frag"))
 
-    # Minimal shaders for blitting the HUD texture as a fullscreen quad
     def __init__(self, engine: "Engine") -> None:
         self._engine                          = engine
-        self._surface: Optional[pygame.Surface] = None
-        self._tex_id:  Optional[int]          = None
-        self._prog:    Optional[int]          = None # hud shader program
-        self._vao:     Optional[int]          = None
+        self._surface: pygame.Surface | None = None
+        self._tex_id:  int | None            = None
+        self._prog:    ShaderProgram | None  = None
+        self._vao:     int | None            = None
         self._fonts:     dict[int, pygame.font.Font]    = {}
         self._img_cache: dict[str, pygame.Surface]      = {}
 
     def _ensure_gpu(self):
-        """Lazy-init texture, VAO and shader — called after OpenGL context exists."""
         if self._prog is not None:
             return
         vert = compileShader(self._HUD_VERT, GL_VERTEX_SHADER)
@@ -102,7 +82,6 @@ class HUD:
         self._surface.fill((0, 0, 0, 0))
 
     def _end(self):
-        """Upload pygame surface to GPU and blit as a fullscreen quad."""
         surf = self._surface
         w, h = surf.get_size()
         raw  = pygame.image.tostring(surf, "RGBA", False)
@@ -138,10 +117,9 @@ class HUD:
         x: int, y: int, w: int, h: int,
         color: AnyColor = (0, 0, 0, 180),
         border_radius: int = 0,
-        border_color: Optional[AnyColor] = None,
+        border_color: AnyColor | None = None,
         border_width: int = 2,
     ) -> None:
-        """Draw a filled rectangle. color is (R,G,B) or (R,G,B,A)."""
         c = color if len(color) == 4 else (*color, 255)
         pygame.draw.rect(self._surface, c, (x, y, w, h),
                          border_radius=border_radius)
@@ -159,7 +137,6 @@ class HUD:
         shadow: bool = False,
         shadow_color: AnyColor = (0, 0, 0),
     ) -> None:
-        """Draw text at (x, y). origin is top-left of the text."""
         font = self._get_font(size)
         c    = color if len(color) == 4 else (*color, 255)
         if shadow:
@@ -176,7 +153,6 @@ class HUD:
         size: int = 18,
         color: AnyColor = (255, 255, 255),
     ) -> None:
-        """Draw text centred inside a rectangle (x,y,w,h)."""
         font = self._get_font(size)
         surf = font.render(txt, True, color[:3] if len(color) >= 3 else color)
         tx   = x + (w - surf.get_width())  // 2
@@ -187,11 +163,10 @@ class HUD:
         self,
         source: str | pygame.Surface,
         x: int, y: int,
-        w: Optional[int] = None,
-        h: Optional[int] = None,
+        w: int | None = None,
+        h: int | None = None,
         alpha: int = 255,
     ) -> None:
-        """Draw an image. source can be a file path (str) or pygame.Surface."""
         if isinstance(source, str):
             if source not in self._img_cache:
                 self._img_cache[source] = pygame.image.load(source).convert_alpha()
@@ -211,17 +186,15 @@ class HUD:
         color: AnyColor = (255, 255, 255),
         width: int = 1,
     ) -> None:
-        """Draw a line."""
         pygame.draw.line(self._surface, color, (x1, y1), (x2, y2), width)
 
     def circle(
         self,
         x: int, y: int, radius: int,
         color: AnyColor = (255, 255, 255, 255),
-        border_color: Optional[AnyColor] = None,
+        border_color: AnyColor | None = None,
         border_width: int = 2,
     ) -> None:
-        """Draw a filled circle centred at (x, y)."""
         c = color if len(color) == 4 else (*color, 255)
         pygame.draw.circle(self._surface, c, (x, y), radius)
         if border_color:
@@ -235,18 +208,15 @@ class HUD:
         color: AnyColor = (255, 255, 255, 200),
         gap: int = 4,
     ) -> None:
-        """Draw a crosshair at the centre of the screen."""
         cx = self._engine.width  // 2
         cy = self._engine.height // 2
         c  = color if len(color) == 4 else (*color, 255)
-        # horizontal
         pygame.draw.rect(self._surface, c,
                          (cx - size - gap, cy - thickness//2,
                           size, thickness))
         pygame.draw.rect(self._surface, c,
                          (cx + gap, cy - thickness//2,
                           size, thickness))
-        # vertical
         pygame.draw.rect(self._surface, c,
                          (cx - thickness//2, cy - size - gap,
                           thickness, size))
@@ -262,7 +232,6 @@ class HUD:
         border_radius: int = 6,
         border_width: int = 2,
     ) -> None:
-        """Draw a dark semi-transparent panel (good for inventory windows)."""
         self.rect(x, y, w, h, color=bg,
                   border_color=border, border_radius=border_radius,
                   border_width=border_width)

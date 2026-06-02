@@ -43,7 +43,7 @@ def main():
     )
 
     basePath: Path = Path("data")
-    history_file_path: Path = basePath / Path("flights_frankfurt_20260319_1900_1930.parquet")
+    history_file_path: Path = basePath / Path("flights_frankfurt_20260523_1900_1930.parquet")
     interpolator: AircraftHistoryInterpolator = AircraftHistoryInterpolator(history_file_path)
     interpolator.clean_dataframe()
     interpolator.interpolate()

@@ -1,6 +1,5 @@
 import ctypes
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 from OpenGL.GL import (
@@ -29,13 +28,13 @@ from OpenGL.GL import (
     glUseProgram,
     glVertexAttribPointer,
 )
-from OpenGL.GL.shaders import compileProgram, compileShader
+from OpenGL.GL.shaders import compileProgram, compileShader, ShaderProgram
 from numpy.typing import NDArray
 from typing_extensions import override
 
 from utils.color import Color
 from utils.component import Component
-from utils.material import load_shader_source
+from utils.simplematerial import load_shader_source
 from utils.renderer import Renderer
 from utils.vec3 import Vec3
 
@@ -52,22 +51,22 @@ class PointRenderer(Component, Renderer):
     size    – point size ine pixel.
     """
 
-    _program: Optional[int] = None
+    _program: ShaderProgram | None = None
 
     def __init__(
             self,
-            points: Optional[list[Vec3]] = None,
-            color: Optional[Color] = None,
-            colors: Optional[list[Color]] = None,
+            points: list[Vec3] | None = None,
+            color: Color | None = None,
+            colors: list[Color] | None = None,
             size: float = 6.0,
     ) -> None:
         self.points: list[Vec3] = points or [Vec3.zero()]
         self.color: Color = color or Color.white()
-        self.colors: Optional[list[Color]] = colors
+        self.colors: list[Color] | None = colors
         self.size: float = size
 
-        self._vao: Optional[int] = None
-        self._vbo: Optional[int] = None
+        self._vao: int | None = None
+        self._vbo: int | None = None
 
     @classmethod
     def _get_program(cls) -> int:

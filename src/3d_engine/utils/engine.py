@@ -1,4 +1,3 @@
-from typing import Optional
 from collections.abc import Callable
 
 import pygame
@@ -51,7 +50,7 @@ class Engine:
             height: int = 600,
             title: str = "3d engine",
             fps: int = 60,
-            clear_color: Optional[Color] = None,
+            clear_color: Color | None = None,
     ) -> None:
         self.width: int         = width
         self.height: int        = height
@@ -64,17 +63,17 @@ class Engine:
         self.input: Input       = Input()
         self.time: float        = 0.0       # total elapsed seconds
         self.frame: int         = 0
-        self.sky: Optional[Sky] = None
+        self.sky: Sky | None = None
 
         # lifecycle hooks (assign lambdas or functions)
-        self.on_start:  Optional[Callable[[], None]]      = None
-        self.on_update: Optional[Callable[[float], None]] = None
-        self.on_gui:    Optional[Callable[[], None]]      = None
-        self.on_quit:   Optional[Callable[[], None]]      = None
+        self.on_start:  Callable[[], None] | None      = None
+        self.on_update: Callable[[float], None] | None = None
+        self.on_gui:    Callable[[], None] | None      = None
+        self.on_quit:   Callable[[], None] | None      = None
 
         self._running: bool              = False
-        self._window: Optional[Surface]  = None
-        self._clock: Optional[Clock]     = None
+        self._window: Surface | None  = None
+        self._clock: Clock | None     = None
         self.hud: HUD = HUD(self)
 
     def _init_pygame(self) -> None:

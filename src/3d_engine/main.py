@@ -8,7 +8,7 @@ from utils.directionalLight import DirectionalLight
 from utils.camera import FlyCamera
 from utils.mesh import Mesh
 from utils.texture import Texture
-from utils.material import Material
+from utils.simplematerial import SimpleMaterial
 
 engine = Engine(800, 600, "My Game")
 scene  = engine.scene
@@ -16,7 +16,7 @@ scene  = engine.scene
 # Add a cube
 cube1 = scene.spawn("Cube")
 wood_texture = Texture("textures/wood.png")
-wood_material = Material(texture=wood_texture)
+wood_material = SimpleMaterial(texture=wood_texture)
 cube1.add_component(MeshRenderer(Mesh.cube(), material=wood_material))
 cube1.transform.position = Vec3(0, 0, -5)
 

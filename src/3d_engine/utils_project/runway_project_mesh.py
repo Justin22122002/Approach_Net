@@ -5,7 +5,7 @@ import numpy as np
 from utils.arinc_runway import ArincRunway
 from utils.color import Color
 from utils.gameObject import GameObject
-from utils.material import Material
+from utils.simplematerial import SimpleMaterial
 from utils.mesh import Mesh
 from pyproj import Transformer, Geod
 
@@ -67,7 +67,7 @@ class RunwayProjectMesh(ProjectMesh):
 
         go = scene.spawn("Runway")
         go.transform.position = Vec3(cx, cy, cz)
-        go.add_component(MeshRenderer(self.generate_mesh(), Material(color=Color.gray())))
+        go.add_component(MeshRenderer(self.generate_mesh(), SimpleMaterial(color=Color.gray())))
         return [go]
 
     @override

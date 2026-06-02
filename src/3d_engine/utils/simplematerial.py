@@ -1,5 +1,5 @@
+from abc import ABCMeta
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 from numpy.typing import NDArray
@@ -21,7 +21,7 @@ from OpenGL.GL import (
     glUniformMatrix4fv,
     glUseProgram,
 )
-from OpenGL.GL.shaders import compileShader, compileProgram
+from OpenGL.GL.shaders import compileShader, compileProgram, ShaderProgram
 
 
 def load_shader_source(path: Path) -> str:
@@ -30,15 +30,18 @@ def load_shader_source(path: Path) -> str:
 _VERT_SRC = load_shader_source(Path("utils/shaders/default.vert"))
 _FRAG_SRC = load_shader_source(Path("utils/shaders/default.frag"))
 
-class Material:
-    _shared_program: Optional[int] = None
+class Material(metaclass=ABCMeta):
+    pass
+
+class ComplexMaterial(Material):
+    _shared_program: ShaderProgram | None = None
 
     def __init__(
             self,
-            texture: Optional[Texture] = None,
-            color: Optional[Color] = None,
+            texture: Texture | None  = None,
+            color: Color | None      = None,
             specular_strength: float = 0.5,
-            shininess: float = 16.0,
+            shininess: float         = 16.0,
     ) -> None:
         self.texture: Texture           = texture or Texture.solid_color(1, 1, 1)
         self.color: Color               = color   or Color.white()
@@ -46,7 +49,7 @@ class Material:
         self.shininess:         float   = shininess
 
     @classmethod
-    def _get_program(cls) -> int:
+    def _get_program(cls) -> ShaderProgram | int:
         if cls._shared_program is None:
             vert = compileShader(_VERT_SRC, GL_VERTEX_SHADER)
             frag = compileShader(_FRAG_SRC, GL_FRAGMENT_SHADER)
@@ -127,22 +130,25 @@ class Material:
         glUniform1i(glGetUniformLocation(prog, "uTexture"), 0)
 
 
-class SimpleMaterial:
-    _shared_program: Optional[int] = None
+_SIMPLE_VERT_SRC = load_shader_source(Path("utils/shaders/simple_default.vert"))
+_SIMPLE_FRAG_SRC = load_shader_source(Path("utils/shaders/simple_default.frag"))
+
+class SimpleMaterial(Material):
+    _shared_program: ShaderProgram | None = None
 
     def __init__(
             self,
-            texture: Optional[Texture] = None,
-            color: Optional[Color] = None
+            texture: Texture | None = None,
+            color: Color | None = None
     ) -> None:
         self.texture: Texture = texture or Texture.solid_color(1,1,1)
         self.color: Color     = color   or Color.white()
 
     @classmethod
-    def _get_program(cls) -> int:
+    def _get_program(cls) -> ShaderProgram | int:
         if cls._shared_program is None:
-            vert = compileShader(_VERT_SRC, GL_VERTEX_SHADER)
-            frag = compileShader(_FRAG_SRC, GL_FRAGMENT_SHADER)
+            vert = compileShader(_SIMPLE_VERT_SRC, GL_VERTEX_SHADER)
+            frag = compileShader(_SIMPLE_FRAG_SRC, GL_FRAGMENT_SHADER)
             cls._shared_program = compileProgram(vert, frag)
         return cls._shared_program
 

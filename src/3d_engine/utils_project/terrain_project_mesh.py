@@ -5,7 +5,7 @@ from pyproj import Transformer
 
 from utils.color import Color
 from utils.gameObject import GameObject
-from utils.material import Material
+from utils.simplematerial import SimpleMaterial
 from utils.mesh import Mesh
 from utils.meshRenderer import MeshRenderer
 from utils.scene import Scene
@@ -66,7 +66,7 @@ class TerrainProjectMesh(ProjectMesh):
         go.transform.position = Vec3(dx, dy, dz)
         go.add_component(MeshRenderer(
             self.generate_mesh(),
-            Material(color=Color(0.4, 0.55, 0.3))
+            SimpleMaterial(color=Color(0.4, 0.55, 0.3))
         ))
         return [go]
 

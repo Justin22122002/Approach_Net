@@ -1,12 +1,10 @@
-from typing import Optional
-
 import numpy as np
 from OpenGL.GL import glUseProgram
 from numpy.typing import NDArray
 from typing_extensions import override
 
 from utils.component import Component
-from utils.material import Material
+from utils.simplematerial import SimpleMaterial, Material
 from utils.mesh import Mesh
 from utils.renderer import Renderer
 
@@ -15,10 +13,10 @@ class MeshRenderer(Component, Renderer):
     def __init__(
         self,
         mesh: Mesh,
-        material: Optional[Material] = None
+        material: Material | None = None
     ) -> None:
         self.mesh: Mesh = mesh
-        self.material: Material = material or Material()
+        self.material: Material = material or SimpleMaterial()
 
     @override
     def draw(

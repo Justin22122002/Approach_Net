@@ -1,5 +1,4 @@
 import ctypes
-from typing import Optional
 
 import numpy as np
 import pygame
@@ -45,7 +44,7 @@ from OpenGL.GL import (
     glUseProgram,
     glVertexAttribPointer,
 )
-from OpenGL.GL.shaders import compileProgram, compileShader
+from OpenGL.GL.shaders import compileProgram, compileShader, ShaderProgram
 from numpy.typing import NDArray
 from typing_extensions import override
 
@@ -113,27 +112,27 @@ _QUAD_DATA = np.array([
 
 
 class TextRenderer(Component, Renderer):
-    _program: Optional[int] = None
+    _program: ShaderProgram | None = None
 
     def __init__(
         self,
         text: str = "Text",
         font_size: int = 48,
-        color: Optional[Color] = None,
+        color: Color | None = None,
         billboard: bool = True,
         world_height: float = 0.5,
-        font_name: Optional[str] = None,
+        font_name: str | None = None,
     ) -> None:
         self.text:         str            = text
         self.font_size:    int            = font_size
         self.color:        Color          = color or Color.white()
         self.billboard:    bool           = billboard
         self.world_height: float          = world_height
-        self.font_name:    Optional[str]  = font_name
+        self.font_name:    str | None     = font_name
 
-        self._vao:    Optional[int] = None
-        self._vbo:    Optional[int] = None
-        self._tex_id: Optional[int] = None
+        self._vao:    int | None    = None
+        self._vbo:    int | None    = None
+        self._tex_id: int | None    = None
         self._tex_w:  int           = 1
         self._tex_h:  int           = 1
         self._dirty:  bool          = True
