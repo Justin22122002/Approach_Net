@@ -109,7 +109,7 @@ class AircraftKinematicsState:
         rho = self.air_density()
 
         return (
-                2.0 * load_factor * self.mass * 9.81
+                2.0 * load_factor * self.mass * self.g
                 / (rho * self.v ** 2 * self.area)
         )
 
