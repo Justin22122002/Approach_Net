@@ -37,7 +37,7 @@ class ArincRunway(Renderable, JsonSerializable):
         self.stopway: float = stopway
         self.displaced_threshold: float = displaced_threshold
         self.magnetic_variation: float = magnetic_variation
-        self.runway_altitude = runway_altitude
+        self.runway_altitude: float = runway_altitude
         self.approaches: list[Approach] = approaches if approaches is not None else []
 
         self.centerline_coordinates: tuple[Coordinate, Coordinate] = self._compute_centerline()

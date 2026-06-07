@@ -6,6 +6,7 @@ from matplotlib import pyplot as plt
 from pandas import DataFrame
 
 
+# todo: add extra data loader for batch load, for bigger datasets
 class AircraftHistoryInterpolator:
     """
     this class serves for interpolating and cleaning the aircraft history data
@@ -13,9 +14,11 @@ class AircraftHistoryInterpolator:
     def __init__(
             self,
             filepath: Path,
+            airport_height: float,
     ) -> None:
         self.filepath: Path = filepath
         self.dataframe: DataFrame | None = None
+        self.airport_height: float = airport_height
 
         self._load_file_by_file_path()
 
@@ -58,7 +61,8 @@ class AircraftHistoryInterpolator:
                     continue
 
                 lat1, lon1 = row1["lat"], row1["lon"]
-                alt1 = row1["baroaltitude"] if pd.notna(row1["baroaltitude"]) else 0
+                baroaltitude = row1["baroaltitude"] if pd.notna(row1["baroaltitude"]) else 0
+                geoaltitude = row1["geoaltitude"] if pd.notna(row1["geoaltitude"]) else 0
                 vel = row1["velocity"] if pd.notna(row1["velocity"]) else 0
                 vert_rate = row1["vertrate"] if pd.notna(row1["vertrate"]) else 0
                 heading = row1["heading"] if pd.notna(row1["heading"]) else 0
@@ -68,15 +72,25 @@ class AircraftHistoryInterpolator:
 
                     new_lat = lat1 + fraction * (row2["lat"] - lat1)
                     new_lon = lon1 + fraction * (row2["lon"] - lon1)
-                    new_alt = alt1 + fraction * (row2["baroaltitude"] - alt1) if pd.notna(row2["baroaltitude"]) else alt1
+                    new_baroaltitude = baroaltitude + fraction * (row2["baroaltitude"] - baroaltitude) if pd.notna(row2["baroaltitude"]) else baroaltitude
+
+                    # set height to airport height when aircraft is lower than airport etc...
+                    if row1.get("geoaltitude", 0) <= self.airport_height \
+                        or row2.get("geoaltitude", 0) <= self.airport_height:
+                        new_geoaltitude = self.airport_height * 0.3048
+                    else:
+                        if pd.notna(row2["geoaltitude"]):
+                            new_geoaltitude = geoaltitude + fraction * (row2["geoaltitude"] - geoaltitude)
+                        else:
+                            new_geoaltitude = geoaltitude
 
                     traj_rows.append({
                         "time": pd.Timestamp(t1 + s, unit='s', tz='UTC'),
                         "icao24": icao,
                         "lat": new_lat,
                         "lon": new_lon,
-                        "baroaltitude": new_alt,
-                        "geoaltitude": new_alt,
+                        "baroaltitude": new_baroaltitude,
+                        "geoaltitude": new_geoaltitude,
                         "velocity": vel,
                         "heading": heading,
                         "vertrate": vert_rate,
