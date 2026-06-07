@@ -125,13 +125,12 @@ X_opt, U_opt, T_vals = optimizer.solve(x0_inputs, goals_inputs, headings_inputs)
 
 dt_list = [T_vals[i] / N_CASADI for i in range(M)]
 
-print("\nErgebnis:")
+print("\nresult:")
 for i in range(M):
     si = i * 6
-    print(f"  AC{i}: T={T_vals[i]:.1f}s  dt={dt_list[i]:.3f}s  "
-          f"end=({X_opt[si,-1]:.0f}, {X_opt[si+1,-1]:.0f}, {X_opt[si+2,-1]:.1f}) m")
+    print(f"  AC{i}: T={T_vals[i]:.1f}s  dt={dt_list[i]:.3f}s, end=({X_opt[si,-1]:.0f}, {X_opt[si+1,-1]:.0f}, {X_opt[si+2,-1]:.1f}) m")
 
-print("\nSeparations-Diagnose:")
+print("\nseparation diagnose:")
 for i in range(M):
     for j in range(i + 1, M):
         si = i * 6; sj = j * 6
@@ -215,13 +214,10 @@ def on_update(dt_frame: float) -> None:
 
     flying = [ac for ac in aircraft_list if not ac.landed]
     if flying:
-        cx = np.mean([geo.to_local_in_m(states_list[ac.idx].x,
-                                         states_list[ac.idx].y)[0] for ac in flying])
-        cz = np.mean([geo.to_local_in_m(states_list[ac.idx].x,
-                                         states_list[ac.idx].y)[1] for ac in flying])
+        cx = np.mean([geo.to_local_in_m(states_list[ac.idx].x, states_list[ac.idx].y)[0] for ac in flying])
+        cz = np.mean([geo.to_local_in_m(states_list[ac.idx].x, states_list[ac.idx].y)[1] for ac in flying])
         cy = np.mean([geo.altitude_to_local(states_list[ac.idx].h) for ac in flying])
         cam.target = Vec3(float(cx), float(cy), float(cz))
-
 
 def on_gui() -> None:
     hud = engine.hud
@@ -239,7 +235,7 @@ def on_gui() -> None:
         s = states_list[i]
         cr = int(ac.color.r*255); cg = int(ac.color.g*255); cb = int(ac.color.b*255)
 
-        status = "GELANDET" if ac.landed else f"Step {ac.step_idx}/{N_CASADI}"
+        status = "Landed" if ac.landed else f"Step {ac.step_idx}/{N_CASADI}"
         hud.text(f"AC{i}  T={T_vals[i]:.0f}s  {status}",
                  20, y, size=14, color=(cr, cg, cb), shadow=True)
         y += 18
