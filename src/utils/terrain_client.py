@@ -45,6 +45,7 @@ class CopernicusDEMProvider:
             "Content-Type": "application/json"
         }
 
+    # todo: write a loop for iterative pulling terrain data for 5km segments
     def get_terrain(
             self,
             lat_min: float,
@@ -107,7 +108,82 @@ class CopernicusDEMProvider:
 
         return data
 
-    def get_height(self, lat: float, lon: float) -> float:
+    def get_satellite_image(
+            self,
+            lat_min: float,
+            lon_min: float,
+            lat_max: float,
+            lon_max: float,
+            width: int = 1024,
+            height: int = 1024,
+    ) -> np.ndarray:
+        """
+        returns a (H, W, 3) uint8-array with Sentinel-2 true-color-rgb
+        """
+        payload: dict[str, Any] = {
+            "input": {
+                "bounds": {
+                    "bbox": [lon_min, lat_min, lon_max, lat_max]
+                },
+                "data": [
+                    {
+                        "type": "sentinel-2-l2a",
+                        "dataFilter": {
+                            "maxCloudCoverage": 30  # max. 30 % clouds
+                        }
+                    }
+                ]
+            },
+            "output": {
+                "width": width,
+                "height": height,
+                "responses": [
+                    {
+                        "identifier": "default",
+                        "format": {"type": "image/tiff"}
+                    }
+                ]
+            },
+            "evalscript": """
+                //VERSION=3
+                function setup() {
+                    return {
+                        input: ["B04", "B03", "B02"],   // R G B
+                        output: { bands: 3, sampleType: "UINT8" }
+                    };
+                }
+                function evaluatePixel(sample) {
+                    // 2.5 times brighter
+                    return [
+                        Math.min(255, sample.B04 * 2.5 * 255),
+                        Math.min(255, sample.B03 * 2.5 * 255),
+                        Math.min(255, sample.B02 * 2.5 * 255)
+                    ];
+                }
+            """
+        }
+
+        r = requests.post(self.PROCESS_URL, json=payload, headers=self._headers())
+
+        if r.status_code == 401:
+            self.access_token = self._authenticate()
+            r = requests.post(self.PROCESS_URL, json=payload, headers=self._headers())
+
+        r.raise_for_status()
+
+        with MemoryFile(r.content) as memfile:
+            with memfile.open() as dataset:
+                # rasterio: (bands, H, W) → switch to (H, W, bands)
+                data = dataset.read()  # shape: (3, H, W)
+                data = np.moveaxis(data, 0, -1)  # shape: (H, W, 3)
+
+        return data.astype(np.uint8)
+
+    def get_height(
+            self,
+            lat: float,
+            lon: float
+    ) -> float:
         delta: float = 0.0001
 
         data: np.ndarray = self.get_terrain(

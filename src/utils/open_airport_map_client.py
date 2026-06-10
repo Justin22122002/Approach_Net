@@ -1,6 +1,6 @@
-import math
 from collections.abc import Callable
 from pathlib import Path
+from pyproj import Geod
 from typing import Any
 
 import numpy as np
@@ -13,7 +13,7 @@ from src.utils.open_street_map_runway import Taxiway, Coordinate, OpenStreetMapR
 from src.utils.sqlite_airinc24_database_client import SQLiteArInC24DatabaseClient
 from src.utils.terrain_client import CopernicusDEMProvider
 
-
+# todo: move both methods into helper files
 def only_r_approaches(r: list[ArincRunway]) -> list[ArincRunway]:
     for runway in r:
         runway.approaches = [
@@ -22,15 +22,14 @@ def only_r_approaches(r: list[ArincRunway]) -> list[ArincRunway]:
         ]
     return r
 
-# todo: replace with pyproj package
 def get_bbox_simple(lat: float, lon: float, radius_km: float) -> tuple[float, float, float, float]:
-    delta_lat = radius_km / 111.0
-    delta_lon = radius_km / (111.0 * math.cos(math.radians(lat)))
+    geod = Geod(ellps="WGS84")
+    radius_m = radius_km * 1000.0
 
-    lat_min = lat - delta_lat
-    lat_max = lat + delta_lat
-    lon_min = lon - delta_lon
-    lon_max = lon + delta_lon
+    _, lat_max, _ = geod.fwd(lon, lat, az=0,   dist=radius_m)
+    _, lat_min, _ = geod.fwd(lon, lat, az=180, dist=radius_m)
+    lon_max, _, _ = geod.fwd(lon, lat, az=90,  dist=radius_m)
+    lon_min, _, _ = geod.fwd(lon, lat, az=270, dist=radius_m)
 
     return lat_min, lon_min, lat_max, lon_max
 
@@ -57,6 +56,8 @@ class OpenAirportMapClient:
             lon: float = 0.0,
             runway_approach_filter: Callable[[list[ArincRunway]], list[ArincRunway]] = lambda r: r,
             radius_km: float = 10.0,
+            terrain_width: int = 1024,
+            terrain_height: int = 1024,
     ) -> Airport:
         self.get_airport(icao)
 
@@ -79,6 +80,8 @@ class OpenAirportMapClient:
             lon_min=lon_min,
             lat_max=lat_max,
             lon_max=lon_max,
+            width=terrain_width,
+            height=terrain_height,
         )
 
         return Airport(

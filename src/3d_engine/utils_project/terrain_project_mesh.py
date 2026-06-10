@@ -9,6 +9,7 @@ from utils.simplematerial import SimpleMaterial
 from utils.mesh import Mesh
 from utils.meshRenderer import MeshRenderer
 from utils.scene import Scene
+from utils.texture import Texture
 from utils.vec3 import Vec3
 from utils_project.geo_transformer import GeoTransformer
 from utils_project.project_mesh import ProjectMesh
@@ -26,12 +27,14 @@ class TerrainProjectMesh(ProjectMesh):
         horizontal_scale: float,
         vertical_scale: float,
         transformer: Transformer,
+        texture: Texture | None = None,
     ) -> None:
         self.grid: np.ndarray = grid
         self.lat_min: float = lat_min
         self.lon_min: float = lon_min
         self.lat_max: float = lat_max
         self.lon_max: float = lon_max
+        self._texture: Texture | None = texture
 
         super().__init__(
             horizontal_scale=horizontal_scale,
@@ -64,9 +67,14 @@ class TerrainProjectMesh(ProjectMesh):
 
         go = scene.spawn("Terrain")
         go.transform.position = Vec3(dx, dy, dz)
+
+        texture = SimpleMaterial(texture=self._texture) if self._texture is not None \
+            else SimpleMaterial(color=Color(0.4, 0.55, 0.3))
+
         go.add_component(MeshRenderer(
             self.generate_mesh(),
-            SimpleMaterial(color=Color(0.4, 0.55, 0.3))
+            texture
+
         ))
         return [go]
 

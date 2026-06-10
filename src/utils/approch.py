@@ -16,6 +16,11 @@ class FixIdentifier:
     altitude: float
     sequence_number: str
 
+    course: float | None
+    speed_kts: float | None
+    turn_direction: str | None
+    altitude_restriction: str | None
+
 
 @dataclass
 class Approach(Renderable):

@@ -12,6 +12,7 @@ from src.utils.open_street_map_runway import Coordinate, OpenStreetMapRunway, Ta
 from src.utils.sqlite_airinc24_database_client import SQLiteArInC24DatabaseClient
 from utils.airac_net_client import AiracNetClient
 from utils.arinc_runway import ArincRunway
+from utils.open_airport_map_client import get_bbox_simple
 from utils.terrain_client import CopernicusDEMProvider
 
 def only_r_approaches(r: list[ArincRunway]) -> list[ArincRunway]:
@@ -21,18 +22,6 @@ def only_r_approaches(r: list[ArincRunway]) -> list[ArincRunway]:
             if app.route_type == "R"
         ]
     return r
-
-# todo: replace with pyproj package
-def get_bbox_simple(lat: float, lon: float, radius_km: float):
-    delta_lat = radius_km / 111.0
-    delta_lon = radius_km / (111.0 * math.cos(math.radians(lat)))
-
-    lat_min = lat - delta_lat
-    lat_max = lat + delta_lat
-    lon_min = lon - delta_lon
-    lon_max = lon + delta_lon
-
-    return lat_min, lon_min, lat_max, lon_max
 
 
 class OpenStreetMapAirportClient:

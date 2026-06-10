@@ -2,6 +2,7 @@ from pathlib import Path
 
 from pyproj import Transformer
 
+from utils.texture import Texture
 from utils.airport import Airport
 from utils.arinc_runway import ArincRunway
 from utils.engine import Engine
@@ -78,6 +79,16 @@ geo = GeoTransformer(
     transformer=transformer
 )
 
+sat_array = provider.get_satellite_image(
+    lat_min=LAT_MIN,
+    lon_min=LON_MIN,
+    lat_max=LAT_MAX,
+    lon_max=LON_MAX,
+    width=2048,
+    height=2048
+)
+sat_texture = Texture.from_array(sat_array)
+
 terrain_project_mesh = TerrainProjectMesh(
     grid=grid,
     lat_min=LAT_MIN,
@@ -86,7 +97,8 @@ terrain_project_mesh = TerrainProjectMesh(
     lon_max=LON_MAX,
     horizontal_scale=horizontal_scale,
     vertical_scale=vertical_scale,
-    transformer=transformer
+    transformer=transformer,
+    texture=sat_texture
 )
 
 engine = Engine(

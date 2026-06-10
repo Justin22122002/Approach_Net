@@ -48,7 +48,7 @@ class TaxiwayProjectMesh(ProjectMesh):
         ]
 
         go = scene.spawn(f"Taxiway")
-        go.add_component(LineRenderer.strip(points, color=self.color))
+        go.add_component(LineRenderer.strip(points, color=self.color, depth_offset=True))
         return [go]
 
     @override

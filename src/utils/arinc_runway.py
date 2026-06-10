@@ -150,6 +150,10 @@ class ArincRunway(Renderable, JsonSerializable):
                     longitude=f.get("longitude"),
                     altitude=f.get("altitude"),
                     sequence_number=f.get("sequence_number"),
+                    course=f.get("course", None),
+                    speed_kts=f.get("speed_kts", None),
+                    turn_direction=f.get("turn_direction", None),
+                    altitude_restriction=f.get("altitude_restriction", None),
                 )
                 for f in fixes_data
             ]
@@ -200,6 +204,10 @@ class ArincRunway(Renderable, JsonSerializable):
                             "longitude": f.longitude,
                             "altitude": f.altitude,
                             "sequence_number": f.sequence_number,
+                            "course": f.course,
+                            "speed_kts": f.speed_kts,
+                            "turn_direction": f.turn_direction,
+                            "altitude_restriction": f.altitude_restriction,
                         }
                         for f in app.fixes
                     ],

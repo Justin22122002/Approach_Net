@@ -206,7 +206,11 @@ class SQLiteArInC24DatabaseClient:
                             latitude=lat,
                             longitude=lon,
                             altitude=float(altitude_1) if altitude_1 != "" else 0,
-                            sequence_number=seq_num
+                            sequence_number=seq_num,
+                            course=None, # todo: see AiracNetClient
+                            speed_kts=None,
+                            turn_direction=None,
+                            altitude_restriction=None,
                         ))
 
                     if any(f.fix_identifier == runway_id or f.latitude is not None for f in fixes):

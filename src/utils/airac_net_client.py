@@ -90,13 +90,20 @@ class AiracNetClient:
         fixes: list[FixIdentifier] = []
 
         for fix in all_fixes:
+            # "course" "speed_kts" "turn_direction" "altitude_restriction"
             fix_coordinates = fix.get("fix_coordinates", {"lat": 0, "lon": 0})
             lat = fix_coordinates["lat"]
             lon = fix_coordinates["lon"]
             fix_identifier = fix["fix_identifier"]
             path_terminator = fix["path_terminator"]
             sequence = fix["sequence"]
-            altitude = fix.get("altitude_ft", 0)
+            altitude = fix.get("altitude_ft", 0) # set default to 0
+
+            # uncommon properties
+            course: float | None = fix.get("course", None)
+            speed_kts: float | None = fix.get("speed_kts", None)
+            turn_direction: str | None = fix.get("turn_direction", None)
+            altitude_restriction: str | None = fix.get("altitude_restriction", None)
 
             fixes.append(
                 FixIdentifier(
@@ -106,6 +113,10 @@ class AiracNetClient:
                     longitude=lon,
                     altitude=altitude,
                     sequence_number=sequence,
+                    course=course,
+                    speed_kts=speed_kts,
+                    turn_direction=turn_direction,
+                    altitude_restriction=altitude_restriction,
                 )
             )
 

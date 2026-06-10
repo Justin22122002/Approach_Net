@@ -6,6 +6,8 @@ from pandas import DataFrame
 from pyopensky.trino import Trino
 from pyproj import Transformer, datadir
 
+from utils.open_airport_map_client import get_bbox_simple
+
 
 class OpenSkyTrinoClient:
     """
@@ -15,13 +17,15 @@ class OpenSkyTrinoClient:
         self,
         start: datetime,
         stop: datetime,
-        bounds: tuple[float, float, float, float],
         arrival_airport: str,
+        lat: float,
+        lon: float,
+        radius_km: float = 10.0,
     ) -> None:
         self.trino: Trino = Trino()
         self.start: datetime = start
         self.stop: datetime = stop
-        self.bounds: tuple[float, float, float, float] = bounds
+        self.bounds: tuple[float, float, float, float] = get_bbox_simple(lat, lon, radius_km)
         self.arrival_airport: str = arrival_airport
 
         self.transformer: Transformer = Transformer.from_crs(
