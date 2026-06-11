@@ -36,9 +36,7 @@ def get_bbox_simple(lat: float, lon: float, radius_km: float) -> tuple[float, fl
 class OpenAirportMapClient:
     BASE_URL = "https://openairportmap.org/api/airport"
 
-    def __init__(self, cache_dir: Path = Path(".cache"), arinc_db_path: Path = Path("FAACIFP18")) -> None:
-        self.cache_dir: Path= cache_dir
-        self.cache_dir.mkdir(parents=True, exist_ok=True)
+    def __init__(self, arinc_db_path: Path = Path("FAACIFP18")) -> None:
         self.data: Any | None = None
         self.arinc_client: SQLiteArInC24DatabaseClient = SQLiteArInC24DatabaseClient(arinc_db_path)
         self.terrain_client: CopernicusDEMProvider = CopernicusDEMProvider("justin.groh@study.thws.de", "Copernicus2026!")

@@ -1,5 +1,3 @@
-import json
-import math
 from pathlib import Path
 from typing import Callable
 
@@ -27,9 +25,7 @@ def only_r_approaches(r: list[ArincRunway]) -> list[ArincRunway]:
 class OpenStreetMapAirportClient:
     OVERPASS_URL: str = "https://overpass-api.de/api/interpreter"
 
-    def __init__(self, cache_dir: Path = Path(".cache"), arinc_db_path: Path = Path("FAACIFP18")) -> None:
-        self.cache_dir: Path = cache_dir
-        self.cache_dir.mkdir(parents=True, exist_ok=True)
+    def __init__(self, arinc_db_path: Path = Path("FAACIFP18")) -> None:
         self.arinc_client = SQLiteArInC24DatabaseClient(arinc_db_path)
         self.terrain_client: CopernicusDEMProvider = CopernicusDEMProvider("justin.groh@study.thws.de", "Copernicus2026!")
 
@@ -91,24 +87,11 @@ class OpenStreetMapAirportClient:
             radius_km: float,
             icao: str,
     ) -> dict:
-        cache_file = self.cache_dir / f"{icao}.json"
-
-        # read
-        if cache_file.exists():
-            return json.loads(cache_file.read_text(encoding="utf-8"))
-
-        # fetch
         query = self._build_query(lat, lon, radius_km)
 
         r = requests.post(self.OVERPASS_URL, data=query, timeout=None)
         r.raise_for_status()
         data = r.json()
-
-        # write
-        cache_file.write_text(
-            json.dumps(data, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
 
         return data
 

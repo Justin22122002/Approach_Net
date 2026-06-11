@@ -10,7 +10,7 @@ from src.rendering.renderable import GeoToScreenFunction, Renderable
 @dataclass
 class FixIdentifier:
     fix_identifier: str
-    path_terminator: str # e.g -> IF, TF etc
+    path_terminator: str # e.g -> IF, TF etc, note: this is not IF, IAF, FAF, or MAP ! -> look for Description_Code -> 4th position describes the type of the waypoint -> A -> IAF, B -> IF, C -> FAF, M -> MAP, etc
     latitude: float
     longitude: float
     altitude: float

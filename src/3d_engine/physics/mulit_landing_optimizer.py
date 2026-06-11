@@ -43,7 +43,6 @@ class MultiLandingTrajectoryOptimizer:
         D_horizontal:     float = 1000.0,
         D_vertical:       float = 300.0,
         sep_stride:       int   = 5,
-        T_landing_gap:    float = 90.0,
     ) -> None:
         self.N: int                                                 = N
         self.T_min: float                                           = T_min
@@ -54,7 +53,6 @@ class MultiLandingTrajectoryOptimizer:
         self.D_h2: float                                            = D_horizontal ** 2
         self.D_v2: float                                            = D_vertical   ** 2
         self.sep_stride: int                                        = max(1, sep_stride)
-        self.T_landing_gap: float                                   = float(T_landing_gap)
 
         self.opti: Opti = ca.Opti()
 
@@ -149,7 +147,6 @@ class MultiLandingTrajectoryOptimizer:
         for i, Ti in enumerate(self.T_list):
             self.opti.subject_to(Ti >= self.T_min)
             self.opti.subject_to(Ti <= self.T_max)
-            J += 1.0 * (Ti / self.T_max)
 
         # dynamic constants per airplane
         for i in range(M):
@@ -172,15 +169,9 @@ class MultiLandingTrajectoryOptimizer:
 
             # state bounds in all time steps t
             self.opti.subject_to(self.X[si+2, :] >= 0.0)
-            self.opti.subject_to(self.X[si+3, :] >= 10.0)
+            self.opti.subject_to(self.X[si+3, :] >= 70.0)
             self.opti.subject_to(self.X[si+5, :] >= -0.70)
             self.opti.subject_to(self.X[si+5, :] <=  0.35)
-
-        # time constraints
-        for i in range(M - 1):
-            self.opti.subject_to(
-                self.T_list[i + 1] >= self.T_list[i] + self.T_landing_gap
-            )
 
         # separations
         check_ks = list(range(0, N, self.sep_stride))
@@ -196,37 +187,53 @@ class MultiLandingTrajectoryOptimizer:
                         (dx**2 + dy**2) / self.D_h2 + dz**2 / self.D_v2 >= 1.0
                     )
 
-        # terminal constraints
+        TOL_XY = 5.0  # m   lateral / longitudinal
+        TOL_Z = 5.0  # m   altitude
+        TOL_CHI = 3.0 * ca.pi / 180.0  # rad heading  (±3°)
+        TOL_GAM = 1.0 * ca.pi / 180.0  # rad glideslope (±1°)
+        GAM_REF = -3.0 * ca.pi / 180.0  # −3° glide path
+
         for i in range(M):
-            si = i * 6; ci = i * 3
-            gx = self.goal_param[i*4];   gy = self.goal_param[i*4+1]
-            gz = self.goal_param[i*4+2]; gv = self.goal_param[i*4+3]
+            si = i * 6;
+            ci = i * 3
+            gx = self.goal_param[i * 4]
+            gy = self.goal_param[i * 4 + 1]
+            gz = self.goal_param[i * 4 + 2]
+            gv = self.goal_param[i * 4 + 3]
+            chi_goal = self.heading_param[i]
 
-            e_x   = (self.X[si,   N] - gx) / 500.0
-            e_y   = (self.X[si+1, N] - gy) / 500.0
-            e_z   = (self.X[si+2, N] - gz) /  50.0
-            e_v   = (self.X[si+3, N] - gv) /  20.0
+            # Position
+            self.opti.subject_to(self.X[si, N] >= gx - TOL_XY)
+            self.opti.subject_to(self.X[si, N] <= gx + TOL_XY)
+            self.opti.subject_to(self.X[si + 1, N] >= gy - TOL_XY)
+            self.opti.subject_to(self.X[si + 1, N] <= gy + TOL_XY)
+            self.opti.subject_to(self.X[si + 2, N] >= gz - TOL_Z)
+            self.opti.subject_to(self.X[si + 2, N] <= gz + TOL_Z)
+
+            # chi
             e_chi = ca.atan2(
-                        ca.sin(self.X[si+4, N] - self.heading_param[i]),
-                        ca.cos(self.X[si+4, N] - self.heading_param[i]),
-                    ) / (30.0 * ca.pi / 180.0)
-            e_gam = (self.X[si+5, N] + 3.0 * ca.pi / 180.0) / (2.0 * ca.pi / 180.0)
-
-            J += (
-                  2.0 * e_x ** 2
-                + 2.0 * e_y ** 2
-                + 1.0 * e_z ** 2
-                + 0.5 * e_v ** 2
-                + 0.8 * e_chi ** 2
-                + 3.0 * e_gam ** 2
+                ca.sin(self.X[si + 4, N] - chi_goal),
+                ca.cos(self.X[si + 4, N] - chi_goal),
             )
+            self.opti.subject_to(e_chi >= -TOL_CHI)
+            self.opti.subject_to(e_chi <= TOL_CHI)
 
+            # gamma
+            e_gam = self.X[si + 5, N] - GAM_REF
+            self.opti.subject_to(e_gam >= -TOL_GAM)
+            self.opti.subject_to(e_gam <= TOL_GAM)
+
+            # soft -> velocity
+            e_v = (self.X[si + 3, N] - gv) / 20.0
+            J += 0.5 * e_v ** 2
+
+            # Smoothness
             smooth = ca.MX(0.0)
             for k in range(N - 1):
                 smooth += (
-                    ((self.U[ci,   k+1] - self.U[ci,   k]) / 30000.0)**2
-                  + ((self.U[ci+1, k+1] - self.U[ci+1, k]) /    0.3 )**2
-                  + ((self.U[ci+2, k+1] - self.U[ci+2, k]) /   10.0 )**2
+                        ((self.U[ci, k + 1] - self.U[ci, k]) / 30000.0) ** 2
+                        + ((self.U[ci + 1, k + 1] - self.U[ci + 1, k]) / 0.3) ** 2
+                        + ((self.U[ci + 2, k + 1] - self.U[ci + 2, k]) / 10.0) ** 2
                 )
             J += 0.1 * smooth / (N - 1)
 
@@ -262,8 +269,6 @@ class MultiLandingTrajectoryOptimizer:
             dist  = np.linalg.norm(goal_list[i][:3] - x0_list[i][:3])
             v_avg = 0.5 * (float(x0_list[i][3]) + max(float(goal_list[i][3]), 30.0))
             T_g   = float(np.clip(dist / v_avg * 1.5, self.T_min, self.T_max))
-            if i > 0:
-                T_g = max(T_g, T_guesses[i - 1] + self.T_landing_gap)
             T_guesses.append(T_g)
 
         for Ti, T_g in zip(self.T_list, T_guesses):

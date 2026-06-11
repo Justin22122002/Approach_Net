@@ -156,42 +156,48 @@ class LandingTrajectoryOptimizer:
         self.opti.subject_to(self.U[2, :] <=  60.0)       # roll ≤  60°
 
         self.opti.subject_to(self.X[2, :] >= 0.0)         # z ≥ 0 (terrain)
-        self.opti.subject_to(self.X[3, :] >= 10.0)        # v ≥ 10 m/s (no Stall)
+        self.opti.subject_to(self.X[3, :] >= 70.0)        # v ≥ 10 m/s (no Stall)
         self.opti.subject_to(self.X[5, :] >= -0.70)       # γ ≥ −40°
         self.opti.subject_to(self.X[5, :] <=  0.35)       # γ ≤  20°
 
         gx = self.goal_param[0]; gy = self.goal_param[1]
         gz = self.goal_param[2]; gv = self.goal_param[3]
+        chi_goal = self.heading_param[0]  # [rad]
+        gam_goal = -3.0 * ca.pi / 180.0  # −3 ° fixed glide path
 
-        # normed terminal error (τ = 1)
-        e_x   = (self.X[0, N] - gx) / 500.0
-        e_y   = (self.X[1, N] - gy) / 500.0
-        e_z   = (self.X[2, N] - gz) /  50.0
-        e_v   = (self.X[3, N] - gv) /  20.0
+        TOL_XY = 5.0  # m lateral / longitudinal
+        TOL_Z = 5.0  # m altitude at threshold
+        TOL_CHI = 3.0 * ca.pi / 180.0  # rad heading (±3°)
+        TOL_GAM = 1.0 * ca.pi / 180.0  # rad glideslope (±1°)
+
+        self.opti.subject_to(self.X[0, N] >= gx - TOL_XY)
+        self.opti.subject_to(self.X[0, N] <= gx + TOL_XY)
+        self.opti.subject_to(self.X[1, N] >= gy - TOL_XY)
+        self.opti.subject_to(self.X[1, N] <= gy + TOL_XY)
+        self.opti.subject_to(self.X[2, N] >= gz - TOL_Z)
+        self.opti.subject_to(self.X[2, N] <= gz + TOL_Z)
+
         e_chi = ca.atan2(
-                    ca.sin(self.X[4, N] - self.heading_param[0]),
-                    ca.cos(self.X[4, N] - self.heading_param[0]),
-                ) / (30.0 * ca.pi / 180.0)
-        e_gam = (self.X[5, N] + 3.0 * ca.pi / 180.0) / (2.0 * ca.pi / 180.0)
-
-        J = (
-            2.0 * e_x ** 2
-          + 2.0 * e_y ** 2
-          + 1.0 * e_z ** 2
-          + 0.5 * e_v ** 2
-          + 0.8 * e_chi ** 2
-          + 3.0 * e_gam ** 2
+            ca.sin(self.X[4, N] - chi_goal),
+            ca.cos(self.X[4, N] - chi_goal),
         )
+        self.opti.subject_to(e_chi >= -TOL_CHI)
+        self.opti.subject_to(e_chi <= TOL_CHI)
 
-        # T/T_max ∈ [0,1]
+        e_gam = self.X[5, N] - gam_goal
+        self.opti.subject_to(e_gam >= -TOL_GAM)
+        self.opti.subject_to(e_gam <= TOL_GAM)
+
+        e_v = (self.X[3, N] - gv) / 20.0
+        J = 0.5 * e_v ** 2
         J += 0.05 * (self.T / self.T_max)
 
         smooth = ca.MX(0.0)
         for k in range(N - 1):
             smooth += (
-                ((self.U[0, k+1] - self.U[0, k]) / 30000.0)**2
-              + ((self.U[1, k+1] - self.U[1, k]) /    0.3 )**2
-              + ((self.U[2, k+1] - self.U[2, k]) /   10.0 )**2
+                ((self.U[0, k+1] - self.U[0, k]) / 30000.0) ** 2
+              + ((self.U[1, k+1] - self.U[1, k]) /    0.3 ) ** 2
+              + ((self.U[2, k+1] - self.U[2, k]) /   10.0 ) ** 2
             )
         J += 0.1 * smooth / (N - 1)
 
@@ -239,11 +245,11 @@ class LandingTrajectoryOptimizer:
             self.opti.set_initial(self.X, x_init)
         else:
             pos0     = x0[:3]
-            v0 = float(x0[3])
+            v0       = float(x0[3])
             chi0     = float(x0[4])
-            gam0 = float(x0[5])
+            gam0     = float(x0[5])
             pos_goal = goal[:3]
-            v_goal = max(float(goal[3]), 30.0)
+            v_goal   = max(float(goal[3]), 30.0)
             chi_goal = float(np.radians(heading_goal_deg))
             d3       = pos_goal - pos0
             d_chi    = ((chi_goal - chi0) + np.pi) % (2 * np.pi) - np.pi

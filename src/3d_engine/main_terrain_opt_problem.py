@@ -186,8 +186,7 @@ def on_gui() -> None:
     hud.text(f"γ        {state.gamma:+5.1f}°",                        20, 124, size=15)
     hud.text(f"T opt    {T_opt:6.1f} s  (dt {dt_casadi:.2f} s)",     20, 144, size=15)
     hud.line(20, 168, 310, 168,                         color=(80,80,100,180))
-    hud.text(f"Progress {prog*100:4.0f}%  step {_step_idx}/{N_casadi}",
-                                                         20, 173, size=14)
+    hud.text(f"Progress {prog*100:4.0f}%  step {_step_idx}/{N_casadi}", 20, 173, size=14)
     hud.bar(20, 190, 270, 10, value=prog,               fg_color=(100,220,120,220))
     hud.text(f"FPS      {fps:5.0f}",                    20, 207, size=13, color=(160,160,180))
 

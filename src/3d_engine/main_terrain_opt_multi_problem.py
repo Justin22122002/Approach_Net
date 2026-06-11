@@ -114,7 +114,6 @@ optimizer = MultiLandingTrajectoryOptimizer(
     D_horizontal    = 1000.0,
     D_vertical      = 300.0,
     sep_stride      = 5,
-    T_landing_gap   = 90.0,
 )
 
 x0_inputs       = [state_to_casadi(s) for s in states_list]
@@ -225,8 +224,7 @@ def on_gui() -> None:
 
     panel_h = 50 + M * 72
     hud.panel(10, 10, 330, panel_h, border_radius=8)
-    hud.text("CasADi Multi-Landing", 20, 16, size=16,
-             color=(255, 210, 60), shadow=True)
+    hud.text("CasADi Multi-Landing", 20, 16, size=16, color=(255, 210, 60), shadow=True)
     hud.line(20, 38, 330, 38, color=(80, 80, 100, 180))
 
     y = 44
@@ -236,11 +234,9 @@ def on_gui() -> None:
         cr = int(ac.color.r*255); cg = int(ac.color.g*255); cb = int(ac.color.b*255)
 
         status = "Landed" if ac.landed else f"Step {ac.step_idx}/{N_CASADI}"
-        hud.text(f"AC{i}  T={T_vals[i]:.0f}s  {status}",
-                 20, y, size=14, color=(cr, cg, cb), shadow=True)
+        hud.text(f"AC{i}  T={T_vals[i]:.0f}s  {status}", 20, y, size=14, color=(cr, cg, cb), shadow=True)
         y += 18
-        hud.text(f"  v={s.v:.0f} m/s  h={s.h:.0f} m  γ={s.gamma:+.1f}°",
-                 20, y, size=13)
+        hud.text(f"  v={s.v:.0f} m/s  h={s.h:.0f} m  γ={s.gamma:+.1f}°", 20, y, size=13)
         y += 18
 
         for j, other in enumerate(aircraft_list):
@@ -253,8 +249,7 @@ def on_gui() -> None:
             dv = float(abs(s.h - sj.h))
             ok = dh >= 1000.0 or dv >= 300.0
             col = (100, 220, 100) if ok else (255, 80, 80)
-            hud.text(f"  sep AC{j}: {dh:.0f}m / {dv:.0f}m vert",
-                     20, y, size=12, color=col)
+            hud.text(f"  sep AC{j}: {dh:.0f}m / {dv:.0f}m vert", 20, y, size=12, color=col)
             y += 16
 
         hud.line(20, y+2, 330, y+2, color=(60, 60, 80, 150))
