@@ -2,11 +2,12 @@ import numpy as np
 import casadi as ca
 from casadi import Opti, MX, DM
 
+from physics.aircraft_environment_casadi import AircraftEnvironmentCasadi
 from physics.aircraft_kinematics_max_constrains import AircraftKinematicsMaxConstrains
-from physics.aircraft_kinematics_state import AircraftKinematicsState
+from physics.aircraft_kinematics_state_casadi import AircraftKinematicsStateCasadi
 
 
-def state_to_casadi(s: AircraftKinematicsState) -> np.ndarray:
+def state_to_casadi(s: AircraftKinematicsStateCasadi) -> np.ndarray:
     return np.array([
         s.x,
         s.y,
@@ -35,7 +36,7 @@ class MultiLandingTrajectoryOptimizer:
 
     def __init__(
         self,
-        states:           list[AircraftKinematicsState],
+        states:           list[AircraftKinematicsStateCasadi],
         max_constraints:  list[AircraftKinematicsMaxConstrains],
         N:                int   = 80,
         T_min:            float = 60.0,
@@ -48,7 +49,7 @@ class MultiLandingTrajectoryOptimizer:
         self.T_min: float                                           = T_min
         self.T_max: float                                           = T_max
         self.M: int                                                 = len(states)
-        self.states: list[AircraftKinematicsState]                  = states
+        self.states: list[AircraftKinematicsStateCasadi]            = states
         self.max_constraints: list[AircraftKinematicsMaxConstrains] = max_constraints
         self.D_h2: float                                            = D_horizontal ** 2
         self.D_v2: float                                            = D_vertical   ** 2
@@ -73,67 +74,45 @@ class MultiLandingTrajectoryOptimizer:
             self,
             xk: MX,
             uk: MX,
-            dt: float,
-            s: AircraftKinematicsState,
-            c: AircraftKinematicsMaxConstrains
-    ) -> DM:
-        x = xk[0]
-        y = xk[1]
-        z = xk[2]
-        v = xk[3]
-        chi = xk[4]
-        gamma = xk[5]
+            dt: MX,
+            s: AircraftKinematicsStateCasadi,
+            c: AircraftKinematicsMaxConstrains,
+    ) -> MX:
+        temp_state = AircraftKinematicsStateCasadi(
+            x     = xk[0],
+            y     = xk[1],
+            h     = xk[2],
+            v     = xk[3],
+            chi   = xk[4] * (180.0 / ca.pi),
+            gamma = xk[5] * (180.0 / ca.pi),
+            mass  = s.mass,
+            C_D0  = s.C_D0,
+            area  = s.area,
+            rho0  = s.rho0,
+            k     = s.k,
+        )
 
-        thrust = uk[0]
-        load_factor = uk[1]
-        roll_deg = uk[2]
-        phi = roll_deg * ca.pi / 180.0
+        temp_env = AircraftEnvironmentCasadi(
+            state       = temp_state,
+            goal        = None,
+            constraints = c,
+            dt          = dt,
+        )
 
-        vx = v * ca.cos(gamma) * ca.sin(chi)
-        vy = v * ca.cos(gamma) * ca.cos(chi)
-        vz = v * ca.sin(gamma)
+        result = temp_env.apply_action(
+            thrust      = uk[0],
+            load_factor = uk[1],
+            roll        = uk[2],
+        )
 
-        v_safe = ca.fmax(v, 1.0)
-        tx = vx / v_safe; ty = vy / v_safe; tz = vz / v_safe
-
-        b_norm = ca.sqrt(tx**2 + ty**2 + 1e-8)
-        bx = ty / b_norm; by = -tx / b_norm
-
-        nx  =  by * tz;        ny  = -bx * tz;        nz  = bx * ty - by * tx
-        tnx = ty * nz - tz * ny; tny = tz * nx - tx * nz; tnz = tx * ny - ty * nx
-
-        nr_x = nx * ca.cos(phi) + tnx * ca.sin(phi)
-        nr_y = ny * ca.cos(phi) + tny * ca.sin(phi)
-        nr_z = nz * ca.cos(phi) + tnz * ca.sin(phi)
-
-        rho    = s.rho0 * ca.exp(-ca.fmax(z, 0.0) / s.H)
-        v2     = v_safe ** 2
-        CL_req = 2.0 * load_factor * s.mass * s.g / (rho * v2 * s.area)
-        CL_act = ca.fmin(CL_req, c.cl_max)
-        CD     = s.C_D0 + s.k * CL_act ** 2
-        q      = 0.5 * rho * v2
-        drag   = q * CD  * s.area
-        lift   = q * CL_act * s.area
-
-        acc  = (thrust - drag) / s.mass
-        vd_x = acc * tx + (lift / s.mass) * nr_x
-        vd_y = acc * ty + (lift / s.mass) * nr_y
-        vd_z = acc * tz + (lift / s.mass) * nr_z - s.g
-
-        vx_n = vx + vd_x * dt; vy_n = vy + vd_y * dt; vz_n = vz + vd_z * dt
-        x_new = x + vx_n * dt;  y_new = y + vy_n * dt;  z_new = z + vz_n * dt
-
-        v_new = ca.sqrt(vx_n**2 + vy_n**2 + vz_n**2 + 1e-8)
-
-        v_dot     = (vx_n*vd_x + vy_n*vd_y + vz_n*vd_z) / ca.fmax(v_new, 1e-6)
-        cos_g     = ca.fmax(ca.cos(gamma), 1e-4)
-        gamma_dot = (v_new*vd_z - vz_n*v_dot) / ca.fmax(v_new**2 * cos_g, 1e-6)
-        gamma_new = gamma + gamma_dot * dt
-
-        chi_dot   = s.g * ca.tan(phi) / ca.fmax(v_new, 1e-6)
-        chi_new   = chi + chi_dot * dt
-
-        return ca.vertcat(x_new, y_new, z_new, v_new, chi_new, gamma_new)
+        return ca.vertcat(
+            result[0],
+            result[1],
+            result[2],
+            result[3],
+            result[5] * (ca.pi / 180.0),   # chi_rad
+            result[4] * (ca.pi / 180.0),   # gamma_rad
+        )
 
     def _build(self) -> None:
         N = self.N; M = self.M
@@ -147,6 +126,8 @@ class MultiLandingTrajectoryOptimizer:
         for i, Ti in enumerate(self.T_list):
             self.opti.subject_to(Ti >= self.T_min)
             self.opti.subject_to(Ti <= self.T_max)
+
+            J += 0.05 * Ti / self.T_max
 
         # dynamic constants per airplane
         for i in range(M):
@@ -194,7 +175,7 @@ class MultiLandingTrajectoryOptimizer:
         GAM_REF = -3.0 * ca.pi / 180.0  # −3° glide path
 
         for i in range(M):
-            si = i * 6;
+            si = i * 6
             ci = i * 3
             gx = self.goal_param[i * 4]
             gy = self.goal_param[i * 4 + 1]

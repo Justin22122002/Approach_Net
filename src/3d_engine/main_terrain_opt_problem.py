@@ -2,9 +2,9 @@ from pathlib import Path
 import numpy as np
 from pyproj import Transformer
 
-from physics.aircraft_environment import AircraftEnvironment
+from physics.aircraft_environment_casadi import AircraftEnvironmentCasadi
 from physics.aircraft_kinematics_max_constrains import AircraftKinematicsMaxConstrains
-from physics.aircraft_kinematics_state import AircraftKinematicsState
+from physics.aircraft_kinematics_state_casadi import AircraftKinematicsStateCasadi
 from physics.landing_optimizer import LandingTrajectoryOptimizer, state_to_casadi
 from utils.airport import Airport
 from utils.arinc_runway import ArincRunway
@@ -81,7 +81,7 @@ goal_go.transform.position = Vec3(gx, geo.altitude_to_local(goal_h), gz)
 
 x0_utm, y0_utm = transformer.transform(icao["lon"], icao["lat"])
 
-state = AircraftKinematicsState(
+state = AircraftKinematicsStateCasadi(
     x=x0_utm + 3000, y=y0_utm - 2000, h=goal_h + 1200.0,
     v=90.0, gamma=-2.5, chi=-goal_chi_deg,
     mass=65_000.0, C_D0=0.028, area=124.6,
@@ -111,7 +111,14 @@ print(f"Optimisation done.  T = {T_opt:.1f} s  dt = {dt_casadi:.3f} s")
 print(f"  pos  ({X_opt[0,-1]:.0f}, {X_opt[1,-1]:.0f}, {X_opt[2,-1]:.1f}) m")
 print(f"  v    {float(X_opt[3,-1]):.1f} m/s")
 
-env = AircraftEnvironment(state=state, goal=None, constraints=constraints, dt=dt_casadi)
+# Re-use AircraftEnvironmentCasadi to replay the optimized trajectory.
+# float() on state fields: after apply_action the attributes become CasADi DM.
+env = AircraftEnvironmentCasadi(
+    state       = state,
+    goal        = None,
+    constraints = constraints,
+    dt          = dt_casadi,
+)
 
 print(f"Environment ready: {N_casadi} steps × {dt_casadi:.3f} s = {T_opt:.1f} s")
 
@@ -153,8 +160,9 @@ def on_update(dt_frame: float) -> None:
             _step_idx += 1
         _phys_acc -= dt_casadi
 
-    lx, lz = geo.to_local_in_m(state.x, state.y)
-    ly      = geo.altitude_to_local(state.h)
+    # float() extracts scalar from CasADi DM after apply_action mutates state fields
+    lx, lz = geo.to_local_in_m(float(state.x), float(state.y))
+    ly      = geo.altitude_to_local(float(state.h))
     wp      = Vec3(lx, ly, lz)
 
     aircraft_go.transform.position = wp
@@ -171,20 +179,26 @@ def on_gui() -> None:
     hud  = engine.hud
     fps  = engine._clock.get_fps() if engine._clock else 0.0
     prog = min(_step_idx / max(N_casadi, 1), 1.0)
-    dx   = state.x - goal_x
-    dy   = state.y - goal_y
-    dist = float(np.sqrt(dx*dx + dy*dy))
-    dchi = (state.chi - goal_chi_deg + 180) % 360 - 180
+
+    # float() extracts scalar from CasADi DM for arithmetic / string formatting
+    sx = float(state.x);  sy = float(state.y)
+    sv = float(state.v);  sh = float(state.h)
+    schi = float(state.chi); sgamma = float(state.gamma)
+
+    dx   = sx - goal_x
+    dy   = sy - goal_y
+    dist = np.sqrt(dx*dx + dy*dy)
+    dchi = (schi - goal_chi_deg + 180) % 360 - 180
 
     hud.panel(10, 10, 310, 230, border_radius=8)
     hud.text("CasADi Landing",                          20, 16,  size=17, color=(255,210,60), shadow=True)
     hud.line(20, 38, 310, 38,                           color=(80,80,100,180))
-    hud.text(f"Speed    {state.v:6.1f} m/s  (goal {V_TD:.0f})",      20, 44,  size=15)
-    hud.text(f"Altitude {state.h:6.0f} m   (goal {goal_h:.0f})",     20, 64,  size=15)
-    hud.text(f"Dist     {dist/1000:5.2f} km",                         20, 84,  size=15)
-    hud.text(f"χ error  {dchi:+6.1f}°  (goal {goal_chi_deg:.0f}°)",  20, 104, size=15)
-    hud.text(f"γ        {state.gamma:+5.1f}°",                        20, 124, size=15)
-    hud.text(f"T opt    {T_opt:6.1f} s  (dt {dt_casadi:.2f} s)",     20, 144, size=15)
+    hud.text(f"Speed    {sv:6.1f} m/s  (goal {V_TD:.0f})",         20, 44,  size=15)
+    hud.text(f"Altitude {sh:6.0f} m   (goal {goal_h:.0f})",        20, 64,  size=15)
+    hud.text(f"Dist     {dist/1000:5.2f} km",                       20, 84,  size=15)
+    hud.text(f"χ error  {dchi:+6.1f}°  (goal {goal_chi_deg:.0f}°)", 20, 104, size=15)
+    hud.text(f"γ        {sgamma:+5.1f}°",                           20, 124, size=15)
+    hud.text(f"T opt    {T_opt:6.1f} s  (dt {dt_casadi:.2f} s)",   20, 144, size=15)
     hud.line(20, 168, 310, 168,                         color=(80,80,100,180))
     hud.text(f"Progress {prog*100:4.0f}%  step {_step_idx}/{N_casadi}", 20, 173, size=14)
     hud.bar(20, 190, 270, 10, value=prog,               fg_color=(100,220,120,220))

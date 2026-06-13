@@ -2,11 +2,12 @@ import numpy as np
 import casadi as ca
 from casadi import MX, Opti, DM
 
+from physics.aircraft_environment_casadi import AircraftEnvironmentCasadi
 from physics.aircraft_kinematics_max_constrains import AircraftKinematicsMaxConstrains
-from physics.aircraft_kinematics_state import AircraftKinematicsState
+from physics.aircraft_kinematics_state_casadi import AircraftKinematicsStateCasadi
 
 
-def state_to_casadi(s: AircraftKinematicsState) -> np.ndarray:
+def state_to_casadi(s: AircraftKinematicsStateCasadi) -> np.ndarray:
     return np.array([
         s.x,
         s.y,
@@ -33,7 +34,7 @@ class LandingTrajectoryOptimizer:
 
     def __init__(
         self,
-        state:           AircraftKinematicsState,
+        state:           AircraftKinematicsStateCasadi,
         max_constraints: AircraftKinematicsMaxConstrains,
         N:               int   = 80,
         T_min:           float = 60.0,
@@ -42,7 +43,7 @@ class LandingTrajectoryOptimizer:
         self.N: int = N
         self.T_min: float = T_min
         self.T_max: float = T_max
-        self.state: AircraftKinematicsState = state
+        self.state: AircraftKinematicsStateCasadi = state
         self.max_constraints: AircraftKinematicsMaxConstrains = max_constraints
 
         self.opti: Opti = ca.Opti()
@@ -60,70 +61,43 @@ class LandingTrajectoryOptimizer:
             self,
             xk: MX,
             uk: MX,
-            dt: float
-    ) -> DM:
-        x = xk[0]
-        y = xk[1]
-        z = xk[2]
-        v = xk[3]
-        chi = xk[4]
-        gamma = xk[5]
+            dt: MX,
+    ) -> MX:
+        temp_state = AircraftKinematicsStateCasadi(
+            x     = xk[0],
+            y     = xk[1],
+            h     = xk[2],
+            v     = xk[3],
+            chi   = xk[4] * (180.0 / ca.pi),
+            gamma = xk[5] * (180.0 / ca.pi),
+            mass  = self.state.mass,
+            C_D0  = self.state.C_D0,
+            area  = self.state.area,
+            rho0  = self.state.rho0,
+            k     = self.state.k,
+        )
 
-        thrust = uk[0]
-        load_factor = uk[1]
-        roll_deg = uk[2]
-        phi = roll_deg * ca.pi / 180.0
+        temp_env = AircraftEnvironmentCasadi(
+            state       = temp_state,
+            goal        = None,
+            constraints = self.max_constraints,
+            dt          = dt,
+        )
 
-        vx = v * ca.cos(gamma) * ca.sin(chi)
-        vy = v * ca.cos(gamma) * ca.cos(chi)
-        vz = v * ca.sin(gamma)
+        s = temp_env.apply_action(
+            thrust      = uk[0],
+            load_factor = uk[1],
+            roll        = uk[2],
+        )
 
-        v_safe = ca.fmax(v, 1.0)
-        tx = vx / v_safe; ty = vy / v_safe; tz = vz / v_safe
-
-        b_norm = ca.sqrt(tx**2 + ty**2 + 1e-8)
-        bx =  ty / b_norm; by = -tx / b_norm
-
-        nx  =  by * tz;        ny  = -bx * tz;        nz  = bx * ty - by * tx
-        tnx = ty * nz - tz * ny; tny = tz * nx - tx * nz; tnz = tx * ny - ty * nx
-
-        nr_x = nx * ca.cos(phi) + tnx * ca.sin(phi)
-        nr_y = ny * ca.cos(phi) + tny * ca.sin(phi)
-        nr_z = nz * ca.cos(phi) + tnz * ca.sin(phi)
-
-        rho    = self.state.rho0 * ca.exp(-ca.fmax(z, 0.0) / self.state.H)
-        v2     = v_safe**2
-        CL_req = (2.0 * load_factor * self.state.mass * self.state.g / (rho * v2 * self.state.area))
-        CL_act = ca.fmin(CL_req, self.max_constraints.cl_max)
-        CD     = self.state.C_D0 + self.state.k * CL_act**2
-        q      = 0.5 * rho * v2
-        drag   = q * CD  * self.state.area
-        lift   = q * CL_act * self.state.area
-
-        acc  = (thrust - drag) / self.state.mass
-        vd_x = acc * tx + (lift / self.state.mass) * nr_x
-        vd_y = acc * ty + (lift / self.state.mass) * nr_y
-        vd_z = acc * tz + (lift / self.state.mass) * nr_z - self.state.g
-
-        vx_n = vx + vd_x * dt
-        vy_n = vy + vd_y * dt
-        vz_n = vz + vd_z * dt
-
-        x_new = x + vx_n * dt
-        y_new = y + vy_n * dt
-        z_new = z + vz_n * dt
-
-        v_new = ca.sqrt(vx_n**2 + vy_n**2 + vz_n**2 + 1e-8)
-
-        v_dot     = (vx_n * vd_x + vy_n * vd_y + vz_n * vd_z) / ca.fmax(v_new, 1e-6)
-        cos_g     = ca.fmax(ca.cos(gamma), 1e-4)
-        gamma_dot = (v_new * vd_z - vz_n * v_dot) / ca.fmax(v_new**2 * cos_g, 1e-6)
-        gamma_new = gamma + gamma_dot * dt
-
-        chi_dot = self.state.g * ca.tan(phi) / ca.fmax(v_new, 1e-6)
-        chi_new = chi + chi_dot * dt
-
-        return ca.vertcat(x_new, y_new, z_new, v_new, chi_new, gamma_new)
+        return ca.vertcat(
+            s[0],
+            s[1],
+            s[2],
+            s[3],
+            s[5] * (ca.pi / 180.0),
+            s[4] * (ca.pi / 180.0),
+        )
 
     def _build(self) -> None:
         N = self.N
@@ -190,6 +164,7 @@ class LandingTrajectoryOptimizer:
 
         e_v = (self.X[3, N] - gv) / 20.0
         J = 0.5 * e_v ** 2
+        # time penalty
         J += 0.05 * (self.T / self.T_max)
 
         smooth = ca.MX(0.0)

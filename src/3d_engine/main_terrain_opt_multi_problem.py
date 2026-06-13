@@ -4,9 +4,9 @@ from dataclasses import dataclass, field
 import numpy as np
 from pyproj import Transformer
 
-from physics.aircraft_environment import AircraftEnvironment
+from physics.aircraft_environment_casadi import AircraftEnvironmentCasadi
 from physics.aircraft_kinematics_max_constrains import AircraftKinematicsMaxConstrains
-from physics.aircraft_kinematics_state import AircraftKinematicsState
+from physics.aircraft_kinematics_state_casadi import AircraftKinematicsStateCasadi
 from physics.mulit_landing_optimizer import MultiLandingTrajectoryOptimizer, state_to_casadi
 from utils.airport import Airport
 from utils.arinc_runway import ArincRunway
@@ -92,7 +92,7 @@ AIRCRAFT_CONFIGS = [
 states_list      = []
 constraints_list = []
 for dx, dy, dh, v0, gam0, dchi, _ in AIRCRAFT_CONFIGS:
-    states_list.append(AircraftKinematicsState(
+    states_list.append(AircraftKinematicsStateCasadi(
         x=x0_utm + dx, y=y0_utm + dy, h=goal_h + dh,
         v=v0, gamma=gam0, chi=-goal_chi_deg + dchi,
         mass=65_000.0, C_D0=0.028, area=124.6,
@@ -138,9 +138,11 @@ for i in range(M):
         print(f"  AC{i}–AC{j}: min_horiz={dh.min():.0f} m  min_vert={dv.min():.0f} m")
 
 environments = [
-    AircraftEnvironment(
-        state=states_list[i], goal=None,
-        constraints=constraints_list[i], dt=dt_list[i],
+    AircraftEnvironmentCasadi(
+        state       = states_list[i],
+        goal        = None,
+        constraints = constraints_list[i],
+        dt          = dt_list[i],
     )
     for i in range(M)
 ]
@@ -200,8 +202,8 @@ def on_update(dt_frame: float) -> None:
             ac.phys_acc -= dt_list[i]
 
         s = states_list[i]
-        lx, lz = geo.to_local_in_m(s.x, s.y)
-        ly      = geo.altitude_to_local(s.h)
+        lx, lz = geo.to_local_in_m(float(s.x), float(s.y))
+        ly      = geo.altitude_to_local(float(s.h))
         wp      = Vec3(lx, ly, lz)
         ac.aircraft_go.transform.position = wp
 
@@ -213,9 +215,10 @@ def on_update(dt_frame: float) -> None:
 
     flying = [ac for ac in aircraft_list if not ac.landed]
     if flying:
-        cx = np.mean([geo.to_local_in_m(states_list[ac.idx].x, states_list[ac.idx].y)[0] for ac in flying])
-        cz = np.mean([geo.to_local_in_m(states_list[ac.idx].x, states_list[ac.idx].y)[1] for ac in flying])
-        cy = np.mean([geo.altitude_to_local(states_list[ac.idx].h) for ac in flying])
+        # float() needed: state fields are CasADi DM after first simulation step
+        cx = np.mean([geo.to_local_in_m(float(states_list[ac.idx].x), float(states_list[ac.idx].y))[0] for ac in flying])
+        cz = np.mean([geo.to_local_in_m(float(states_list[ac.idx].x), float(states_list[ac.idx].y))[1] for ac in flying])
+        cy = np.mean([geo.altitude_to_local(float(states_list[ac.idx].h)) for ac in flying])
         cam.target = Vec3(float(cx), float(cy), float(cz))
 
 def on_gui() -> None:
@@ -233,10 +236,12 @@ def on_gui() -> None:
         s = states_list[i]
         cr = int(ac.color.r*255); cg = int(ac.color.g*255); cb = int(ac.color.b*255)
 
+        sv = float(s.v); sh = float(s.h); sgamma = float(s.gamma)
+
         status = "Landed" if ac.landed else f"Step {ac.step_idx}/{N_CASADI}"
         hud.text(f"AC{i}  T={T_vals[i]:.0f}s  {status}", 20, y, size=14, color=(cr, cg, cb), shadow=True)
         y += 18
-        hud.text(f"  v={s.v:.0f} m/s  h={s.h:.0f} m  γ={s.gamma:+.1f}°", 20, y, size=13)
+        hud.text(f"  v={sv:.0f} m/s  h={sh:.0f} m  γ={sgamma:+.1f}°", 20, y, size=13)
         y += 18
 
         for j, other in enumerate(aircraft_list):
@@ -245,8 +250,8 @@ def on_gui() -> None:
             if ac.landed or other.landed:
                 continue
             sj = states_list[j]
-            dh = float(np.sqrt((s.x-sj.x)**2 + (s.y-sj.y)**2))
-            dv = float(abs(s.h - sj.h))
+            dh = float(np.sqrt((float(s.x)-float(sj.x))**2 + (float(s.y)-float(sj.y))**2))
+            dv = float(abs(float(s.h) - float(sj.h)))
             ok = dh >= 1000.0 or dv >= 300.0
             col = (100, 220, 100) if ok else (255, 80, 80)
             hud.text(f"  sep AC{j}: {dh:.0f}m / {dv:.0f}m vert", 20, y, size=12, color=col)
