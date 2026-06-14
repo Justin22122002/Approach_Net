@@ -41,8 +41,22 @@ class ApproachProjectMesh(ProjectMesh):
         spawned = []
         points: list[Vec3] = []
 
+        entry_fixes, fix_before, rw_fix = self.approach.get_final_approach_fixes()
+
+        special_colors: dict[str, Color] = {}
+        if rw_fix:
+            special_colors[rw_fix.fix_identifier] = Color(0.0, 0.0, 0.0)
+        if fix_before:
+            special_colors[fix_before.fix_identifier] = Color(1.0, 1.0, 0.0)
+        for entry_fix in entry_fixes:
+            special_colors[entry_fix.fix_identifier] = Color(0.0, 0.5, 1.0)
+
         for fix in self.approach.fixes:
             if fix.latitude is None or fix.longitude is None:
+                continue
+            if not fix.fix_identifier:
+                continue
+            if fix.latitude == 0.0 and fix.longitude == 0.0:
                 continue
 
             dx, dz = geo_transformer.to_local(
@@ -56,12 +70,14 @@ class ApproachProjectMesh(ProjectMesh):
 
             points.append(Vec3(dx, dy, dz))
 
+            fix_color = special_colors.get(fix.fix_identifier, self.color)
+
             label_go = scene.spawn(f"label_{fix.fix_identifier}")
             label_go.transform.position = Vec3(dx, dy + 1, dz)
             label_go.add_component(TextRenderer(
-                text=fix.fix_identifier,
-                font_size = 48,
-                color=self.color,
+                text=f"{fix.fix_identifier}", # self.approach.procedure_identifier
+                font_size=48,
+                color=fix_color,
                 billboard=True,
                 world_height=0.6,
             ))

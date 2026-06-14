@@ -220,14 +220,14 @@ class MultiLandingTrajectoryOptimizer:
 
         self.opti.minimize(J)
         self.opti.solver("ipopt", {}, {
-            "max_iter":         2000,
-            "tol":              1e-4,
-            "acceptable_tol":   1e-3,
-            "acceptable_iter":    15,
-            "print_level":         3,
-            "linear_solver":  "mumps",
-            "mu_strategy": "adaptive",
-            "bound_relax_factor": 1e-8,
+            "max_iter":           3000,
+            "tol":                1e-6,      # 1e-4
+            "acceptable_tol":     1e-4,      # 1e-3
+            "acceptable_iter":      5,       # 15
+            "print_level":           3,
+            "linear_solver":    "mumps",
+            "mu_strategy":   "adaptive",
+            "bound_relax_factor": 1e-9,     # 1e-8
         })
 
     def solve(

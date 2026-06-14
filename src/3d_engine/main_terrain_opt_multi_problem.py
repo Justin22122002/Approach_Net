@@ -111,7 +111,7 @@ optimizer = MultiLandingTrajectoryOptimizer(
     N               = N_CASADI,
     T_min           = 60.0,
     T_max           = 600.0,
-    D_horizontal    = 1000.0,
+    D_horizontal    = 4600.0, # 1000.0
     D_vertical      = 300.0,
     sep_stride      = 5,
 )
