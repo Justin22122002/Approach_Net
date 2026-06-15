@@ -6,10 +6,12 @@ import pygame
 from pyproj import Transformer
 
 from src.rendering.visualizer import Visualizer
-from src.utils.aircraft import Aircraft, AircraftData
+from src.utils.aircraft import Aircraft
+from utils.renderer.aircraft_2d_renderer import Aircraft2dRenderer
 from src.utils.aircraft_history_interpolator import AircraftHistoryInterpolator, plot_aircraft_trajectory
 
 from src.utils.airport import Airport
+from utils.renderer.airport_2d_renderer import Airport2dRenderer
 
 transformer = Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)
 
@@ -98,7 +100,7 @@ def main():
                 position_source = None
                 category = None
 
-                data = AircraftData(
+                data = Aircraft(
                     icao24=icao24,
                     callsign=callsign,
                     origin_country=origin_country,
@@ -118,7 +120,7 @@ def main():
                     position_source=position_source,
                     category=category,
                 )
-                aircraft_objects.append(Aircraft(data))
+                aircraft_objects.append(Aircraft2dRenderer(data))
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -154,7 +156,7 @@ def main():
                 visualizer.offset_x = mx - (mx - visualizer.offset_x) * (visualizer.zoom / old_zoom)
                 visualizer.offset_y = my - (my - visualizer.offset_y) * (visualizer.zoom / old_zoom)
 
-        objects: list = [airport] + aircraft_objects
+        objects: list = [Airport2dRenderer(airport)] + aircraft_objects
         visualizer.render_objects(objects, lamin, lamax, lomin, lomax)
 
 if __name__ == "__main__":

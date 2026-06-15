@@ -7,9 +7,11 @@ import numpy as np
 import requests
 
 from src.utils.airac_net_client import AiracNetClient
-from src.utils.airport import AirportTerminal, Airport, Terrain
+from src.utils.airport import AirportTerminal, Airport
+from utils.terrain import Terrain
 from src.utils.arinc_runway import ArincRunway
-from src.utils.open_street_map_runway import Taxiway, Coordinate, OpenStreetMapRunway
+from src.utils.open_street_map_runway import Coordinate, OpenStreetMapRunway
+from utils.taxiway import Taxiway
 from src.utils.sqlite_airinc24_database_client import SQLiteArInC24DatabaseClient
 from src.utils.terrain_client import CopernicusDEMProvider
 

@@ -1,16 +1,15 @@
 from typing import override
 
-import pygame
-from pygame import Surface
 from pyproj import Geod
 
-from src.rendering.renderable import JsonSerializable, Renderable, GeoToScreenFunction
-from src.utils.approch import Approach, FixIdentifier
+from src.rendering.renderable import JsonSerializable
+from src.utils.approch import Approach
+from src.utils.fix_identifier import FixIdentifier
 from src.utils.open_street_map_runway import Coordinate
 
 geod = Geod(ellps="WGS84")
 
-class ArincRunway(Renderable, JsonSerializable):
+class ArincRunway(JsonSerializable):
     def __init__(
         self,
         runway_identifier: str,
@@ -107,33 +106,6 @@ class ArincRunway(Renderable, JsonSerializable):
     @staticmethod
     def ft_to_m(value: float) -> float:
         return value * 0.3048
-
-    @override
-    def render(self, screen: Surface, geo_to_screen: GeoToScreenFunction, **kwargs) -> None:
-        #if not self.polygon_coordinates:
-        #    return
-
-        #screen_points = [
-        #    geo_to_screen(coord.lat, coord.lon)
-        #    for coord in self.polygon_coordinates
-        #]
-
-
-        #pygame.draw.polygon(screen, (200, 200, 200), screen_points)
-
-        start, end = self.centerline_coordinates
-        pygame.draw.line(
-            screen,
-            (255, 255, 255),
-            geo_to_screen(start.lat, start.lon),
-            geo_to_screen(end.lat, end.lon),
-            2
-        )
-        pygame.draw.circle(screen, (0, 0, 255), (geo_to_screen(start.lat, start.lon)), 5)
-        pygame.draw.circle(screen, (255, 0, 0), (geo_to_screen(end.lat, end.lon)), 5)
-
-        for approach in self.approaches:
-            approach.render(screen, geo_to_screen)
 
     @override
     @classmethod

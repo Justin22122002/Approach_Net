@@ -2,7 +2,7 @@ from typing import override
 
 from pyproj import Transformer
 
-from utils.aircraft import AircraftData
+from utils.aircraft import Aircraft
 from utils.color import Color
 from utils.gameObject import GameObject
 from utils.mesh import Mesh
@@ -16,7 +16,7 @@ from utils_project.project_mesh import ProjectMesh
 class AircraftProjectMesh(ProjectMesh):
     def __init__(
             self,
-            aircraft_data: AircraftData,
+            aircraft_data: Aircraft,
             horizontal_scale: float,
             vertical_scale: float,
             transformer: Transformer,
@@ -24,7 +24,7 @@ class AircraftProjectMesh(ProjectMesh):
         assert aircraft_data.latitude is not None
         assert aircraft_data.longitude is not None
 
-        self.aircraft_data: AircraftData = aircraft_data
+        self.aircraft_data: Aircraft = aircraft_data
 
         super().__init__(
             horizontal_scale=horizontal_scale,

@@ -9,7 +9,7 @@ from utils.engine import Engine
 from utils.color import Color
 from utils.directionalLight import DirectionalLight
 from utils.camera import FlyCamera
-from utils.terrain_client import CopernicusDEMProvider
+from utils.clients.terrain_client import CopernicusDEMProvider
 from utils.vec3 import Vec3
 from utils_project.approach_project_mesh import ApproachProjectMesh
 from utils_project.geo_transformer import GeoTransformer

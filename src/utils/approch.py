@@ -1,29 +1,10 @@
 from dataclasses import dataclass
-from typing import override
 
-import pygame
-from pygame import Surface
-
-from src.rendering.renderable import GeoToScreenFunction, Renderable
+from utils.fix_identifier import FixIdentifier
 
 
 @dataclass
-class FixIdentifier:
-    fix_identifier: str
-    path_terminator: str # e.g -> IF, TF etc, note: this is not IF, IAF, FAF, or MAP ! -> look for Description_Code -> 4th position describes the type of the waypoint -> A -> IAF, B -> IF, C -> FAF, M -> MAP, etc
-    latitude: float
-    longitude: float
-    altitude: float
-    sequence_number: str
-
-    course: float | None
-    speed_kts: float | None
-    turn_direction: str | None
-    altitude_restriction: str | None
-
-
-@dataclass
-class Approach(Renderable):
+class Approach:
     procedure_identifier: str
     route_type: str  # R, A, I
     fixes: list[FixIdentifier]
@@ -77,21 +58,3 @@ class Approach(Renderable):
                         entry_fixes.append(segment[j - 1])
 
         return entry_fixes, fix_before, rw_fix
-
-    @override
-    def render(self, screen: Surface, geo_to_screen: GeoToScreenFunction, **kwargs) -> None:
-        color = (255, 0, 0) if self.route_type == "R" else (0, 255, 0) if self.route_type == "A" else (0, 0, 255)
-
-        sorted_fixes = sorted(
-            self.fixes,
-            key=lambda f: float(f.sequence_number) if isinstance(f.sequence_number, (int, float, str)) and str(f.sequence_number).replace('.', '', 1).isdigit() else 0.0
-        )
-
-        font = pygame.font.SysFont("Arial", 12)
-        for f in sorted_fixes:
-            if f.latitude is not None and f.longitude is not None:
-                x, y = geo_to_screen(f.latitude, f.longitude)
-                pygame.draw.circle(screen, color, (x, y), 3)
-
-                text_surf = font.render(f.fix_identifier, True, color)
-                screen.blit(text_surf, (x + 5, y - 5))

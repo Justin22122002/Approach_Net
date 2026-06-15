@@ -1,19 +1,15 @@
-from collections.abc import Callable
-from dataclasses import dataclass
 from typing import override
 
-import pygame
-from pygame import Surface
 from pyproj import Geod
 
-from src.rendering.renderable import JsonSerializable, Renderable
+from src.rendering.renderable import JsonSerializable
 from src.utils.arinc_runway import Approach
 from src.utils.geo_types import Coordinate
 
 geod = Geod(ellps="WGS84")
 
 
-class OpenStreetMapRunway(Renderable, JsonSerializable):
+class OpenStreetMapRunway(JsonSerializable):
     def __init__(
             self,
             open_street_map_id: str,
@@ -67,50 +63,6 @@ class OpenStreetMapRunway(Renderable, JsonSerializable):
 
         return polygon_coords
 
-    @override
-    def render(
-            self,
-            screen: Surface,
-            geo_to_screen: Callable[[float, float], tuple[float, float]],
-            **kwargs,
-    ) -> None:
-        if len(self.polygon_coordinates) < 4 or self.width is None:
-            return
-
-        points = [geo_to_screen(c.lat, c.lon) for c in self.polygon_coordinates]
-
-        pygame.draw.polygon(
-            surface=screen,
-            color=(105, 105, 105),
-            points=points,
-            width=0,
-        )
-
-        points = [geo_to_screen(c.lat, c.lon) for c in self.centerline_coordinates]
-        if len(points) > 1:
-            pygame.draw.lines(
-                surface=screen,
-                color=(255, 0, 0),
-                closed=False,
-                points=points,
-                width=1,
-            )
-
-        if self.ref:
-            font = pygame.font.SysFont("Arial", 14)
-            start = self.polygon_coordinates[0]
-            end = self.polygon_coordinates[-2]
-
-            sx, sy = geo_to_screen(start.lat, start.lon)
-            ex, ey = geo_to_screen(end.lat, end.lon)
-
-            txt_start = font.render(self.ref, True, (255, 255, 0))
-            txt_end = font.render(self.ref, True, (255, 255, 0))
-
-            offset = 5
-
-            screen.blit(txt_start, (sx + offset, sy + offset))
-            screen.blit(txt_end, (ex + offset, ey + offset))
 
     @override
     def to_dict(self) -> dict:
@@ -136,62 +88,3 @@ class OpenStreetMapRunway(Renderable, JsonSerializable):
             name=data.get("name"),
             width=data.get("width"),
         )
-
-class Taxiway(Renderable, JsonSerializable):
-    def __init__(
-            self,
-            open_street_map_id: str,
-            coordinates: list[Coordinate],
-            width: float | None = None,
-            *args,
-            **kwargs,
-    ) -> None:
-        super().__init__(*args, **kwargs)
-        self.open_street_map_id: str = open_street_map_id
-        self.coordinates: list[Coordinate] = coordinates
-        self.width: float = float(width) if width else 1
-
-    @override
-    def render(
-            self,
-            screen: Surface,
-            geo_to_screen: Callable[[float, float], tuple[float, float]],
-            **kwargs,
-    ) -> None:
-        if len(self.coordinates) < 2:
-            return
-        points = [geo_to_screen(c.lat, c.lon) for c in self.coordinates]
-        pygame.draw.lines(
-            surface=screen,
-            color=(230, 232, 49),
-            closed=False,
-            points=points,
-            width=1,
-        )
-
-    @override
-    def to_dict(self) -> dict:
-        return {
-            "open_street_map_id": self.open_street_map_id,
-            "width": self.width,
-            "coordinates": [
-                {"lat": c.lat, "lon": c.lon}
-                for c in self.coordinates
-            ],
-        }
-
-    @override
-    @classmethod
-    def from_dict(cls: type["Taxiway"], data: dict) -> "Taxiway":
-        coordinates = [
-            Coordinate(lat=c["lat"], lon=c["lon"])
-            for c in data.get("coordinates", [])
-        ]
-
-        return cls(
-            open_street_map_id=data["open_street_map_id"],
-            coordinates=coordinates,
-            width=data.get("width"),
-        )
-
-

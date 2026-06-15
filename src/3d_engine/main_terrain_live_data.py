@@ -5,15 +5,15 @@ from typing import Any
 import pandas as pd
 from pyproj import Transformer
 
-from utils.aircraft import AircraftData
+from utils.aircraft import Aircraft
 from utils.airport import Airport
 from utils.arinc_runway import ArincRunway
 from utils.engine import Engine
 from utils.color import Color
 from utils.directionalLight import DirectionalLight
 from utils.camera import FlyCamera
-from utils.open_sky_rest_client import OpenSkyRestClient
-from utils.terrain_client import CopernicusDEMProvider
+from utils.clients.open_sky_rest_client import OpenSkyRestClient
+from utils.clients.terrain_client import CopernicusDEMProvider
 from utils.vec3 import Vec3
 from utils_project.aircraft_project_mesh import AircraftProjectMesh
 from utils_project.geo_transformer import GeoTransformer
@@ -208,7 +208,7 @@ def on_update(dt: float) -> None:
                     )
                     geoaltitude = new_height
 
-                data = AircraftData(
+                data = Aircraft(
                     icao24=icao24,
                     callsign=callsign,
                     origin_country=origin_country,

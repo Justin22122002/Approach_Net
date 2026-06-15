@@ -1,8 +1,8 @@
 from pathlib import Path
 
-from utils.airport import Airport
-from src.utils.open_airport_map_client import OpenAirportMapClient, only_r_approaches
-from utils.airport_client import OpenStreetMapAirportClient
+from src.utils.airport import Airport
+from src.utils.clients.open_airport_map_client import OpenAirportMapClient, only_r_approaches
+from src.utils.clients.airport_client import OpenStreetMapAirportClient
 
 
 def main() -> None:

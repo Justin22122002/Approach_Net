@@ -5,8 +5,10 @@ import numpy as np
 import requests
 from pyproj import Geod
 
-from src.utils.airport import Airport, AirportTerminal, Terrain
-from src.utils.open_street_map_runway import Coordinate, OpenStreetMapRunway, Taxiway
+from src.utils.airport import Airport, AirportTerminal
+from utils.terrain import Terrain
+from src.utils.open_street_map_runway import Coordinate, OpenStreetMapRunway
+from utils.taxiway import Taxiway
 from src.utils.sqlite_airinc24_database_client import SQLiteArInC24DatabaseClient
 from utils.airac_net_client import AiracNetClient
 from utils.arinc_runway import ArincRunway

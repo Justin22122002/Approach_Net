@@ -8,13 +8,13 @@ from physics.aircraft_kinematics_state_casadi import AircraftKinematicsStateCasa
 from physics.landing_optimizer_rnav import LandingTrajectoryRnavOptimizer, state_to_casadi
 from utils.airport import Airport
 from utils.arinc_runway import ArincRunway
+from utils.clients.terrain_client import CopernicusDEMProvider
 from utils.engine import Engine
 from utils.color import Color
 from utils.directionalLight import DirectionalLight
 from utils.camera import OrbitCamera
 from utils.pointRenderer import PointRenderer
 from utils.lineRenderer import LineRenderer
-from utils.terrain_client import CopernicusDEMProvider
 from utils.vec3 import Vec3
 from utils_project.geo_transformer import GeoTransformer
 from utils_project.runway_project_mesh import RunwayProjectMesh

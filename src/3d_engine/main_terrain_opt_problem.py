@@ -14,7 +14,7 @@ from utils.directionalLight import DirectionalLight
 from utils.camera import OrbitCamera
 from utils.pointRenderer import PointRenderer
 from utils.lineRenderer import LineRenderer
-from utils.terrain_client import CopernicusDEMProvider
+from utils.clients.terrain_client import CopernicusDEMProvider
 from utils.vec3 import Vec3
 from utils_project.geo_transformer import GeoTransformer
 from utils_project.runway_project_mesh import RunwayProjectMesh

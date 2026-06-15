@@ -2,7 +2,8 @@ import sqlite3
 from collections import defaultdict
 from pathlib import Path
 
-from src.utils.arinc_runway import Approach, FixIdentifier, ArincRunway
+from src.utils.arinc_runway import Approach, ArincRunway
+from utils.fix_identifier import FixIdentifier
 import re
 
 def extract_runway_from_procedure(proc_id: str) -> str | None:
