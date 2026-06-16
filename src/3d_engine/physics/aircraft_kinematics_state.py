@@ -109,6 +109,16 @@ class AircraftKinematicsState:
                 / (rho * self.v ** 2 * self.aircraft_type.area)
         )
 
+    def stall_speed(self) -> float:
+        """
+        V_stall = sqrt( 2·m·g / (ρ · C_L_max · S) )
+        """
+        rho = self.air_density()
+        return np.sqrt(
+            (2.0 * self.aircraft_type.mass * self.g)
+            / (rho * self.aircraft_type.cl_max * self.aircraft_type.area)
+        )
+
     def to_array(self) -> NDArray[np.float64]:
         return np.array([
             self.x,

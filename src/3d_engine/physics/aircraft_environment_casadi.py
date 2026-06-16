@@ -1,7 +1,6 @@
 import casadi as ca
 
 from physics.aircraft_goal import AircraftGoal
-from physics.aircraft_type import AircraftType
 from physics.aircraft_kinematics_state_casadi import AircraftKinematicsStateCasadi
 
 

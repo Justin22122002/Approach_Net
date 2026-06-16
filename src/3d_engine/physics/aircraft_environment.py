@@ -2,7 +2,6 @@ import numpy as np
 from numpy.typing import NDArray
 
 from physics.aircraft_goal import AircraftGoal
-from physics.aircraft_type import AircraftType
 from physics.aircraft_kinematics_state import AircraftKinematicsState
 
 

@@ -128,16 +128,26 @@ cam.pitch = 15.0
 engine.camera = cam
 
 x, y = transformer.transform(icao["lon"], icao["lat"])
-b737 = AircraftKinematicsState(
-    x=x, y=y, h=airport.arinc_424_runway[0].runway_altitude * 0.3048 + 200,
-    v=220.0, gamma=0.0, chi=0.0,
+
+constraints = AircraftType(
+    cl_max=3.0,
     mass=65000.0,
     C_D0=0.028,
     area=124.6,
+    max_thrust=240000,
+    max_load_factor=0.3,
+    min_load_factor=2.5,
+    max_roll_angle=60,
 )
 
-constraints = AircraftType(
-    cl_max=3.0
+b737 = AircraftKinematicsState(
+    x=x,
+    y=y,
+    h=airport.arinc_424_runway[0].runway_altitude * 0.3048 + 200,
+    v=220.0,
+    gamma=0.0,
+    chi=0.0,
+    aircraft_type=constraints,
 )
 
 goal = AircraftGoal(
@@ -145,7 +155,7 @@ goal = AircraftGoal(
     y=b737.y + 10000.0,
     h=1500.0
 )
-env  = AircraftEnvironment(state=b737, goal=goal, constraints=constraints, dt=0.1)
+env  = AircraftEnvironment(state=b737, goal=goal, dt=0.1)
 
 thrust      = 240000.0
 load_factor = 1.0

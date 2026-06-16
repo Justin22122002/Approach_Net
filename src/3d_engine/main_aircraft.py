@@ -47,6 +47,10 @@ constraints = AircraftType(
     mass=65000.0,
     C_D0=0.028,
     area=124.6,
+    max_thrust=240000,
+    max_load_factor=0.3,
+    min_load_factor=2.5,
+    max_roll_angle=60,
 )
 
 b737 = AircraftKinematicsState(

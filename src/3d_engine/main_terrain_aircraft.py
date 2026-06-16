@@ -133,10 +133,16 @@ constraints = AircraftType(
     mass=65000.0,
     C_D0=0.028,
     area=124.6,
+    max_thrust=240000,
+    max_load_factor=0.3,
+    min_load_factor=2.5,
+    max_roll_angle=60,
 )
 
 b737 = AircraftKinematicsState(
-    x=x, y=y, h=airport.arinc_424_runway[0].runway_altitude * 0.3048 + 200,
+    x=x,
+    y=y,
+    h=airport.arinc_424_runway[0].runway_altitude * 0.3048 + 200,
     v=220.0,
     gamma=0.0,
     chi=0.0,
