@@ -19,9 +19,10 @@ from utils_project.geo_transformer import GeoTransformer
 from utils_project.runway_project_mesh import RunwayProjectMesh
 from utils_project.taxiway_project_mesh import TaxiwayProjectMesh
 from utils_project.terrain_project_mesh import TerrainProjectMesh
-
 from utils.pointRenderer import PointRenderer
 from utils.lineRenderer import LineRenderer
+
+from OpenGL.GL import glDeleteVertexArrays, glDeleteBuffers
 
 icao_frankfurt = {
     "icao": "EDDF",
@@ -40,7 +41,7 @@ transformer: Transformer = Transformer.from_crs(
 basePath: Path = Path("../data")
 frankfurt = Airport.load_from_folder(basePath, icao["icao"])
 
-history_file_path: Path = basePath / Path("arrivals_frankfurt_20260528_1900_1930.parquet")
+history_file_path: Path = basePath / Path("arrivals_frankfurt_20260527_1900_1930.parquet")
 interpolator: AircraftHistoryInterpolator = AircraftHistoryInterpolator(history_file_path, airport_height=frankfurt.arinc_424_runway[0].runway_altitude)
 interpolator.clean_dataframe()
 interpolator.interpolate()
@@ -237,7 +238,6 @@ def on_update(dt: float) -> None:
             line_renderer.points = expanded_pts
             line_renderer.colors = expanded_cols
             if line_renderer._vao is not None:
-                from OpenGL.GL import glDeleteVertexArrays, glDeleteBuffers
                 glDeleteVertexArrays(1, [line_renderer._vao])
                 glDeleteBuffers(1,     [line_renderer._vbo])
                 line_renderer._vao = None

@@ -6,12 +6,15 @@ from pandas import DataFrame
 from pyopensky.trino import Trino
 from pyproj import Transformer, datadir
 
-from utils.open_airport_map_client import get_bbox_simple
+from src.utils.clients.open_airport_map_client import get_bbox_simple
+from utils.clients.aircraft_type_client import AircraftTypeClient
 
 
 class OpenSkyTrinoClient:
     """
     note: this class converts the wsg84 coordinates to the 3855 projection -> e.g. msl in meter
+
+    when bounds are provided, the lat and lon are ignored
     """
     def __init__(
         self,
@@ -21,12 +24,14 @@ class OpenSkyTrinoClient:
         lat: float,
         lon: float,
         radius_km: float = 10.0,
+        bounds: tuple[float, float, float, float] | None = None,
     ) -> None:
         self.trino: Trino = Trino()
         self.start: datetime = start
         self.stop: datetime = stop
-        self.bounds: tuple[float, float, float, float] = get_bbox_simple(lat, lon, radius_km)
+        self.bounds: tuple[float, float, float, float] = bounds if bounds is not None else get_bbox_simple(lat, lon, radius_km)
         self.arrival_airport: str = arrival_airport
+        self.aircraft_client: AircraftTypeClient = AircraftTypeClient()
 
         self.transformer: Transformer = Transformer.from_crs(
             "epsg:4979",
@@ -128,7 +133,19 @@ class OpenSkyTrinoClient:
         if df is None:
             raise ValueError("No data returned from Trino.")
 
-        return df.sort_values(["icao24", "time"]).reset_index(drop=True)
+        df = df.sort_values(["icao24", "time"]).reset_index(drop=True)
+
+        df["time_diff"] = df.groupby("icao24")["time"].diff()
+        # filter out the first row (which is NaN)
+        df["time_diff"] = df["time_diff"].fillna(pd.Timedelta(0))
+
+        df["flight_id"] = (
+            (df["time_diff"] > pd.Timedelta("2h"))
+            .groupby(df["icao24"])
+            .cumsum()
+        )
+
+        return df
 
     def _fetch_landing_icao24s(self) -> set[str]:
         df: DataFrame | None = self.trino.flightlist(
@@ -141,27 +158,69 @@ class OpenSkyTrinoClient:
 
         return set(df["icao24"].dropna().unique())
 
+    def extract_aircraft_table(self, df: DataFrame) -> DataFrame:
+        unique_icao24 = df["icao24"].dropna().unique()
+
+        rows = []
+
+        for icao24 in unique_icao24:
+            try:
+                aircraft = self.aircraft_client.get_aircraft_type(icao24)
+
+                rows.append({
+                    "icao24": icao24,
+                    "type": aircraft.type,
+                    "icao_type": aircraft.icao_type,
+                    "manufacturer": aircraft.manufacturer,
+                    "mode_s": aircraft.mode_s,
+                    "registration": aircraft.registration,
+                    "registered_owner": aircraft.registered_owner,
+                    "url_photo_thumbnail": aircraft.url_photo_thumbnail,
+                })
+
+            except Exception as e:
+                print(f"[WARN] Aircraft fetch failed {icao24}: {e}")
+
+        return pd.DataFrame(rows)
+
 
 if __name__ == "__main__":
-    path: Path = Path("../pyproj")
+    path: Path = Path("../../pyproj")
     datadir.append_data_dir(path)
 
     now = datetime.now(UTC)
-    day = now - timedelta(days=10)
+    day = now - timedelta(days=20)
 
     start = day.replace(hour=19, minute=0, second=0, microsecond=0)
     stop  = day.replace(hour=19, minute=30, second=0, microsecond=0)
 
     bounds = (8.0, 49.5, 9.5, 50.8)
 
-    client = OpenSkyTrinoClient(start=start, stop=stop, bounds=bounds, arrival_airport="EDDF")
+    client = OpenSkyTrinoClient(
+        start=start,
+        stop=stop,
+        arrival_airport="EDDF",
+        lat=50.0379,
+        lon=8.5622,
+        radius_km=10.0,
+        bounds=bounds
+    )
 
     df = client.load_arrivals()
     print(df.head())
     print(f"Arriving aircraft: {df['icao24'].nunique()}")
     print(f"Total state vectors: {len(df)}")
 
+    df_aircraft = client.extract_aircraft_table(df)
+
+    print(df_aircraft.head())
+
     client.save_dataframe(
         df,
-        Path(f"../data/arrivals_frankfurt_{start:%Y%m%d_%H%M}_{stop:%H%M}"),
+        Path(f"../../data/arrivals_frankfurt_{start:%Y%m%d_%H%M}_{stop:%H%M}"),
+    )
+
+    client.save_dataframe(
+        df_aircraft,
+        Path(f"../../data/aircraft_{start:%Y%m%d_%H%M}_{stop:%H%M}")
     )

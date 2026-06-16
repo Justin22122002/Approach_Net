@@ -5,7 +5,7 @@ import numpy as np
 from pyproj import Transformer
 
 from physics.aircraft_environment_casadi import AircraftEnvironmentCasadi
-from physics.aircraft_kinematics_max_constrains import AircraftKinematicsMaxConstrains
+from physics.aircraft_type import AircraftType
 from physics.aircraft_kinematics_state_casadi import AircraftKinematicsStateCasadi
 from physics.mulit_landing_optimizer import MultiLandingTrajectoryOptimizer, state_to_casadi
 from utils.airport import Airport
@@ -92,12 +92,24 @@ AIRCRAFT_CONFIGS = [
 states_list      = []
 constraints_list = []
 for dx, dy, dh, v0, gam0, dchi, _ in AIRCRAFT_CONFIGS:
+    constraints = AircraftType(
+        cl_max=3.0,
+        mass=65_000.0,
+        C_D0=0.028,
+        area=124.6,
+    )
+
     states_list.append(AircraftKinematicsStateCasadi(
-        x=x0_utm + dx, y=y0_utm + dy, h=goal_h + dh,
-        v=v0, gamma=gam0, chi=-goal_chi_deg + dchi,
-        mass=65_000.0, C_D0=0.028, area=124.6,
+        x=x0_utm + dx,
+        y=y0_utm + dy,
+        h=goal_h + dh,
+        v=v0,
+        gamma=gam0,
+        chi=-goal_chi_deg + dchi,
+        aircraft_type=constraints,
     ))
-    constraints_list.append(AircraftKinematicsMaxConstrains(cl_max=3.0))
+
+    constraints_list.append(constraints)
 
 M        = len(states_list)
 N_CASADI = 100
@@ -141,7 +153,6 @@ environments = [
     AircraftEnvironmentCasadi(
         state       = states_list[i],
         goal        = None,
-        constraints = constraints_list[i],
         dt          = dt_list[i],
     )
     for i in range(M)

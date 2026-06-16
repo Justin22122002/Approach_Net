@@ -2,7 +2,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from physics.aircraft_goal import AircraftGoal
-from physics.aircraft_kinematics_max_constrains import AircraftKinematicsMaxConstrains
+from physics.aircraft_type import AircraftType
 from physics.aircraft_kinematics_state import AircraftKinematicsState
 
 
@@ -46,12 +46,10 @@ class AircraftEnvironment:
             self,
             state:       AircraftKinematicsState,
             goal:        AircraftGoal,
-            constraints: AircraftKinematicsMaxConstrains,
             dt:          float,
     ) -> None:
         self.state:       AircraftKinematicsState          = state
         self.goal:        AircraftGoal                     = goal
-        self.constraints: AircraftKinematicsMaxConstrains  = constraints
         self.dt:          float                            = dt
         self.gravity:     NDArray[np.float64]              = np.array([0.0, 0.0, -9.81])
 
@@ -156,7 +154,7 @@ class AircraftEnvironment:
 
         actual_cl = min(
             requested_cl,
-            self.constraints.cl_max
+            self.state.aircraft_type.cl_max
         )
 
         # D = 1/2 · ρ · v² · C_D · A
@@ -168,8 +166,8 @@ class AircraftEnvironment:
 
         # v̇ = ((T - D) / m) · (v⃗ / ‖v⃗‖) + (L / m) · n⃗ + g⃗
         v_dot = (
-                ((thrust - drag) / self.state.mass) * t_hat
-                + (actual_lift / self.state.mass) * n_hat # old code: + (lift / self.state.mass) * n_hat
+                ((thrust - drag) / self.state.aircraft_type.mass) * t_hat
+                + (actual_lift / self.state.aircraft_type.mass) * n_hat # old code: + (lift / self.state.mass) * n_hat
                 + self.gravity
         )
 
@@ -247,13 +245,13 @@ class AircraftEnvironment:
         ) / 9.81
 
         requested_cl = self.state.required_lift_coefficient(load_factor=load_factor)
-        actual_cl = min(requested_cl, self.constraints.cl_max)
+        actual_cl = min(requested_cl, self.state.aircraft_type.cl_max)
 
         drag = self.state.drag_force(actual_cl)
 
         # v̇ = ((T - D) / m) · (v⃗ / ‖v⃗‖) + (L / m) · n⃗ + g⃗
         # T = m ( v̇ · t̂ ) + D
-        thrust = self.state.mass * np.dot(v_dot, t_hat) + drag
+        thrust = self.state.aircraft_type.mass * np.dot(v_dot, t_hat) + drag
 
         # n = ((v̇ - g) · n̂) / g
         load_factor = np.dot((v_dot - g_vec), n_hat) / 9.81

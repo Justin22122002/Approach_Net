@@ -5,7 +5,7 @@ from pyproj import Transformer
 
 from physics.aircraft_environment import AircraftEnvironment
 from physics.aircraft_goal import AircraftGoal
-from physics.aircraft_kinematics_max_constrains import AircraftKinematicsMaxConstrains
+from physics.aircraft_type import AircraftType
 from physics.aircraft_kinematics_state import AircraftKinematicsState
 from utils.airport import Airport
 from utils.arinc_runway import ArincRunway
@@ -136,7 +136,7 @@ b737 = AircraftKinematicsState(
     area=124.6,
 )
 
-constraints = AircraftKinematicsMaxConstrains(
+constraints = AircraftType(
     cl_max=3.0
 )
 

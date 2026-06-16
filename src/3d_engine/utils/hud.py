@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Callable
 import pygame
 
 from OpenGL.GL import (
@@ -40,6 +41,8 @@ RGBColor  = tuple[int, int, int]
 RGBAColor = tuple[int, int, int, int]
 AnyColor  = RGBColor | RGBAColor
 
+_ButtonRecord = dict  # {x, y, w, h, callback, hovered}
+
 class HUD:
     _HUD_VERT = load_shader_source(Path("utils/shaders/hud.vert"))
     _HUD_FRAG = load_shader_source(Path("utils/shaders/hud.frag"))
@@ -52,6 +55,9 @@ class HUD:
         self._vao:     int | None            = None
         self._fonts:     dict[int, pygame.font.Font]    = {}
         self._img_cache: dict[str, pygame.Surface]      = {}
+
+        self._buttons: list[_ButtonRecord] = []
+        self._mouse_pos: tuple[int, int]   = (0, 0)
 
     def _ensure_gpu(self):
         if self._prog is not None:
@@ -71,7 +77,7 @@ class HUD:
         if self._surface is None or self._surface.get_size() != (w, h):
             self._surface = pygame.Surface((w, h), pygame.SRCALPHA)
 
-    def _get_font(self, size: int) -> "pygame.font.Font":
+    def _get_font(self, size: int) -> pygame.font.Font:
         if size not in self._fonts:
             self._fonts[size] = pygame.font.SysFont("segoeui", size)
         return self._fonts[size]
@@ -80,6 +86,8 @@ class HUD:
         self._ensure_gpu()
         self._ensure_surface()
         self._surface.fill((0, 0, 0, 0))
+        self._buttons.clear()
+        self._mouse_pos = pygame.mouse.get_pos()
 
     def _end(self):
         surf = self._surface
@@ -111,6 +119,52 @@ class HUD:
         glBindTexture(GL_TEXTURE_2D, 0)
         glEnable(GL_DEPTH_TEST)
         glEnable(GL_CULL_FACE)
+
+    def _handle_event(self, event: pygame.event.Event) -> None:
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            mx, my = event.pos
+            for btn in self._buttons:
+                if btn["x"] <= mx < btn["x"] + btn["w"] and \
+                   btn["y"] <= my < btn["y"] + btn["h"]:
+                    btn["callback"]()
+                    break   # consume the first hit
+
+    def button(
+        self,
+        label: str,
+        x: int, y: int, w: int, h: int,
+        callback: Callable[[], None],
+        *,
+        size: int = 18,
+        color:        AnyColor = (60, 90, 160, 220),
+        text_color:   AnyColor = (255, 255, 255, 255),
+        border_color: AnyColor = (100, 130, 210, 255),
+        hover_color:        AnyColor = (80, 120, 200, 240),
+        hover_text_color:   AnyColor = (255, 255, 255, 255),
+        hover_border_color: AnyColor = (160, 190, 255, 255),
+        border_radius: int = 6,
+        border_width:  int = 2,
+    ) -> None:
+
+        mx, my = self._mouse_pos
+        hovered = x <= mx < x + w and y <= my < y + h
+
+        bg     = hover_color        if hovered else color
+        txt_c  = hover_text_color   if hovered else text_color
+        brd_c  = hover_border_color if hovered else border_color
+
+        self.rect(x, y, w, h,
+                  color=bg,
+                  border_color=brd_c,
+                  border_radius=border_radius,
+                  border_width=border_width)
+
+        self.text_centered(label, x, y, w, h, size=size, color=txt_c)
+
+        self._buttons.append({
+            "x": x, "y": y, "w": w, "h": h,
+            "callback": callback,
+        })
 
     def rect(
         self,

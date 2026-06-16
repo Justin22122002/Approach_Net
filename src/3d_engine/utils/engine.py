@@ -138,6 +138,7 @@ class Engine:
                     self.width, self.height = event.w, event.h
                 self.input._process_event(event)
                 self.camera.handle_event(event)
+                self.hud._handle_event(event)
 
             keys = pygame.key.get_pressed()
 
@@ -175,11 +176,9 @@ class Engine:
             self.input._end_frame()
             self._clock.tick(self.target_fps)
 
-        # shutdown
         if self.on_quit:
             self.on_quit()
         pygame.quit()
 
     def quit(self) -> None:
-        """Call from anywhere to stop the engine."""
         self._running = False

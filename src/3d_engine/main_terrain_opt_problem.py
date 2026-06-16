@@ -3,7 +3,7 @@ import numpy as np
 from pyproj import Transformer
 
 from physics.aircraft_environment_casadi import AircraftEnvironmentCasadi
-from physics.aircraft_kinematics_max_constrains import AircraftKinematicsMaxConstrains
+from physics.aircraft_type import AircraftType
 from physics.aircraft_kinematics_state_casadi import AircraftKinematicsStateCasadi
 from physics.landing_optimizer import LandingTrajectoryOptimizer, state_to_casadi
 from utils.airport import Airport
@@ -81,13 +81,22 @@ goal_go.transform.position = Vec3(gx, geo.altitude_to_local(goal_h), gz)
 
 x0_utm, y0_utm = transformer.transform(icao["lon"], icao["lat"])
 
-state = AircraftKinematicsStateCasadi(
-    x=x0_utm + 3000, y=y0_utm - 2000, h=goal_h + 1200.0,
-    v=90.0, gamma=-2.5, chi=-goal_chi_deg,
-    mass=65_000.0, C_D0=0.028, area=124.6,
+constraints = AircraftType(
+    cl_max=3.0,
+    mass=65_000.0,
+    C_D0=0.028,
+    area=124.6,
 )
 
-constraints = AircraftKinematicsMaxConstrains(cl_max=3.0)
+state = AircraftKinematicsStateCasadi(
+    x=x0_utm + 3000,
+    y=y0_utm - 2000,
+    h=goal_h + 1200.0,
+    v=90.0,
+    gamma=-2.5,
+    chi=-goal_chi_deg,
+    aircraft_type=constraints,
+)
 
 print("Optimising trajectory with IPOPT (free end-time) …")
 
@@ -116,7 +125,6 @@ print(f"  v    {float(X_opt[3,-1]):.1f} m/s")
 env = AircraftEnvironmentCasadi(
     state       = state,
     goal        = None,
-    constraints = constraints,
     dt          = dt_casadi,
 )
 

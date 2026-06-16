@@ -3,7 +3,7 @@ import casadi as ca
 from casadi import MX, Opti, DM
 
 from physics.aircraft_environment_casadi import AircraftEnvironmentCasadi
-from physics.aircraft_kinematics_max_constrains import AircraftKinematicsMaxConstrains
+from physics.aircraft_type import AircraftType
 from physics.aircraft_kinematics_state_casadi import AircraftKinematicsStateCasadi
 
 
@@ -37,7 +37,7 @@ class LandingTrajectoryRnavOptimizer:
     def __init__(
         self,
         state:           AircraftKinematicsStateCasadi,
-        max_constraints: AircraftKinematicsMaxConstrains,
+        max_constraints: AircraftType,
         N:               int   = 80,
         T_min:           float = 60.0,
         T_max:           float = 1800.0,
@@ -48,7 +48,7 @@ class LandingTrajectoryRnavOptimizer:
         self.T_min: float = T_min
         self.T_max: float = T_max
         self.state: AircraftKinematicsStateCasadi = state
-        self.max_constraints: AircraftKinematicsMaxConstrains = max_constraints
+        self.max_constraints: AircraftType = max_constraints
 
         self.k_start: int = int(N * k_via_frac_start)
         self.k_end: int = int(N * k_via_frac_end)
@@ -79,17 +79,13 @@ class LandingTrajectoryRnavOptimizer:
             v     = xk[3],
             chi   = xk[4] * (180.0 / ca.pi),
             gamma = xk[5] * (180.0 / ca.pi),
-            mass  = self.state.mass,
-            C_D0  = self.state.C_D0,
-            area  = self.state.area,
             rho0  = self.state.rho0,
-            k     = self.state.k,
+            aircraft_type=self.max_constraints,
         )
 
         temp_env = AircraftEnvironmentCasadi(
             state       = temp_state,
             goal        = None,
-            constraints = self.max_constraints,
             dt          = dt,
         )
 

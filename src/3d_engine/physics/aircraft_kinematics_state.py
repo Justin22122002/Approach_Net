@@ -1,6 +1,8 @@
 import numpy as np
 from numpy.typing import NDArray
 
+from physics.aircraft_type import AircraftType
+
 
 class AircraftKinematicsState:
     def __init__(
@@ -11,11 +13,8 @@ class AircraftKinematicsState:
             v: float,
             gamma: float,
             chi: float,
-            mass: float,
-            C_D0: float,
-            area: float,
+            aircraft_type: AircraftType,
             rho0: float = 1.225,
-            k: float = 0.2,
     ) -> None:
         self.x: float = x            # m or lon
         self.y: float = y            # m or lat
@@ -24,12 +23,9 @@ class AircraftKinematicsState:
         self.gamma: float = gamma    # γ flight path angle (Flugbahnwinkel)
         self.chi: float = chi        # 𝒳 Track angle / Course angle (Kursbahnwinkel) from North, clockwise
 
-        self.mass: float = mass      # [kg]
-        self.C_D0: float = C_D0      # drag coefficient
-        self.area: float = area      # wing reference area [m²]
-        self.rho0: float = rho0      # air density [kg/m³]
-        self.k: float = k
+        self.aircraft_type: AircraftType = aircraft_type
 
+        self.rho0: float = rho0      # air density [kg/m³]
         self.g: float = 9.81         # earth gravity
         self.R: float = 287.05       # gas constant for air [J/(kg·K)]
         self.T: float = 288.15       # temperature in kelvin [K]
@@ -59,14 +55,14 @@ class AircraftKinematicsState:
         """
         rho = self.air_density()
         CD = self.drag_coefficient(cl)
-        return 0.5 * rho * self.v ** 2 * CD * self.area
+        return 0.5 * rho * self.v ** 2 * CD * self.aircraft_type.area
 
     def lift_force(self, cl: float) -> float:
         """
         L = 1/2 · ρ · v² · C_L · A
         """
         rho = self.air_density()
-        return 0.5 * rho * self.v ** 2 * cl * self.area
+        return 0.5 * rho * self.v ** 2 * cl * self.aircraft_type.area
 
     def air_density(self) -> float:
         """
@@ -81,7 +77,7 @@ class AircraftKinematicsState:
         """
         C_D = C_D0 + k · C_L²
         """
-        return self.C_D0 + self.k * cl ** 2
+        return self.aircraft_type.C_D0 + self.aircraft_type.k * cl ** 2
 
     def required_lift_coefficient(
             self,
@@ -109,8 +105,8 @@ class AircraftKinematicsState:
         rho = self.air_density()
 
         return (
-                2.0 * load_factor * self.mass * self.g
-                / (rho * self.v ** 2 * self.area)
+                2.0 * load_factor * self.aircraft_type.mass * self.g
+                / (rho * self.v ** 2 * self.aircraft_type.area)
         )
 
     def to_array(self) -> NDArray[np.float64]:
@@ -121,9 +117,9 @@ class AircraftKinematicsState:
             self.v,
             self.gamma,
             self.chi,
-            self.mass,
-            self.C_D0,
-            self.area
+            self.aircraft_type.mass,
+            self.aircraft_type.C_D0,
+            self.aircraft_type.area
         ])
 
     @classmethod

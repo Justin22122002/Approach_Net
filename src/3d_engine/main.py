@@ -13,9 +13,8 @@ from utils.simplematerial import SimpleMaterial
 engine = Engine(800, 600, "My Game")
 scene  = engine.scene
 
-# Add a cube
 cube1 = scene.spawn("Cube")
-wood_texture = Texture("textures/wood.png")
+wood_texture  = Texture("textures/wood.png")
 wood_material = SimpleMaterial(texture=wood_texture)
 cube1.add_component(MeshRenderer(Mesh.cube(), material=wood_material))
 cube1.transform.position = Vec3(0, 0, -5)
@@ -54,27 +53,97 @@ engine.sky = Sky(
 )
 scene.directional_light = engine.sky.directional_light
 
+state = {
+    "paused":      False,
+    "show_panel":  True,
+    "speed_index": 1,       # 0=slow 1=normal 2=fast
+}
+SPEEDS = [1.0, 3.0, 8.0]
+SPEED_LABELS = ["Slow", "Normal", "Fast"]
+
+def on_pause_toggle():
+    state["paused"] = not state["paused"]
+
+def on_speed_cycle():
+    state["speed_index"] = (state["speed_index"] + 1) % len(SPEEDS)
+    engine.sky.cloud_speed = 0.012 * SPEEDS[state["speed_index"]]
+
+def on_toggle_panel():
+    state["show_panel"] = not state["show_panel"]
+
+def on_quit():
+    engine.quit()
+
 def on_update(dt: float):
-    label.get_component(TextRenderer).set_text(f"Zeit: {engine.time:.1f}s")
+    if not state["paused"]:
+        label.get_component(TextRenderer).set_text(f"Zeit: {engine.time:.1f}s")
 
-    engine.sky.sun_elevation += dt * 3.0
+        engine.sky.sun_elevation += dt * 3.0
 
-    if engine.sky.sun_elevation > 180.0:
-        engine.sky.sun_elevation = -10.0
+        if engine.sky.sun_elevation > 180.0:
+            engine.sky.sun_elevation = -10.0
 
-    scene.directional_light.direction = engine.sky.get_light_direction()
+        scene.directional_light.direction = engine.sky.get_light_direction()
 
-    elev = engine.sky.sun_elevation
+        elev = engine.sky.sun_elevation
 
-    if elev > 25.0:
-        scene.directional_light.color = Color(1.0, 0.95, 0.85)
-
-    elif elev > 5.0:
-        scene.directional_light.color = Color(1.0, 0.7, 0.45)
-
-    else:
-        scene.directional_light.color = Color(1.0, 0.35, 0.2)
+        if elev > 25.0:
+            scene.directional_light.color = Color(1.0, 0.95, 0.85)
+        elif elev > 5.0:
+            scene.directional_light.color = Color(1.0, 0.7, 0.45)
+        else:
+            scene.directional_light.color = Color(1.0, 0.35, 0.2)
 
 engine.on_update = on_update
+
+def on_gui():
+    hud = engine.hud
+
+    hud.button(
+        "Panel",
+        x=10, y=10, w=90, h=30,
+        callback=on_toggle_panel,
+        color=(30, 30, 50, 200),
+        hover_color=(60, 60, 100, 230),
+    )
+
+    if not state["show_panel"]:
+        return
+
+    hud.panel(x=10, y=50, w=200, h=170)
+
+    # Status label
+    status = "PAUSED" if state["paused"] else "RUNNING"
+    hud.text(status, x=20, y=60, size=16, color=(200, 230, 255))
+
+    # Pause / Resume button
+    hud.button(
+        "Resume" if state["paused"] else "Pause",
+        x=20, y=90, w=180, h=36,
+        callback=on_pause_toggle,
+        color=(140, 60, 60, 220) if not state["paused"] else (60, 140, 60, 220),
+        hover_color=(180, 80, 80, 240) if not state["paused"] else (80, 180, 80, 240),
+    )
+
+    # Speed cycle button
+    current_speed = SPEED_LABELS[state["speed_index"]]
+    hud.button(
+        f"Speed: {current_speed}",
+        x=20, y=136, w=180, h=36,
+        callback=on_speed_cycle,
+    )
+
+    # Quit button
+    hud.button(
+        "Quit",
+        x=20, y=182, w=180, h=36,
+        callback=on_quit,
+        color=(100, 30, 30, 220),
+        hover_color=(160, 50, 50, 240),
+        border_color=(200, 80, 80, 255),
+        hover_border_color=(255, 120, 120, 255),
+    )
+
+engine.on_gui = on_gui
 
 engine.run()

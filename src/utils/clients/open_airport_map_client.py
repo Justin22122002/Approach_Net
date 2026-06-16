@@ -6,14 +6,15 @@ from typing import Any
 import numpy as np
 import requests
 
-from src.utils.airac_net_client import AiracNetClient
 from src.utils.airport import AirportTerminal, Airport
-from utils.terrain import Terrain
+from src.utils.terrain import Terrain
 from src.utils.arinc_runway import ArincRunway
 from src.utils.open_street_map_runway import Coordinate, OpenStreetMapRunway
-from utils.taxiway import Taxiway
-from src.utils.sqlite_airinc24_database_client import SQLiteArInC24DatabaseClient
-from src.utils.terrain_client import CopernicusDEMProvider
+from src.utils.taxiway import Taxiway
+from src.utils.clients.sqlite_airinc24_database_client import SQLiteArInC24DatabaseClient
+from src.utils.clients.terrain_client import CopernicusDEMProvider
+from src.utils.clients.airac_net_client import AiracNetClient
+
 
 # todo: move both methods into helper files
 def only_r_approaches(r: list[ArincRunway]) -> list[ArincRunway]:

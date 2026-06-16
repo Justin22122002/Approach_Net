@@ -1,7 +1,7 @@
 import casadi as ca
 
 from physics.aircraft_goal import AircraftGoal
-from physics.aircraft_kinematics_max_constrains import AircraftKinematicsMaxConstrains
+from physics.aircraft_type import AircraftType
 from physics.aircraft_kinematics_state_casadi import AircraftKinematicsStateCasadi
 
 
@@ -54,12 +54,10 @@ class AircraftEnvironmentCasadi:
             self,
             state:       AircraftKinematicsStateCasadi,
             goal:        AircraftGoal,
-            constraints: AircraftKinematicsMaxConstrains,
             dt:          float,
     ) -> None:
         self.state:       AircraftKinematicsStateCasadi    = state
         self.goal:        AircraftGoal                     = goal
-        self.constraints: AircraftKinematicsMaxConstrains  = constraints
         self.dt:          float                            = dt
         self.gravity:     ca.MX                           = ca.vertcat(0.0, 0.0, -9.81)
 
@@ -162,7 +160,7 @@ class AircraftEnvironmentCasadi:
             load_factor=load_factor
         )
 
-        actual_cl = ca.fmin(requested_cl, self.constraints.cl_max)
+        actual_cl = ca.fmin(requested_cl, self.state.aircraft_type.cl_max)
 
         # D = 1/2 · ρ · v² · C_D · A
         drag = self.state.drag_force(actual_cl)
@@ -173,8 +171,8 @@ class AircraftEnvironmentCasadi:
 
         # v̇ = ((T - D) / m) · (v⃗ / ‖v⃗‖) + (L / m) · n⃗ + g⃗
         v_dot = (
-                ((thrust - drag) / self.state.mass) * t_hat
-                + (actual_lift / self.state.mass) * n_hat # old code: + (lift / self.state.mass) * n_hat
+                ((thrust - drag) / self.state.aircraft_type.mass) * t_hat
+                + (actual_lift / self.state.aircraft_type.mass) * n_hat # old code: + (lift / self.state.mass) * n_hat
                 + self.gravity
         )
 
@@ -246,13 +244,13 @@ class AircraftEnvironmentCasadi:
         ) / 9.81
 
         requested_cl = self.state.required_lift_coefficient(load_factor=load_factor)
-        actual_cl = ca.fmin(requested_cl, self.constraints.cl_max)
+        actual_cl = ca.fmin(requested_cl, self.state.aircraft_type.cl_max)
 
         drag = self.state.drag_force(actual_cl)
 
         # v̇ = ((T - D) / m) · (v⃗ / ‖v⃗‖) + (L / m) · n⃗ + g⃗
         # T = m ( v̇ · t̂ ) + D
-        thrust = self.state.mass * ca.dot(v_dot, t_hat) + drag
+        thrust = self.state.aircraft_type.mass * ca.dot(v_dot, t_hat) + drag
 
         # n = ((v̇ - g) · n̂) / g
         load_factor = ca.dot((v_dot - g_vec), n_hat) / 9.81
@@ -273,7 +271,14 @@ def main():
     import numpy as np
     from physics.aircraft_kinematics_state_casadi import AircraftKinematicsStateCasadi
     from physics.aircraft_goal import AircraftGoal
-    from physics.aircraft_kinematics_max_constrains import AircraftKinematicsMaxConstrains
+    from physics.aircraft_type import AircraftType
+
+    constraints = AircraftType(
+        cl_max=1.5,
+        mass=60000.0,
+        C_D0=0.02,
+        area=122.0,
+    )
 
     state = AircraftKinematicsStateCasadi(
         x=0.0,
@@ -282,19 +287,13 @@ def main():
         v=120.0,
         gamma=0.0,
         chi=0.0,
-        mass=60000.0,
-        C_D0=0.02,
-        area=122.0,
+        aircraft_type=constraints,
     )
 
     goal = AircraftGoal(
         x=5000.0,
         y=3000.0,
         h=500.0,
-    )
-
-    constraints = AircraftKinematicsMaxConstrains(
-        cl_max=1.5
     )
 
     dt = ca.MX.sym("dt")

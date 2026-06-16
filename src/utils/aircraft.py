@@ -23,3 +23,13 @@ class Aircraft:
     spi: bool | None
     position_source: int | None
     category: int | None
+
+@dataclass
+class AircraftType:
+    type: str | None = None
+    icao_type: str | None = None
+    manufacturer: str | None = None
+    mode_s: str | None = None
+    registration: str | None = None
+    registered_owner: str | None = None
+    url_photo_thumbnail: str | None = None

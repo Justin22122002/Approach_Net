@@ -5,13 +5,11 @@ coordinate-Mapping  (Aircraft → Engine):
     North   (y)  →  world-Z (negative, cause opeGl is right handed with z in front)
 """
 
-import math
-
 import numpy as np
 
 from physics.aircraft_environment import AircraftEnvironment
 from physics.aircraft_goal import AircraftGoal
-from physics.aircraft_kinematics_max_constrains import AircraftKinematicsMaxConstrains
+from physics.aircraft_type import AircraftType
 from physics.aircraft_kinematics_state import AircraftKinematicsState
 
 from utils.engine import Engine
@@ -43,20 +41,25 @@ cam.pitch = 15.0
 engine.camera = cam
 
 # chi is here set to 0.0, and so the plane will fly in y direction and so in opengl in -z
-b737 = AircraftKinematicsState(
-    x=0.0, y=0.0, h=3000.0,
-    v=220.0, gamma=0.0, chi=0.0,
+constraints = AircraftType(
+    cl_max=3.0,
     mass=65000.0,
     C_D0=0.028,
     area=124.6,
 )
 
-constraints = AircraftKinematicsMaxConstrains(
-    cl_max=3.0
+b737 = AircraftKinematicsState(
+    x=0.0,
+    y=0.0,
+    h=3000.0,
+    v=220.0,
+    gamma=0.0,
+    chi=0.0,
+    aircraft_type=constraints,
 )
 
 goal = AircraftGoal(x=10000.0, y=10000.0, h=4000.0)
-env  = AircraftEnvironment(state=b737, goal=goal, constraints=constraints, dt=0.1)
+env  = AircraftEnvironment(state=b737, goal=goal, dt=0.1)
 
 thrust      = 240000.0
 load_factor = 1.0

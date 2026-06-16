@@ -1,9 +1,10 @@
 import numpy as np
 import casadi as ca
 from casadi import Opti, MX, DM
+from torch.distributions import constraints
 
 from physics.aircraft_environment_casadi import AircraftEnvironmentCasadi
-from physics.aircraft_kinematics_max_constrains import AircraftKinematicsMaxConstrains
+from physics.aircraft_type import AircraftType
 from physics.aircraft_kinematics_state_casadi import AircraftKinematicsStateCasadi
 
 
@@ -37,7 +38,7 @@ class MultiLandingTrajectoryOptimizer:
     def __init__(
         self,
         states:           list[AircraftKinematicsStateCasadi],
-        max_constraints:  list[AircraftKinematicsMaxConstrains],
+        max_constraints:  list[AircraftType],
         N:                int   = 80,
         T_min:            float = 60.0,
         T_max:            float = 600.0,
@@ -50,7 +51,7 @@ class MultiLandingTrajectoryOptimizer:
         self.T_max: float                                           = T_max
         self.M: int                                                 = len(states)
         self.states: list[AircraftKinematicsStateCasadi]            = states
-        self.max_constraints: list[AircraftKinematicsMaxConstrains] = max_constraints
+        self.max_constraints: list[AircraftType] = max_constraints
         self.D_h2: float                                            = D_horizontal ** 2
         self.D_v2: float                                            = D_vertical   ** 2
         self.sep_stride: int                                        = max(1, sep_stride)
@@ -76,7 +77,7 @@ class MultiLandingTrajectoryOptimizer:
             uk: MX,
             dt: MX,
             s: AircraftKinematicsStateCasadi,
-            c: AircraftKinematicsMaxConstrains,
+            c: AircraftType,
     ) -> MX:
         temp_state = AircraftKinematicsStateCasadi(
             x     = xk[0],
@@ -85,17 +86,13 @@ class MultiLandingTrajectoryOptimizer:
             v     = xk[3],
             chi   = xk[4] * (180.0 / ca.pi),
             gamma = xk[5] * (180.0 / ca.pi),
-            mass  = s.mass,
-            C_D0  = s.C_D0,
-            area  = s.area,
             rho0  = s.rho0,
-            k     = s.k,
+            aircraft_type=c,
         )
 
         temp_env = AircraftEnvironmentCasadi(
             state       = temp_state,
             goal        = None,
-            constraints = c,
             dt          = dt,
         )
 
