@@ -5,7 +5,7 @@ from pyproj import Transformer
 
 from physics.aircraft_environment import AircraftEnvironment
 from physics.aircraft_goal import AircraftGoal
-from physics.aircraft_type import AircraftType
+from physics.aircraft_type import AircraftDynamics
 from physics.aircraft_kinematics_state import AircraftKinematicsState
 from utils.airport import Airport
 from utils.arinc_runway import ArincRunway
@@ -129,14 +129,14 @@ engine.camera = cam
 
 x, y = transformer.transform(icao["lon"], icao["lat"])
 
-constraints = AircraftType(
+constraints = AircraftDynamics(
     cl_max=3.0,
     mass=65000.0,
     C_D0=0.028,
     area=124.6,
     max_thrust=240000,
-    max_load_factor=0.3,
-    min_load_factor=2.5,
+    max_load_factor=2.5,
+    min_load_factor=0.3,
     max_roll_angle=60,
 )
 

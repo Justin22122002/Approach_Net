@@ -3,7 +3,7 @@ import casadi as ca
 from casadi import MX, Opti, DM
 
 from physics.aircraft_environment_casadi import AircraftEnvironmentCasadi
-from physics.aircraft_type import AircraftType
+from physics.aircraft_type import AircraftDynamics
 from physics.aircraft_kinematics_state_casadi import AircraftKinematicsStateCasadi
 
 
@@ -16,6 +16,13 @@ def state_to_casadi(s: AircraftKinematicsStateCasadi) -> np.ndarray:
         np.radians(s.chi),
         np.radians(s.gamma),
     ])
+
+def compute_glideslope(via_point: np.ndarray, touchdown: np.ndarray) -> float:
+    dh  = touchdown[2] - via_point[2]
+    dxy = np.linalg.norm(touchdown[:2] - via_point[:2])
+    gam = float(np.arctan2(dh, max(dxy, 1.0)))
+    print(f"[compute_glideslope] Δh={dh:.1f} m  Δxy={dxy:.1f} m  γ_ref={np.degrees(gam):.2f}°")
+    return gam
 
 
 class LandingTrajectoryRnavOptimizer:
@@ -37,7 +44,7 @@ class LandingTrajectoryRnavOptimizer:
     def __init__(
         self,
         state:           AircraftKinematicsStateCasadi,
-        max_constraints: AircraftType,
+        max_constraints: AircraftDynamics,
         N:               int   = 80,
         T_min:           float = 60.0,
         T_max:           float = 1800.0,
@@ -48,7 +55,7 @@ class LandingTrajectoryRnavOptimizer:
         self.T_min: float = T_min
         self.T_max: float = T_max
         self.state: AircraftKinematicsStateCasadi = state
-        self.max_constraints: AircraftType = max_constraints
+        self.max_constraints: AircraftDynamics = max_constraints
 
         self.k_start: int = int(N * k_via_frac_start)
         self.k_end: int = int(N * k_via_frac_end)
@@ -63,6 +70,7 @@ class LandingTrajectoryRnavOptimizer:
         self.heading_param: MX = self.opti.parameter(1)   # χ_goal [rad]
         self.via_param: MX = self.opti.parameter(3)  # [x, y, z] via-point
         self.min_height_param: MX = self.opti.parameter() # min height
+        self.gam_ref_param:    MX = self.opti.parameter()   # γ_ref [rad]
 
         self._build()
 
@@ -149,7 +157,7 @@ class LandingTrajectoryRnavOptimizer:
         TOL_Z = 5.0  # m altitude at threshold
         TOL_CHI = 3.0 * ca.pi / 180.0  # rad heading (±3°)
         TOL_GAM = 1.0 * ca.pi / 180.0  # rad glideslope (±1°)
-        GAM_REF = -3.0 * ca.pi / 180.0  # −3° Soll-Gleitpfad
+        GAM_REF = self.gam_ref_param  # Soll-Gleitpfad
 
         self.opti.subject_to(self.X[0, N] >= gx - TOL_XY)
         self.opti.subject_to(self.X[0, N] <= gx + TOL_XY)
@@ -171,8 +179,8 @@ class LandingTrajectoryRnavOptimizer:
 
         e_v = (self.X[3, N] - gv) / 20.0
         J = 0.5 * e_v ** 2
-        # time penalty
-        J += 0.05 * (self.T / self.T_max)
+        # time penalty -> leave out for faster convergence
+        # J += 0.05 * (self.T / self.T_max)
 
         smooth = ca.MX(0.0)
         for k in range(N - 1):
@@ -255,6 +263,12 @@ class LandingTrajectoryRnavOptimizer:
         if via_point is not None:
             self.opti.set_value(self.via_param, via_point)
 
+            gam_ref = compute_glideslope(via_point, goal[:3])
+            self.opti.set_value(self.gam_ref_param, gam_ref)
+        else:
+            gam_ref = -3.0 * np.pi / 180.0
+            self.opti.set_value(self.gam_ref_param, gam_ref)
+
         if T_init is not None:
             T_guess = float(T_init)
         else:
@@ -287,20 +301,17 @@ class LandingTrajectoryRnavOptimizer:
                 if tau <= tau_via:
                     t_seg = tau / tau_via if tau_via > 0 else 0.0
                     p = pos0 + t_seg * (via_init - pos0)
+                    gam_k = gam0 + (tau / tau_via) * (0.0 - gam0)
                 else:
                     t_seg = (tau - tau_via) / (1.0 - tau_via)
-                    p = via_init + t_seg * (pos_goal - via_init)
-
-                gam_goal_k = float(np.arctan2(
-                    pos_goal[2] - pos0[2],
-                    np.linalg.norm(pos_goal[:2] - pos0[:2]) + 1e-6
-                ))
+                    p     = via_init + t_seg * (pos_goal - via_init)
+                    gam_k = 0.0 + t_seg * (gam_ref - 0.0)
 
                 self.opti.set_initial(self.X[:, k], np.array([
                     *p,
                     max(v0 + tau * (v_goal - v0), 30.0),
                     chi0 + tau * d_chi,
-                    gam0 + tau * (gam_goal_k - gam0),
+                    gam_k,
                 ]))
 
         if u_init is not None:

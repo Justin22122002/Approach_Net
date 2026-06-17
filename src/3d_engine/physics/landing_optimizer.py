@@ -3,7 +3,7 @@ import casadi as ca
 from casadi import MX, Opti, DM
 
 from physics.aircraft_environment_casadi import AircraftEnvironmentCasadi
-from physics.aircraft_type import AircraftType
+from physics.aircraft_type import AircraftDynamics
 from physics.aircraft_kinematics_state_casadi import AircraftKinematicsStateCasadi
 
 
@@ -35,7 +35,7 @@ class LandingTrajectoryOptimizer:
     def __init__(
         self,
         state:           AircraftKinematicsStateCasadi,
-        max_constraints: AircraftType,
+        max_constraints: AircraftDynamics,
         N:               int   = 80,
         T_min:           float = 60.0,
         T_max:           float = 1800.0,
@@ -44,7 +44,7 @@ class LandingTrajectoryOptimizer:
         self.T_min: float = T_min
         self.T_max: float = T_max
         self.state: AircraftKinematicsStateCasadi = state
-        self.max_constraints: AircraftType = max_constraints
+        self.max_constraints: AircraftDynamics = max_constraints
 
         self.opti: Opti = ca.Opti()
         self.X: MX = self.opti.variable(6, N + 1)    # [x, y, z, v, chi, gamma]
@@ -54,6 +54,7 @@ class LandingTrajectoryOptimizer:
         self.x0_param: MX = self.opti.parameter(6)   # start state
         self.goal_param: MX = self.opti.parameter(4)   # [x, y, z, v_td]
         self.heading_param: MX = self.opti.parameter(1)   # χ_goal [rad]
+        self.min_height_param: MX = self.opti.parameter() # min height
 
         self._build()
 
@@ -125,7 +126,7 @@ class LandingTrajectoryOptimizer:
         self.opti.subject_to(self.U[2, :] >= -60.0)       # roll ≥ −60°
         self.opti.subject_to(self.U[2, :] <=  60.0)       # roll ≤  60°
 
-        self.opti.subject_to(self.X[2, :] >= 0.0)         # z ≥ 0 (terrain)
+        self.opti.subject_to(self.X[2, :] >= self.min_height_param) # z ≥ 0 (terrain)
         self.opti.subject_to(self.X[3, :] >= 70.0)        # v ≥ 10 m/s (no Stall)
         self.opti.subject_to(self.X[5, :] >= -0.70)       # γ ≥ −40°
         self.opti.subject_to(self.X[5, :] <=  0.35)       # γ ≤  20°
@@ -190,6 +191,7 @@ class LandingTrajectoryOptimizer:
         x0: np.ndarray,
         goal: np.ndarray,
         heading_goal_deg: float,
+        min_height: float,
         x_init: np.ndarray | None = None,
         u_init: np.ndarray | None = None,
         T_init: float | None = None,
@@ -202,6 +204,7 @@ class LandingTrajectoryOptimizer:
         self.opti.set_value(self.x0_param,     x0)
         self.opti.set_value(self.goal_param,    goal)
         self.opti.set_value(self.heading_param, float(np.radians(heading_goal_deg)))
+        self.opti.set_value(self.min_height_param, min_height)
 
         if T_init is not None:
             T_guess = float(T_init)

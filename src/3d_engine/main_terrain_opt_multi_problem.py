@@ -5,7 +5,7 @@ import numpy as np
 from pyproj import Transformer
 
 from physics.aircraft_environment_casadi import AircraftEnvironmentCasadi
-from physics.aircraft_type import AircraftType
+from physics.aircraft_type import AircraftDynamics
 from physics.aircraft_kinematics_state_casadi import AircraftKinematicsStateCasadi
 from physics.mulit_landing_optimizer import MultiLandingTrajectoryOptimizer, state_to_casadi
 from utils.airport import Airport
@@ -92,14 +92,14 @@ AIRCRAFT_CONFIGS = [
 states_list      = []
 constraints_list = []
 for dx, dy, dh, v0, gam0, dchi, _ in AIRCRAFT_CONFIGS:
-    constraints = AircraftType(
+    constraints = AircraftDynamics(
         cl_max=3.0,
         mass=65_000.0,
         C_D0=0.028,
         area=124.6,
         max_thrust=240000,
-        max_load_factor=0.3,
-        min_load_factor=2.5,
+        max_load_factor=2.5,
+        min_load_factor=0.3,
         max_roll_angle=60,
     )
 

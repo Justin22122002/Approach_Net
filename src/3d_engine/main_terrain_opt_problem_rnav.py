@@ -3,7 +3,7 @@ import numpy as np
 from pyproj import Transformer
 
 from physics.aircraft_environment_casadi import AircraftEnvironmentCasadi
-from physics.aircraft_type import AircraftType
+from physics.aircraft_type import AircraftDynamics
 from physics.aircraft_kinematics_state_casadi import AircraftKinematicsStateCasadi
 from physics.landing_optimizer_rnav import LandingTrajectoryRnavOptimizer, state_to_casadi
 from utils.airport import Airport
@@ -99,14 +99,14 @@ via_go.transform.position = Vec3(vx_l, geo.altitude_to_local(via_point[2]), vz_l
 
 x0_utm, y0_utm = transformer.transform(icao["lon"], icao["lat"])
 
-constraints = AircraftType(
+constraints = AircraftDynamics(
     cl_max=3.0,
     mass=65_000.0,
     C_D0=0.028,
     area=124.6,
     max_thrust=240000,
-    max_load_factor=0.3,
-    min_load_factor=2.5,
+    max_load_factor=2.5,
+    min_load_factor=0.3,
     max_roll_angle=60,
 )
 
@@ -201,6 +201,7 @@ def on_update(dt_frame: float) -> None:
                 load_factor = float(U_opt[1, _step_idx]),
                 roll        = float(U_opt[2, _step_idx]),
             )
+            # print(f" actions thrust: {U_opt[0, _step_idx]:.0f} load_factor: {U_opt[1, _step_idx]} roll: {U_opt[2, _step_idx]:.0f}")
             _step_idx += 1
         _phys_acc -= dt_casadi
 

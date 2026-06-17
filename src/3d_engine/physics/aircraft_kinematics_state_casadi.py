@@ -1,6 +1,6 @@
 import casadi as ca
 
-from physics.aircraft_type import AircraftType
+from physics.aircraft_type import AircraftDynamics
 
 
 class AircraftKinematicsStateCasadi:
@@ -12,7 +12,7 @@ class AircraftKinematicsStateCasadi:
             v: float,
             gamma: float,
             chi: float,
-            aircraft_type: AircraftType,
+            aircraft_type: AircraftDynamics,
             rho0: float = 1.225,
     ) -> None:
         self.x: float = x            # m or lon
@@ -22,7 +22,7 @@ class AircraftKinematicsStateCasadi:
         self.gamma: float = gamma    # γ flight path angle (Flugbahnwinkel)
         self.chi: float = chi        # 𝒳 Track angle / Course angle (Kursbahnwinkel) from North, clockwise
 
-        self.aircraft_type: AircraftType = aircraft_type
+        self.aircraft_type: AircraftDynamics = aircraft_type
 
         self.rho0: float = rho0      # air density [kg/m³]
 

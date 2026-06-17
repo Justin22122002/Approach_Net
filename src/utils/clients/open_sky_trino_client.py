@@ -1,12 +1,15 @@
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 from pandas import DataFrame
 from pyopensky.trino import Trino
 from pyproj import Transformer, datadir
 
 from src.utils.clients.open_airport_map_client import get_bbox_simple
+from utils.aircraft_history_interpolator import AircraftHistoryInterpolator
+from utils.airport import Airport
 from utils.clients.aircraft_type_client import AircraftTypeClient
 
 
@@ -165,17 +168,27 @@ class OpenSkyTrinoClient:
 
         for icao24 in unique_icao24:
             try:
-                aircraft = self.aircraft_client.get_aircraft_type(icao24)
+                aircraft_data, aircraft_dynamics = self.aircraft_client.get_aircraft_and_dynamics(icao24)
 
                 rows.append({
                     "icao24": icao24,
-                    "type": aircraft.type,
-                    "icao_type": aircraft.icao_type,
-                    "manufacturer": aircraft.manufacturer,
-                    "mode_s": aircraft.mode_s,
-                    "registration": aircraft.registration,
-                    "registered_owner": aircraft.registered_owner,
-                    "url_photo_thumbnail": aircraft.url_photo_thumbnail,
+                    "type": aircraft_data.type,
+                    "icao_type": aircraft_data.icao_type,
+                    "manufacturer": aircraft_data.manufacturer,
+                    "mode_s": aircraft_data.mode_s,
+                    "registration": aircraft_data.registration,
+                    "registered_owner": aircraft_data.registered_owner,
+                    "url_photo_thumbnail": aircraft_data.url_photo_thumbnail,
+                    "mass": aircraft_dynamics.mass,
+                    "C_D0": aircraft_dynamics.C_D0,
+                    "area": aircraft_dynamics.area,
+                    "cl_max": aircraft_dynamics.cl_max,
+                    "max_thrust": aircraft_dynamics.max_thrust,
+                    "max_load_factor": aircraft_dynamics.max_load_factor,
+                    "min_load_factor": aircraft_dynamics.min_load_factor,
+                    "max_roll_angle": aircraft_dynamics.max_roll_angle,
+                    "k": aircraft_dynamics.k,
+                    "name": aircraft_dynamics.name,
                 })
 
             except Exception as e:
@@ -183,16 +196,118 @@ class OpenSkyTrinoClient:
 
         return pd.DataFrame(rows)
 
+    @staticmethod
+    def _haversine_vectorized(
+            lats1: np.ndarray, lons1: np.ndarray, lats2: np.ndarray, lons2: np.ndarray
+    ) -> np.ndarray:
+        R = 6371000.0
+        lats1, lons1, lats2, lons2 = map(np.radians, [lats1, lons1, lats2, lons2])
+
+        dlat = lats2 - lats1
+        dlon = lons2 - lons1
+
+        a = (
+                np.sin(dlat / 2.0) ** 2
+                + np.cos(lats1) * np.cos(lats2) * np.sin(dlon / 2.0) ** 2
+        )
+        c = 2.0 * np.arcsin(np.sqrt(a))
+        return R * c
+
+    def assign_runway(self, df: DataFrame, airport: Airport) -> DataFrame:
+        unique_fixes = {}
+        for runway in airport.arinc_424_runway:
+            for ap in runway.approaches:
+                _, _, rw_fix = ap.get_final_approach_fixes()
+                if rw_fix is not None and rw_fix.fix_identifier:
+                    rwy_clean = rw_fix.fix_identifier.replace("RW", "")
+                    unique_fixes[rwy_clean] = (rw_fix.latitude, rw_fix.longitude, rw_fix.altitude * 0.3048)
+
+        if not unique_fixes:
+            raise ValueError("No valid runway fixes for airport found.")
+
+        rwy_names = list(unique_fixes.keys())
+        rwy_coords = np.array(list(unique_fixes.values()))
+        rwy_lats = rwy_coords[:, 0]
+        rwy_lons = rwy_coords[:, 1]
+        rwy_alts = rwy_coords[:, 2]
+
+        df_sorted = df.sort_values(["icao24", "flight_id", "time"])
+
+        final_phase = df_sorted[df_sorted["geoaltitude"] < 762].copy()
+
+        if final_phase.empty:
+            final_phase = df_sorted.copy()
+
+        final_points = final_phase.copy()
+        grouped = final_points.groupby(["icao24", "flight_id"])
+
+        results = []
+
+        for (icao24, flight_id), group in grouped:
+            flight_lats = group["lat"].to_numpy()
+            flight_lons = group["lon"].to_numpy()
+            flight_alts = group["geoaltitude"].to_numpy()
+
+            if len(flight_lats) == 0:
+                continue
+
+            f_lats_m = flight_lats[:, np.newaxis]
+            f_lons_m = flight_lons[:, np.newaxis]
+            r_lats_m = rwy_lats[np.newaxis, :]
+            r_lons_m = rwy_lons[np.newaxis, :]
+
+            horizontal_dist_matrix = self._haversine_vectorized(
+                f_lats_m, f_lons_m, r_lats_m, r_lons_m
+            )
+
+            f_alts_m = flight_alts[:, np.newaxis]
+            r_alts_m = rwy_alts[np.newaxis, :]
+            vertical_dist_matrix = f_alts_m - r_alts_m
+
+            dist_matrix_3d = np.sqrt(horizontal_dist_matrix ** 2 + vertical_dist_matrix ** 2)
+
+            min_dist_per_rwy = np.min(dist_matrix_3d, axis=0)
+            best_rwy_idx = np.argmin(min_dist_per_rwy)
+
+            closest_trackpoint_idx = np.argmin(dist_matrix_3d[:, best_rwy_idx])
+
+            aircraft_landing_alt = flight_alts[closest_trackpoint_idx]
+            assigned_rwy_alt = rwy_alts[best_rwy_idx]
+
+            results.append({
+                "icao24": icao24,
+                "flight_id": flight_id,
+                "landing_runway": rwy_names[best_rwy_idx],
+                "distance_3d": min_dist_per_rwy[best_rwy_idx],
+                "runway_elevation_m": assigned_rwy_alt,
+                "aircraft_landing_alt_m": aircraft_landing_alt
+            })
+
+        if not results:
+            return pd.DataFrame(columns=[
+                "icao24",
+                "flight_id",
+                "landing_runway",
+                "distance_3d",
+                "runway_elevation_m",
+                "aircraft_landing_alt_m"
+            ])
+
+        return pd.DataFrame(results)
+
 
 if __name__ == "__main__":
     path: Path = Path("../../pyproj")
     datadir.append_data_dir(path)
 
+    basePath: Path = Path("../../data")
+    airport = Airport.load_from_folder(basePath, "EDDF")
+
     now = datetime.now(UTC)
     day = now - timedelta(days=20)
 
     start = day.replace(hour=19, minute=0, second=0, microsecond=0)
-    stop  = day.replace(hour=19, minute=30, second=0, microsecond=0)
+    stop = day.replace(hour=19, minute=30, second=0, microsecond=0)
 
     bounds = (8.0, 49.5, 9.5, 50.8)
 
@@ -211,16 +326,26 @@ if __name__ == "__main__":
     print(f"Arriving aircraft: {df['icao24'].nunique()}")
     print(f"Total state vectors: {len(df)}")
 
-    df_aircraft = client.extract_aircraft_table(df)
+    suffix = f"frankfurt_{start:%Y%m%d_%H%M}_{stop:%H%M}"
+    history_file_path = basePath / f"arrivals_{suffix}.parquet"
+    df.to_parquet(history_file_path)
 
+    print("\nStart interpolating with AircraftHistoryInterpolator...")
+    interpolator = AircraftHistoryInterpolator(history_file_path, airport_height=airport.arinc_424_runway[0].runway_altitude)
+    interpolator.clean_dataframe()
+    interpolator.interpolate()
+
+    df_interpolated = interpolator.dataframe
+
+    print("\nStart Runway-assignment...")
+    df_runways = client.assign_runway(df_interpolated, airport)
+    print(df_runways.head())
+
+    print("\nLoad aircraft details")
+    df_aircraft = client.extract_aircraft_table(df_interpolated)
     print(df_aircraft.head())
 
-    client.save_dataframe(
-        df,
-        Path(f"../../data/arrivals_frankfurt_{start:%Y%m%d_%H%M}_{stop:%H%M}"),
-    )
-
-    client.save_dataframe(
-        df_aircraft,
-        Path(f"../../data/aircraft_{start:%Y%m%d_%H%M}_{stop:%H%M}")
-    )
+    client.save_dataframe(df_interpolated, Path(f"../../data/arrivals_{suffix}"))
+    client.save_dataframe(df_aircraft, Path(f"../../data/aircraft_{suffix}"))
+    client.save_dataframe(df_runways, Path(f"../../data/runway_assignments_{suffix}"))
+    print("\n[INFO] Pipeline finished successfully!")

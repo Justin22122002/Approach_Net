@@ -9,7 +9,7 @@ import numpy as np
 
 from physics.aircraft_environment import AircraftEnvironment
 from physics.aircraft_goal import AircraftGoal
-from physics.aircraft_type import AircraftType
+from physics.aircraft_type import AircraftDynamics
 from physics.aircraft_kinematics_state import AircraftKinematicsState
 
 from utils.engine import Engine
@@ -41,14 +41,14 @@ cam.pitch = 15.0
 engine.camera = cam
 
 # chi is here set to 0.0, and so the plane will fly in y direction and so in opengl in -z
-constraints = AircraftType(
+constraints = AircraftDynamics(
     cl_max=3.0,
     mass=65000.0,
     C_D0=0.028,
     area=124.6,
     max_thrust=240000,
-    max_load_factor=0.3,
-    min_load_factor=2.5,
+    max_load_factor=2.5,
+    min_load_factor=0.3,
     max_roll_angle=60,
 )
 

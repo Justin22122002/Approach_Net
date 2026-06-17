@@ -4,7 +4,7 @@ from casadi import Opti, MX, DM
 from torch.distributions import constraints
 
 from physics.aircraft_environment_casadi import AircraftEnvironmentCasadi
-from physics.aircraft_type import AircraftType
+from physics.aircraft_type import AircraftDynamics
 from physics.aircraft_kinematics_state_casadi import AircraftKinematicsStateCasadi
 
 
@@ -38,7 +38,7 @@ class MultiLandingTrajectoryOptimizer:
     def __init__(
         self,
         states:           list[AircraftKinematicsStateCasadi],
-        max_constraints:  list[AircraftType],
+        max_constraints:  list[AircraftDynamics],
         N:                int   = 80,
         T_min:            float = 60.0,
         T_max:            float = 600.0,
@@ -51,7 +51,7 @@ class MultiLandingTrajectoryOptimizer:
         self.T_max: float                                           = T_max
         self.M: int                                                 = len(states)
         self.states: list[AircraftKinematicsStateCasadi]            = states
-        self.max_constraints: list[AircraftType] = max_constraints
+        self.max_constraints: list[AircraftDynamics] = max_constraints
         self.D_h2: float                                            = D_horizontal ** 2
         self.D_v2: float                                            = D_vertical   ** 2
         self.sep_stride: int                                        = max(1, sep_stride)
@@ -77,7 +77,7 @@ class MultiLandingTrajectoryOptimizer:
             uk: MX,
             dt: MX,
             s: AircraftKinematicsStateCasadi,
-            c: AircraftType,
+            c: AircraftDynamics,
     ) -> MX:
         temp_state = AircraftKinematicsStateCasadi(
             x     = xk[0],
