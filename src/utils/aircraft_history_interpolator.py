@@ -18,7 +18,7 @@ class AircraftHistoryInterpolator:
     ) -> None:
         self.filepath: Path = filepath
         self.dataframe: DataFrame | None = None
-        self.airport_height: float = airport_height
+        self.airport_height: float = airport_height * 0.3048
 
         self._load_file_by_file_path()
 
@@ -48,6 +48,9 @@ class AircraftHistoryInterpolator:
         for icao, group in self.dataframe.groupby("icao24"):
             group = group.sort_values("time").copy()
 
+            # clip values to avoid altitudes under the airport
+            group["geoaltitude"] = group["geoaltitude"].fillna(0).clip(lower=self.airport_height)
+
             traj_rows = []
 
             for i in range(len(group) - 1):
@@ -63,9 +66,13 @@ class AircraftHistoryInterpolator:
                 lat1, lon1 = row1["lat"], row1["lon"]
                 baroaltitude = row1["baroaltitude"] if pd.notna(row1["baroaltitude"]) else 0
                 geoaltitude = row1["geoaltitude"] if pd.notna(row1["geoaltitude"]) else 0
+                geoaltitude2 = row2["geoaltitude"] if pd.notna(row2["geoaltitude"]) else geoaltitude
                 vel = row1["velocity"] if pd.notna(row1["velocity"]) else 0
                 vert_rate = row1["vertrate"] if pd.notna(row1["vertrate"]) else 0
                 heading = row1["heading"] if pd.notna(row1["heading"]) else 0
+
+                row1_onground = bool(row1.get("onground", False))
+                row2_onground = bool(row2.get("onground", False))
 
                 for s in range(dt):
                     fraction = s / dt
@@ -74,15 +81,9 @@ class AircraftHistoryInterpolator:
                     new_lon = lon1 + fraction * (row2["lon"] - lon1)
                     new_baroaltitude = baroaltitude + fraction * (row2["baroaltitude"] - baroaltitude) if pd.notna(row2["baroaltitude"]) else baroaltitude
 
-                    # set height to airport height when aircraft is lower than airport etc...
-                    if row1.get("geoaltitude", 0) <= self.airport_height \
-                        or row2.get("geoaltitude", 0) <= self.airport_height:
-                        new_geoaltitude = self.airport_height * 0.3048
-                    else:
-                        if pd.notna(row2["geoaltitude"]):
-                            new_geoaltitude = geoaltitude + fraction * (row2["geoaltitude"] - geoaltitude)
-                        else:
-                            new_geoaltitude = geoaltitude
+                    linear_geoaltitude = geoaltitude + fraction * (geoaltitude2 - geoaltitude)
+                    new_geoaltitude = max(linear_geoaltitude, self.airport_height)
+                    is_onground = row1_onground if fraction < 0.5 else row2_onground
 
                     traj_rows.append({
                         "time": pd.Timestamp(t1 + s, unit='s', tz='UTC'),
@@ -94,7 +95,7 @@ class AircraftHistoryInterpolator:
                         "velocity": vel,
                         "heading": heading,
                         "vertrate": vert_rate,
-                        "onground": row1.get("onground", False),
+                        "onground": is_onground,
                         "callsign": row1.get("callsign", ""),
                         "squawk": row1.get("squawk", ""),
                         "spi": row1.get("spi", False),
@@ -106,6 +107,13 @@ class AircraftHistoryInterpolator:
             interpolated_groups.append(pd.DataFrame(traj_rows))
 
         self.dataframe = pd.concat(interpolated_groups).reset_index(drop=True)
+
+    def remove_onground(self) -> None:
+        if self.dataframe is None or self.dataframe.empty:
+            return
+
+        onground = self.dataframe["onground"].fillna(False).astype(bool)
+        self.dataframe = self.dataframe[~onground].reset_index(drop=True)
 
     @staticmethod
     def clean_serial_list(x) -> list[int]:

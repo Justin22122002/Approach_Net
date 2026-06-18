@@ -136,6 +136,7 @@ class AiracNetClient:
             airport_elevation: float,
             approaches: list[Approach]
     ) -> list[ArincRunway]:
+        # alternative -> todo: https://raw.githubusercontent.com/davidmegginson/ourairports-data/main/runways.csv
         r = requests.get(
             f"{self.nav_base}/{icao}",
             headers=self.nav_headers

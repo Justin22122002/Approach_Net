@@ -129,7 +129,7 @@ class CopernicusDEMProvider:
                     {
                         "type": "sentinel-2-l2a",
                         "dataFilter": {
-                            "maxCloudCoverage": 30  # max. 30 % clouds
+                            "maxCloudCoverage": 5  # max. 30 % clouds
                         }
                     }
                 ]

@@ -59,6 +59,9 @@ class HUD:
         self._buttons: list[_ButtonRecord] = []
         self._mouse_pos: tuple[int, int]   = (0, 0)
 
+        self._slider_rects: dict[str, tuple] = {}
+        self._dragging_slider: str | None    = None
+
     def _ensure_gpu(self):
         if self._prog is not None:
             return
@@ -87,6 +90,7 @@ class HUD:
         self._ensure_surface()
         self._surface.fill((0, 0, 0, 0))
         self._buttons.clear()
+        self._slider_rects.clear()
         self._mouse_pos = pygame.mouse.get_pos()
 
     def _end(self):
@@ -123,11 +127,24 @@ class HUD:
     def _handle_event(self, event: pygame.event.Event) -> None:
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             mx, my = event.pos
+
+            for sid, (x, y, w, h, min_v, max_v, on_change) in self._slider_rects.items():
+                cy = y + h // 2
+                if x - 12 <= mx <= x + w + 12 and cy - 14 <= my <= cy + 14:
+                    self._dragging_slider = sid
+                    t = max(0.0, min(1.0, (mx - x) / w)) if w else 0.0
+                    if on_change:
+                        on_change(min_v + t * (max_v - min_v))
+                    return
+
             for btn in self._buttons:
                 if btn["x"] <= mx < btn["x"] + btn["w"] and \
                    btn["y"] <= my < btn["y"] + btn["h"]:
                     btn["callback"]()
                     break   # consume the first hit
+
+        if event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+            self._dragging_slider = None
 
     def button(
         self,
@@ -165,6 +182,60 @@ class HUD:
             "x": x, "y": y, "w": w, "h": h,
             "callback": callback,
         })
+
+    def slider(
+        self,
+        slider_id: str,
+        x: int, y: int, w: int, h: int,
+        value: float,
+        min_value: float = 0.0,
+        max_value: float = 1.0,
+        on_change: Callable[[float], None] | None = None,
+        *,
+        track_color:        AnyColor = (40, 40, 40, 200),
+        fill_color:         AnyColor = (80, 140, 220, 255),
+        handle_color:       AnyColor = (220, 220, 220, 255),
+        handle_hover_color: AnyColor = (255, 255, 255, 255),
+        handle_radius:      int = 9,
+        border_radius:      int = 4,
+        show_value:         bool = False,
+        value_fmt:          str  = "{:.2f}",
+    ) -> float:
+        span = max_value - min_value
+        t = (value - min_value) / span if span else 0.0
+        t = max(0.0, min(1.0, t))
+
+        cy = y + h // 2
+        is_dragging = self._dragging_slider == slider_id
+
+        self._slider_rects[slider_id] = (x, y, w, h, min_value, max_value, on_change)
+
+        new_value = value
+        if is_dragging:
+            mx, _my = self._mouse_pos
+            t = max(0.0, min(1.0, (mx - x) / w)) if w else 0.0
+            new_value = min_value + t * span
+            if on_change:
+                on_change(new_value)
+
+        handle_x = x + int(t * w)
+        mx, my   = self._mouse_pos
+        hovered  = (handle_x - mx) ** 2 + (cy - my) ** 2 <= (handle_radius + 4) ** 2
+
+        track_h = max(4, h // 3)
+        self.rect(x, cy - track_h // 2, w, track_h,
+                  color=track_color, border_radius=border_radius)
+        self.rect(x, cy - track_h // 2, max(0, handle_x - x), track_h,
+                  color=fill_color, border_radius=border_radius)
+
+        hc = handle_hover_color if (hovered or is_dragging) else handle_color
+        self.circle(handle_x, cy, handle_radius,
+                   color=hc, border_color=(0, 0, 0, 150), border_width=2)
+
+        if show_value:
+            self.text(value_fmt.format(new_value), x + w + 10, cy - 8, size=14)
+
+        return new_value
 
     def rect(
         self,

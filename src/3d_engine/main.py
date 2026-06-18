@@ -57,6 +57,7 @@ state = {
     "paused":      False,
     "show_panel":  True,
     "speed_index": 1,       # 0=slow 1=normal 2=fast
+    "auto_sun":    True,    # if False, sun_elevation only moves via the slider
 }
 SPEEDS = [1.0, 3.0, 8.0]
 SPEED_LABELS = ["Slow", "Normal", "Fast"]
@@ -71,6 +72,9 @@ def on_speed_cycle():
 def on_toggle_panel():
     state["show_panel"] = not state["show_panel"]
 
+def on_toggle_auto_sun():
+    state["auto_sun"] = not state["auto_sun"]
+
 def on_quit():
     engine.quit()
 
@@ -78,10 +82,10 @@ def on_update(dt: float):
     if not state["paused"]:
         label.get_component(TextRenderer).set_text(f"Zeit: {engine.time:.1f}s")
 
-        engine.sky.sun_elevation += dt * 3.0
-
-        if engine.sky.sun_elevation > 180.0:
-            engine.sky.sun_elevation = -10.0
+        if state["auto_sun"]:
+            engine.sky.sun_elevation += dt * 3.0
+            if engine.sky.sun_elevation > 180.0:
+                engine.sky.sun_elevation = -10.0
 
         scene.directional_light.direction = engine.sky.get_light_direction()
 
@@ -110,33 +114,69 @@ def on_gui():
     if not state["show_panel"]:
         return
 
-    hud.panel(x=10, y=50, w=200, h=170)
+    hud.panel(x=10, y=50, w=220, h=350)
 
     # Status label
     status = "PAUSED" if state["paused"] else "RUNNING"
     hud.text(status, x=20, y=60, size=16, color=(200, 230, 255))
 
-    # Pause / Resume button
     hud.button(
         "Resume" if state["paused"] else "Pause",
-        x=20, y=90, w=180, h=36,
+        x=20, y=90, w=200, h=36,
         callback=on_pause_toggle,
         color=(140, 60, 60, 220) if not state["paused"] else (60, 140, 60, 220),
         hover_color=(180, 80, 80, 240) if not state["paused"] else (80, 180, 80, 240),
     )
 
-    # Speed cycle button
     current_speed = SPEED_LABELS[state["speed_index"]]
     hud.button(
         f"Speed: {current_speed}",
-        x=20, y=136, w=180, h=36,
+        x=20, y=136, w=200, h=36,
         callback=on_speed_cycle,
+    )
+
+    hud.text("Sonnenstand", x=20, y=180, size=14, color=(180, 200, 220))
+    engine.sky.sun_elevation = hud.slider(
+        "sun_elevation",
+        x=20, y=198, w=200, h=18,
+        value=engine.sky.sun_elevation,
+        min_value=-10.0, max_value=180.0,
+        show_value=True,
+        value_fmt="{:.0f}°",
+    )
+
+    hud.text("Wolkendichte", x=20, y=226, size=14, color=(180, 200, 220))
+    engine.sky.cloud_density = hud.slider(
+        "cloud_density",
+        x=20, y=244, w=200, h=18,
+        value=engine.sky.cloud_density,
+        min_value=0.0, max_value=2.0,
+        show_value=True,
+    )
+
+    hud.text("Ambient", x=20, y=272, size=14, color=(180, 200, 220))
+    ambient_b = hud.slider(
+        "ambient_brightness",
+        x=20, y=290, w=200, h=18,
+        value=scene.ambient_light.r,
+        min_value=0.0, max_value=1.0,
+        show_value=True,
+    )
+    scene.ambient_light = Color(ambient_b, ambient_b, ambient_b)
+    # -----------------------------------------------------------------------
+
+    hud.button(
+        "Auto-Sonne: An" if state["auto_sun"] else "Auto-Sonne: Aus",
+        x=20, y=316, w=200, h=32,
+        callback=on_toggle_auto_sun,
+        color=(60, 100, 140, 220) if state["auto_sun"] else (90, 90, 90, 220),
+        hover_color=(80, 130, 180, 240) if state["auto_sun"] else (120, 120, 120, 240),
     )
 
     # Quit button
     hud.button(
         "Quit",
-        x=20, y=182, w=180, h=36,
+        x=20, y=352, w=200, h=36,
         callback=on_quit,
         color=(100, 30, 30, 220),
         hover_color=(160, 50, 50, 240),

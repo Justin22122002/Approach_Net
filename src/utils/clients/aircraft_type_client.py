@@ -10,16 +10,21 @@ class AircraftTypeClient:
     # Vref = V_MARGIN * Vs_land (FAA AC 25-7 / 14 CFR 25.125)
     V_MARGIN: float = 1.3
 
+    # CS-25 / 14 CFR 25.345(a)(1): with retracted flaps
+    MAX_LOAD_FACTOR_NORMAL_OPS: float = 1.3
+    MIN_LOAD_FACTOR_NORMAL_OPS: float = 0.8
+
+    MAX_ROLL_ANGLE_NORMAL_OPS: float = 30.0
+
     def __init__(
         self,
-        max_load_factor: float = 2.5,
-        min_load_factor: float = 0.3,
-        max_roll_angle: float = 60.0,
+        max_load_factor: float = MAX_LOAD_FACTOR_NORMAL_OPS,
+        min_load_factor: float = MIN_LOAD_FACTOR_NORMAL_OPS,
+        max_roll_angle: float = MAX_ROLL_ANGLE_NORMAL_OPS,
     ) -> None:
-        self.max_load_factor: float = max_load_factor
-        self.min_load_factor: float = min_load_factor
-        self.max_roll_angle: float = max_roll_angle
-
+        self.max_load_factor = max_load_factor
+        self.min_load_factor = min_load_factor
+        self.max_roll_angle = max_roll_angle
     def retrieve_aircraft_data(self, registration_icao24: str) -> dict:
         r = requests.get(f"{self.BASE_URL}/{registration_icao24}")
         data = r.json()

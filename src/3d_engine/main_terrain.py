@@ -29,7 +29,7 @@ icao_frankfurt = {
     "lon": 8.5622
 }
 
-icao = icao_vancouver
+icao = icao_frankfurt
 
 crs_to: str = GeoTransformer.utm_epsg(icao["lat"], icao["lon"])
 

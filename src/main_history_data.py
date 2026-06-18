@@ -7,11 +7,11 @@ from pyproj import Transformer
 
 from src.rendering.visualizer import Visualizer
 from src.utils.aircraft import Aircraft
-from utils.renderer.aircraft_2d_renderer import Aircraft2dRenderer
+from src.utils.renderer.aircraft_2d_renderer import Aircraft2dRenderer
 from src.utils.aircraft_history_interpolator import AircraftHistoryInterpolator, plot_aircraft_trajectory
 
 from src.utils.airport import Airport
-from utils.renderer.airport_2d_renderer import Airport2dRenderer
+from src.utils.renderer.airport_2d_renderer import Airport2dRenderer
 
 transformer = Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)
 

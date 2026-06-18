@@ -110,6 +110,9 @@ class OpenSkyTrinoClient:
             ),
         )
 
+        if df is None:
+            raise ValueError("No data returned from Trino.")
+
         df["lon"] = pd.to_numeric(df["lon"], errors="coerce").fillna(0.0)
         df["lat"] = pd.to_numeric(df["lat"], errors="coerce").fillna(0.0)
         df["geoaltitude"] = pd.to_numeric(df["geoaltitude"], errors="coerce").fillna(0.0)
@@ -164,14 +167,23 @@ class OpenSkyTrinoClient:
     def extract_aircraft_table(self, df: DataFrame) -> DataFrame:
         unique_icao24 = df["icao24"].dropna().unique()
 
+        columns = [
+            "icao24", "type", "icao_type", "manufacturer", "mode_s",
+            "registration", "registered_owner", "url_photo_thumbnail",
+            "mass", "C_D0", "area", "cl_max", "max_thrust",
+            "max_load_factor", "min_load_factor", "max_roll_angle", "k", "name",
+        ]
+
         rows = []
 
         for icao24 in unique_icao24:
+            row = dict.fromkeys(columns)
+            row["icao24"] = icao24
+
             try:
                 aircraft_data, aircraft_dynamics = self.aircraft_client.get_aircraft_and_dynamics(icao24)
 
-                rows.append({
-                    "icao24": icao24,
+                row.update({
                     "type": aircraft_data.type,
                     "icao_type": aircraft_data.icao_type,
                     "manufacturer": aircraft_data.manufacturer,
@@ -194,7 +206,9 @@ class OpenSkyTrinoClient:
             except Exception as e:
                 print(f"[WARN] Aircraft fetch failed {icao24}: {e}")
 
-        return pd.DataFrame(rows)
+            rows.append(row)
+
+        return pd.DataFrame(rows, columns=columns)
 
     @staticmethod
     def _haversine_vectorized(
@@ -219,7 +233,7 @@ class OpenSkyTrinoClient:
             for ap in runway.approaches:
                 _, _, rw_fix = ap.get_final_approach_fixes()
                 if rw_fix is not None and rw_fix.fix_identifier:
-                    rwy_clean = rw_fix.fix_identifier.replace("RW", "")
+                    rwy_clean = rw_fix.fix_identifier
                     unique_fixes[rwy_clean] = (rw_fix.latitude, rw_fix.longitude, rw_fix.altitude * 0.3048)
 
         if not unique_fixes:
@@ -233,20 +247,16 @@ class OpenSkyTrinoClient:
 
         df_sorted = df.sort_values(["icao24", "flight_id", "time"])
 
-        final_phase = df_sorted[df_sorted["geoaltitude"] < 762].copy()
-
-        if final_phase.empty:
-            final_phase = df_sorted.copy()
-
-        final_points = final_phase.copy()
-        grouped = final_points.groupby(["icao24", "flight_id"])
-
         results = []
 
-        for (icao24, flight_id), group in grouped:
-            flight_lats = group["lat"].to_numpy()
-            flight_lons = group["lon"].to_numpy()
-            flight_alts = group["geoaltitude"].to_numpy()
+        for (icao24, flight_id), group in df_sorted.groupby(["icao24", "flight_id"]):
+            final_phase = group[group["geoaltitude"] < 762]  # only check for landing under 762 meter -> 2500 feet
+            if final_phase.empty:
+                final_phase = group
+
+            flight_lats = final_phase["lat"].to_numpy()
+            flight_lons = final_phase["lon"].to_numpy()
+            flight_alts = final_phase["geoaltitude"].to_numpy()
 
             if len(flight_lats) == 0:
                 continue
@@ -327,13 +337,14 @@ if __name__ == "__main__":
     print(f"Total state vectors: {len(df)}")
 
     suffix = f"frankfurt_{start:%Y%m%d_%H%M}_{stop:%H%M}"
-    history_file_path = basePath / f"arrivals_{suffix}.parquet"
+    history_file_path = basePath / f"arrivals_raw_{suffix}.parquet"
     df.to_parquet(history_file_path)
 
     print("\nStart interpolating with AircraftHistoryInterpolator...")
     interpolator = AircraftHistoryInterpolator(history_file_path, airport_height=airport.arinc_424_runway[0].runway_altitude)
     interpolator.clean_dataframe()
     interpolator.interpolate()
+    interpolator.remove_onground()
 
     df_interpolated = interpolator.dataframe
 
