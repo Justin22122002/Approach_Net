@@ -1,9 +1,10 @@
+import math
 from pathlib import Path
 import numpy as np
 from pyproj import Transformer
 
 from physics.aircraft_environment_casadi import AircraftEnvironmentCasadi
-from physics.aircraft_type import AircraftDynamics
+from physics.aircraft_dynamics import AircraftDynamics
 from physics.aircraft_kinematics_state_casadi import AircraftKinematicsStateCasadi
 from physics.landing_optimizer import LandingTrajectoryOptimizer, state_to_casadi
 from utils.airport import Airport
@@ -69,7 +70,7 @@ runway         = airport.arinc_424_runway[0]
 goal_x, goal_y = transformer.transform(runway.longitude, runway.latitude)
 goal_h         = runway.runway_altitude * 0.3048
 goal_chi_deg   = float(runway.bearing)
-V_TD           = 70.0
+V_TD           = 80.0 # todo: this needs to be higher than mean landing speed
 
 print(f"Runway {runway}  χ={goal_chi_deg:.1f}°  "
       f"threshold ({goal_x:.0f}, {goal_y:.0f}, {goal_h:.1f} m)")
@@ -82,13 +83,14 @@ goal_go.transform.position = Vec3(gx, geo.altitude_to_local(goal_h), gz)
 x0_utm, y0_utm = transformer.transform(icao["lon"], icao["lat"])
 
 constraints = AircraftDynamics(
-    cl_max=3.0,
-    mass=65_000.0,
-    C_D0=0.028,
-    area=124.6,
-    max_thrust=240000,
-    max_load_factor=2.5,
-    min_load_factor=0.3,
+    cl_max=3.096,
+    mass=77800.0,
+    C_D0=0.0200,
+    area=128.0,
+    k=0.0410,
+    max_thrust=266900,
+    max_load_factor=1.5,
+    min_load_factor=0.5,
     max_roll_angle=60,
 )
 
@@ -107,10 +109,10 @@ print("Optimising trajectory with IPOPT (free end-time) …")
 N_casadi = 100
 optimizer = LandingTrajectoryOptimizer(
     state           = state,
-    max_constraints = constraints,
     N               = N_casadi,
     T_min           = 60.0,
     T_max           = 1800.0,
+    min_height      = runway.runway_altitude * 0.3048,
 )
 
 x0_vec = state_to_casadi(state)

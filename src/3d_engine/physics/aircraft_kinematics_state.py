@@ -1,7 +1,7 @@
 import numpy as np
 from numpy.typing import NDArray
 
-from physics.aircraft_type import AircraftDynamics
+from physics.aircraft_dynamics import AircraftDynamics
 
 
 class AircraftKinematicsState:
@@ -109,11 +109,15 @@ class AircraftKinematicsState:
                 / (rho * self.v ** 2 * self.aircraft_type.area)
         )
 
-    def stall_speed(self) -> float:
+    def stall_speed(self, h: float | None) -> float:
         """
         V_stall = sqrt( 2·m·g / (ρ · C_L_max · S) )
         """
-        rho = self.air_density()
+        if h is not None:
+            rho = self.rho0 * np.exp(-h / self.H)
+        else:
+            rho = self.air_density()
+
         return np.sqrt(
             (2.0 * self.aircraft_type.mass * self.g)
             / (rho * self.aircraft_type.cl_max * self.aircraft_type.area)

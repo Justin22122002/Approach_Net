@@ -1,7 +1,7 @@
 import openap
 import requests
 
-from physics.aircraft_type import AircraftDynamics
+from physics.aircraft_dynamics import AircraftDynamics
 from utils.aircraft import Aircraft, AircraftType
 
 
@@ -66,7 +66,7 @@ class AircraftTypeClient:
 
         # Max Thrust
         thrust_model = openap.Thrust(icao_type)
-        max_thrust   = thrust_model.eng_max_thrust * ac["engine"]["number"]
+        max_thrust   = thrust_model.eng_max_thrust * ac["engine"]["number"] * 1000 # convert from kn into newton
 
         wrap    = openap.WRAP(icao_type)
         v_app = wrap.landing_speed()["default"]

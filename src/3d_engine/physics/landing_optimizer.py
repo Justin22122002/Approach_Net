@@ -1,9 +1,10 @@
 import numpy as np
 import casadi as ca
+from OpenGL.raw.GL.NV import pixel_data_range
 from casadi import MX, Opti, DM
 
 from physics.aircraft_environment_casadi import AircraftEnvironmentCasadi
-from physics.aircraft_type import AircraftDynamics
+from physics.aircraft_dynamics import AircraftDynamics
 from physics.aircraft_kinematics_state_casadi import AircraftKinematicsStateCasadi
 
 
@@ -35,7 +36,7 @@ class LandingTrajectoryOptimizer:
     def __init__(
         self,
         state:           AircraftKinematicsStateCasadi,
-        max_constraints: AircraftDynamics,
+        min_height:      float,
         N:               int   = 80,
         T_min:           float = 60.0,
         T_max:           float = 1800.0,
@@ -44,7 +45,6 @@ class LandingTrajectoryOptimizer:
         self.T_min: float = T_min
         self.T_max: float = T_max
         self.state: AircraftKinematicsStateCasadi = state
-        self.max_constraints: AircraftDynamics = max_constraints
 
         self.opti: Opti = ca.Opti()
         self.X: MX = self.opti.variable(6, N + 1)    # [x, y, z, v, chi, gamma]
@@ -55,6 +55,7 @@ class LandingTrajectoryOptimizer:
         self.goal_param: MX = self.opti.parameter(4)   # [x, y, z, v_td]
         self.heading_param: MX = self.opti.parameter(1)   # χ_goal [rad]
         self.min_height_param: MX = self.opti.parameter() # min height
+        self.min_height: float = min_height
 
         self._build()
 
@@ -72,7 +73,7 @@ class LandingTrajectoryOptimizer:
             chi   = xk[4] * (180.0 / ca.pi),
             gamma = xk[5] * (180.0 / ca.pi),
             rho0  = self.state.rho0,
-            aircraft_type=self.max_constraints,
+            aircraft_type=self.state.aircraft_type,
         )
 
         temp_env = AircraftEnvironmentCasadi(
@@ -119,17 +120,18 @@ class LandingTrajectoryOptimizer:
                 self.X[:, k + 1] == self._f(self.X[:, k], self.U[:, k], dt)
             )
 
-        self.opti.subject_to(self.U[0, :] >= 0.0)         # thrust ≥ 0
-        self.opti.subject_to(self.U[0, :] <= 3e5)         # thrust ≤ 300 kN
-        self.opti.subject_to(self.U[1, :] >= 0.3)         # n ≥ 0.3
-        self.opti.subject_to(self.U[1, :] <= 2.5)         # n ≤ 2.5
-        self.opti.subject_to(self.U[2, :] >= -60.0)       # roll ≥ −60°
-        self.opti.subject_to(self.U[2, :] <=  60.0)       # roll ≤  60°
+        self.opti.subject_to(self.U[0, :] >= 0.0)                                         # thrust ≥ 0
+        self.opti.subject_to(self.U[0, :] <= self.state.aircraft_type.max_thrust)         # thrust
+        self.opti.subject_to(self.U[1, :] >= self.state.aircraft_type.min_load_factor)    # n
+        self.opti.subject_to(self.U[1, :] <= self.state.aircraft_type.max_load_factor)    # n
+        self.opti.subject_to(self.U[2, :] >= -self.state.aircraft_type.max_roll_angle)    # roll
+        self.opti.subject_to(self.U[2, :] <=  self.state.aircraft_type.max_roll_angle)    # roll
 
-        self.opti.subject_to(self.X[2, :] >= self.min_height_param) # z ≥ 0 (terrain)
-        self.opti.subject_to(self.X[3, :] >= 70.0)        # v ≥ 10 m/s (no Stall)
-        self.opti.subject_to(self.X[5, :] >= -0.70)       # γ ≥ −40°
-        self.opti.subject_to(self.X[5, :] <=  0.35)       # γ ≤  20°
+        self.opti.subject_to(self.X[2, :] >= self.min_height_param)    # terrain
+        self.opti.subject_to(self.X[3, :] >= self.state.stall_speed(self.min_height) * 1.2) # v stall speed (no Stall)
+        # this is set to prevent anything strange -> e.g. numerical overflow etc. and max load factor is for normal flight
+        self.opti.subject_to(self.X[5, :] >= -0.70) # γ ≥ −40° delta, tied: 0.35, 0.70 and 0.2 is really smooth, but can get in the way when the load factor is too small
+        self.opti.subject_to(self.X[5, :] <=  0.35) # γ ≤ 20° delta
 
         gx = self.goal_param[0]; gy = self.goal_param[1]
         gz = self.goal_param[2]; gv = self.goal_param[3]
@@ -137,7 +139,7 @@ class LandingTrajectoryOptimizer:
         gam_goal = -3.0 * ca.pi / 180.0  # −3 ° fixed glide path
 
         TOL_XY = 5.0  # m lateral / longitudinal
-        TOL_Z = 5.0  # m altitude at threshold
+        TOL_Z = 5.0   # m altitude at threshold
         TOL_CHI = 3.0 * ca.pi / 180.0  # rad heading (±3°)
         TOL_GAM = 1.0 * ca.pi / 180.0  # rad glideslope (±1°)
 
@@ -201,8 +203,8 @@ class LandingTrajectoryOptimizer:
         U_val : ndarray (3, N)    — optimized control sequence
         T_val : float             — optimized landing time [s]
         """
-        self.opti.set_value(self.x0_param,     x0)
-        self.opti.set_value(self.goal_param,    goal)
+        self.opti.set_value(self.x0_param, x0)
+        self.opti.set_value(self.goal_param, goal)
         self.opti.set_value(self.heading_param, float(np.radians(heading_goal_deg)))
         self.opti.set_value(self.min_height_param, min_height)
 

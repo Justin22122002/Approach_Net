@@ -5,7 +5,7 @@ import numpy as np
 from pyproj import Transformer
 
 from physics.aircraft_environment_casadi import AircraftEnvironmentCasadi
-from physics.aircraft_type import AircraftDynamics
+from physics.aircraft_dynamics import AircraftDynamics
 from physics.aircraft_kinematics_state_casadi import AircraftKinematicsStateCasadi
 from physics.mulit_landing_optimizer import MultiLandingTrajectoryOptimizer, state_to_casadi
 from utils.airport import Airport
@@ -93,13 +93,14 @@ states_list      = []
 constraints_list = []
 for dx, dy, dh, v0, gam0, dchi, _ in AIRCRAFT_CONFIGS:
     constraints = AircraftDynamics(
-        cl_max=3.0,
-        mass=65_000.0,
-        C_D0=0.028,
-        area=124.6,
-        max_thrust=240000,
-        max_load_factor=2.5,
-        min_load_factor=0.3,
+        cl_max=3.096,
+        mass=77800.0,
+        C_D0=0.0200,
+        area=128.0,
+        k=0.0410,
+        max_thrust=266900,
+        max_load_factor=1.5,
+        min_load_factor=0.5,
         max_roll_angle=60,
     )
 
@@ -123,20 +124,25 @@ print(f"Optimising {M} aircraft simultaneously …")
 
 optimizer = MultiLandingTrajectoryOptimizer(
     states          = states_list,
-    max_constraints = constraints_list,
     N               = N_CASADI,
     T_min           = 60.0,
     T_max           = 600.0,
     D_horizontal    = 4600.0, # 1000.0
     D_vertical      = 300.0,
     sep_stride      = 5,
+    min_height      = runway.runway_altitude * 0.3048,
 )
 
 x0_inputs       = [state_to_casadi(s) for s in states_list]
 goals_inputs    = [goal_vec for _ in range(M)]
 headings_inputs = [goal_chi_deg for _ in range(M)]
 
-X_opt, U_opt, T_vals = optimizer.solve(x0_inputs, goals_inputs, headings_inputs)
+X_opt, U_opt, T_vals = optimizer.solve(
+    x0_inputs,
+    goals_inputs,
+    headings_inputs,
+    min_height = runway.runway_altitude * 0.3048,
+)
 
 dt_list = [T_vals[i] / N_CASADI for i in range(M)]
 

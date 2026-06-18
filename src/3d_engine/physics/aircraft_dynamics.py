@@ -22,7 +22,7 @@ class AircraftDynamics:
         self.area: float = area # wing reference area [m²]
         self.k: float = k
 
-        self.max_thrust: float = max_thrust
+        self.max_thrust: float = max_thrust # [N]
         self.max_load_factor: float = max_load_factor
         self.min_load_factor: float = min_load_factor
         self.max_roll_angle: float = max_roll_angle

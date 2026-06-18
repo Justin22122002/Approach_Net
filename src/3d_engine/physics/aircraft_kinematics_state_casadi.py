@@ -1,6 +1,6 @@
 import casadi as ca
 
-from physics.aircraft_type import AircraftDynamics
+from physics.aircraft_dynamics import AircraftDynamics
 
 
 class AircraftKinematicsStateCasadi:
@@ -109,11 +109,15 @@ class AircraftKinematicsStateCasadi:
                 / (rho * self.v ** 2 * self.aircraft_type.area)
         )
 
-    def stall_speed(self) -> ca.MX:
+    def stall_speed(self, h: ca.MX | float | None) -> ca.MX:
         """
         V_stall = sqrt( 2·m·g / (ρ · C_L_max · S) )
         """
-        rho = self.air_density()
+        if h is not None:
+            rho = self.rho0 * ca.exp(-h / self.H)
+        else:
+            rho = self.air_density()
+
         return ca.sqrt(
             (2.0 * self.aircraft_type.mass * self.g)
             / (rho * self.aircraft_type.cl_max * self.aircraft_type.area)

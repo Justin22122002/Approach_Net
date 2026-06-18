@@ -270,7 +270,7 @@ def main():
     import numpy as np
     from physics.aircraft_kinematics_state_casadi import AircraftKinematicsStateCasadi
     from physics.aircraft_goal import AircraftGoal
-    from physics.aircraft_type import AircraftDynamics
+    from physics.aircraft_dynamics import AircraftDynamics
 
     constraints = AircraftDynamics(
         cl_max=1.5,

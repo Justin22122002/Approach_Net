@@ -9,7 +9,7 @@ import numpy as np
 
 from physics.aircraft_environment import AircraftEnvironment
 from physics.aircraft_goal import AircraftGoal
-from physics.aircraft_type import AircraftDynamics
+from physics.aircraft_dynamics import AircraftDynamics
 from physics.aircraft_kinematics_state import AircraftKinematicsState
 
 from utils.engine import Engine
