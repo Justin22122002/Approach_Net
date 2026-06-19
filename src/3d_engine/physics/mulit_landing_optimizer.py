@@ -65,6 +65,7 @@ class MultiLandingTrajectoryOptimizer:
         self.heading_param: MX = self.opti.parameter(self.M)
 
         self.STALL_MARGIN_FACTOR: float = 1.2
+        self.APPROACH_SPEED_FACTOR: float = 1.3  # Vref = 1.3·Vstall
 
         self._build()
 
@@ -121,6 +122,7 @@ class MultiLandingTrajectoryOptimizer:
             self.opti.subject_to(Ti >= self.T_min)
             self.opti.subject_to(Ti <= self.T_max)
 
+            # time penalty
             J += 0.05 * Ti / self.T_max
 
         # dynamic constants per airplane
@@ -152,7 +154,7 @@ class MultiLandingTrajectoryOptimizer:
             self.opti.subject_to(self.X[si+5, :] >= -0.70)
             self.opti.subject_to(self.X[si+5, :] <=  0.35)
 
-            stall_exclude_nodes = 5
+            stall_exclude_nodes = 1
             stall_hard_until = N - stall_exclude_nodes
             for k in range(stall_hard_until):
                 v_stall_k = s.stall_speed(self.X[si + 2, k])
@@ -177,6 +179,7 @@ class MultiLandingTrajectoryOptimizer:
         TOL_CHI = 3.0 * ca.pi / 180.0  # rad heading  (±3°)
         TOL_GAM = 1.0 * ca.pi / 180.0  # rad glideslope (±1°)
         GAM_REF = -3.0 * ca.pi / 180.0  # −3° glide path
+        TOL_V = 10.0
 
         for i in range(M):
             si = i * 6
@@ -185,7 +188,7 @@ class MultiLandingTrajectoryOptimizer:
             gx = self.goal_param[i * 3]
             gy = self.goal_param[i * 3 + 1]
             gz = self.goal_param[i * 3 + 2]
-            gv = 1.3 * s.stall_speed(gz) # self.STALL_MARGIN_FACTOR
+            gv = self.APPROACH_SPEED_FACTOR * s.stall_speed(gz)
             chi_goal = self.heading_param[i]
 
             # Position
@@ -195,6 +198,10 @@ class MultiLandingTrajectoryOptimizer:
             self.opti.subject_to(self.X[si + 1, N] <= gy + TOL_XY)
             self.opti.subject_to(self.X[si + 2, N] >= gz - TOL_Z)
             self.opti.subject_to(self.X[si + 2, N] <= gz + TOL_Z)
+
+            # end speed
+            self.opti.subject_to(self.X[si + 3, N] >= gv - TOL_V)
+            self.opti.subject_to(self.X[si + 3, N] <= gv + TOL_V)
 
             # chi
             e_chi = ca.atan2(
@@ -208,10 +215,6 @@ class MultiLandingTrajectoryOptimizer:
             e_gam = self.X[si + 5, N] - GAM_REF
             self.opti.subject_to(e_gam >= -TOL_GAM)
             self.opti.subject_to(e_gam <= TOL_GAM)
-
-            # soft -> velocity
-            e_v = (self.X[si + 3, N] - gv) / 20.0
-            J += 0.5 * e_v ** 2
 
             # Smoothness
             smooth = ca.MX(0.0)
@@ -251,7 +254,7 @@ class MultiLandingTrajectoryOptimizer:
         self.opti.set_value(self.heading_param, np.radians(heading_goals_deg))
 
         v_goal_guesses = [
-            float(self.STALL_MARGIN_FACTOR * self.states[i].stall_speed(float(goal_list[i][2])))
+            float(self.APPROACH_SPEED_FACTOR * self.states[i].stall_speed(float(goal_list[i][2])))
             for i in range(self.M)
         ]
 

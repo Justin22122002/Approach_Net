@@ -69,6 +69,7 @@ class LandingTrajectoryRnavOptimizer:
         self.gam_ref_param:    MX = self.opti.parameter()   # γ_ref [rad]
 
         self.STALL_MARGIN_FACTOR: float = 1.2
+        self.APPROACH_SPEED_FACTOR: float = 1.3  # Vref = 1.3·Vstall
 
         self._build()
 
@@ -148,14 +149,18 @@ class LandingTrajectoryRnavOptimizer:
         gx = self.goal_param[0]
         gy = self.goal_param[1]
         gz = self.goal_param[2]
-        gv = self.STALL_MARGIN_FACTOR * self.state.stall_speed(gz)
+        gv = self.APPROACH_SPEED_FACTOR * self.state.stall_speed(gz)
         chi_goal = self.heading_param[0]
 
         TOL_XY = 5.0  # m lateral / longitudinal
         TOL_Z = 5.0  # m altitude at threshold
         TOL_CHI = 3.0 * ca.pi / 180.0  # rad heading (±3°)
         TOL_GAM = 1.0 * ca.pi / 180.0  # rad glideslope (±1°)
+        TOL_V = 10.0
         GAM_REF = self.gam_ref_param  # Soll-Gleitpfad
+
+        self.opti.subject_to(self.X[3, N] >= gv - TOL_V)
+        self.opti.subject_to(self.X[3, N] <= gv + TOL_V)
 
         self.opti.subject_to(self.X[0, N] >= gx - TOL_XY)
         self.opti.subject_to(self.X[0, N] <= gx + TOL_XY)
@@ -175,19 +180,15 @@ class LandingTrajectoryRnavOptimizer:
         self.opti.subject_to(e_gam >= -TOL_GAM)
         self.opti.subject_to(e_gam <= TOL_GAM)
 
-        STALL_MARGIN_FACTOR = 1.2
         stall_exclude_nodes = 5
-
         stall_hard_until = N - stall_exclude_nodes
         for k in range(stall_hard_until):
             v_stall_k = self.state.stall_speed(self.X[2, k])
-            self.opti.subject_to(self.X[3, k] >= STALL_MARGIN_FACTOR * v_stall_k)
+            self.opti.subject_to(self.X[3, k] >= self.STALL_MARGIN_FACTOR * v_stall_k)
 
-
-        e_v = (self.X[3, N] - gv) / 20.0
-        J = 0.5 * e_v ** 2
+        J = ca.MX(0.0)
         # time penalty -> leave out for faster convergence
-        # J += 0.05 * (self.T / self.T_max)
+        J += 0.05 * (self.T / self.T_max)
 
         smooth = ca.MX(0.0)
         for k in range(N - 1):
@@ -265,7 +266,7 @@ class LandingTrajectoryRnavOptimizer:
         self.opti.set_value(self.goal_param, goal)
         self.opti.set_value(self.heading_param, float(np.radians(heading_goal_deg)))
 
-        v_goal_guess = float(self.STALL_MARGIN_FACTOR * self.state.stall_speed(float(goal[2])))
+        v_goal_guess = float(self.APPROACH_SPEED_FACTOR * self.state.stall_speed(float(goal[2])))
 
         if via_point is not None:
             self.opti.set_value(self.via_param, via_point)
