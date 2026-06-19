@@ -228,35 +228,42 @@ class OpenSkyTrinoClient:
         return R * c
 
     def assign_runway(self, df: DataFrame, airport: Airport) -> DataFrame:
-        unique_fixes = {}
+        runway_data = []
         for runway in airport.arinc_424_runway:
             for ap in runway.approaches:
                 _, _, rw_fix = ap.get_final_approach_fixes()
                 if rw_fix is not None and rw_fix.fix_identifier:
-                    rwy_clean = rw_fix.fix_identifier
-                    unique_fixes[rwy_clean] = (rw_fix.latitude, rw_fix.longitude, rw_fix.altitude * 0.3048)
+                    runway_data.append({
+                        "runway_identifier": runway.runway_identifier,
+                        "fix_identifier": rw_fix.fix_identifier,
+                        "fix_latitude": rw_fix.latitude,
+                        "fix_longitude": rw_fix.longitude,
+                        "fix_altitude_m": rw_fix.altitude * 0.3048,
+                        "bearing": runway.bearing
+                    })
 
-        if not unique_fixes:
+        if not runway_data:
             raise ValueError("No valid runway fixes for airport found.")
 
-        rwy_names = list(unique_fixes.keys())
-        rwy_coords = np.array(list(unique_fixes.values()))
-        rwy_lats = rwy_coords[:, 0]
-        rwy_lons = rwy_coords[:, 1]
-        rwy_alts = rwy_coords[:, 2]
+        # Extrahieren der Arrays für die mathematischen Berechnungen
+        rwy_names = [r["runway_identifier"] for r in runway_data]
+        rwy_lats = np.array([r["fix_latitude"] for r in runway_data])
+        rwy_lons = np.array([r["fix_longitude"] for r in runway_data])
+        rwy_alts = np.array([r["fix_altitude_m"] for r in runway_data])
+        rwy_bearings = np.array([r["bearing"] for r in runway_data])
 
         df_sorted = df.sort_values(["icao24", "flight_id", "time"])
-
         results = []
 
         for (icao24, flight_id), group in df_sorted.groupby(["icao24", "flight_id"]):
-            final_phase = group[group["geoaltitude"] < 762]  # only check for landing under 762 meter -> 2500 feet
+            final_phase = group[group["geoaltitude"] < 762]
             if final_phase.empty:
                 final_phase = group
 
             flight_lats = final_phase["lat"].to_numpy()
             flight_lons = final_phase["lon"].to_numpy()
             flight_alts = final_phase["geoaltitude"].to_numpy()
+            flight_headings = final_phase["heading"].to_numpy()
 
             if len(flight_lats) == 0:
                 continue
@@ -276,35 +283,48 @@ class OpenSkyTrinoClient:
 
             dist_matrix_3d = np.sqrt(horizontal_dist_matrix ** 2 + vertical_dist_matrix ** 2)
 
-            min_dist_per_rwy = np.min(dist_matrix_3d, axis=0)
-            best_rwy_idx = np.argmin(min_dist_per_rwy)
+            f_head_m = flight_headings[:, np.newaxis]
+            r_bear_m = rwy_bearings[np.newaxis, :]
 
+            heading_diff = np.abs(f_head_m - r_bear_m)
+            heading_diff = np.minimum(heading_diff, 360.0 - heading_diff)
+
+            MAX_HEADING_DEV = 35.0
+            dist_matrix_3d[heading_diff > MAX_HEADING_DEV] = np.inf
+
+            min_dist_per_rwy = np.min(dist_matrix_3d, axis=0)
+
+            if np.all(min_dist_per_rwy == np.inf):
+                dist_matrix_3d = np.sqrt(horizontal_dist_matrix ** 2 + vertical_dist_matrix ** 2)
+                min_dist_per_rwy = np.min(dist_matrix_3d, axis=0)
+
+            best_rwy_idx = np.argmin(min_dist_per_rwy)
             closest_trackpoint_idx = np.argmin(dist_matrix_3d[:, best_rwy_idx])
 
             aircraft_landing_alt = flight_alts[closest_trackpoint_idx]
-            assigned_rwy_alt = rwy_alts[best_rwy_idx]
+            matched_fix = runway_data[best_rwy_idx]
 
             results.append({
                 "icao24": icao24,
                 "flight_id": flight_id,
-                "landing_runway": rwy_names[best_rwy_idx],
+                "landing_runway": matched_fix["runway_identifier"],
+                "fix_identifier": matched_fix["fix_identifier"],
+                "fix_latitude": matched_fix["fix_latitude"],
+                "fix_longitude": matched_fix["fix_longitude"],
+                "fix_elevation_m": matched_fix["fix_altitude_m"],
+                "runway_bearing": matched_fix["bearing"],
                 "distance_3d": min_dist_per_rwy[best_rwy_idx],
-                "runway_elevation_m": assigned_rwy_alt,
                 "aircraft_landing_alt_m": aircraft_landing_alt
             })
 
         if not results:
             return pd.DataFrame(columns=[
-                "icao24",
-                "flight_id",
-                "landing_runway",
-                "distance_3d",
-                "runway_elevation_m",
-                "aircraft_landing_alt_m"
+                "icao24", "flight_id", "landing_runway", "fix_identifier",
+                "fix_latitude", "fix_longitude", "fix_elevation_m",
+                "runway_bearing", "distance_3d", "aircraft_landing_alt_m"
             ])
 
         return pd.DataFrame(results)
-
 
 if __name__ == "__main__":
     path: Path = Path("../../pyproj")
