@@ -71,7 +71,6 @@ runway         = airport.arinc_424_runway[0]
 goal_x, goal_y = transformer.transform(runway.longitude, runway.latitude)
 goal_h         = runway.runway_altitude * 0.3048
 goal_chi_deg   = float(runway.bearing)
-V_TD           = 70.0
 
 print(f"Runway {runway}  χ={goal_chi_deg:.1f}°  "
       f"threshold ({goal_x:.0f}, {goal_y:.0f}, {goal_h:.1f} m)")
@@ -118,7 +117,7 @@ for dx, dy, dh, v0, gam0, dchi, _ in AIRCRAFT_CONFIGS:
 
 M        = len(states_list)
 N_CASADI = 100
-goal_vec = np.array([goal_x, goal_y, goal_h, V_TD])
+goal_vec = np.array([goal_x, goal_y, goal_h])
 
 print(f"Optimising {M} aircraft simultaneously …")
 
@@ -130,7 +129,6 @@ optimizer = MultiLandingTrajectoryOptimizer(
     D_horizontal    = 4600.0, # 1000.0
     D_vertical      = 300.0,
     sep_stride      = 5,
-    min_height      = runway.runway_altitude * 0.3048,
 )
 
 x0_inputs       = [state_to_casadi(s) for s in states_list]
@@ -141,7 +139,6 @@ X_opt, U_opt, T_vals = optimizer.solve(
     x0_inputs,
     goals_inputs,
     headings_inputs,
-    min_height = runway.runway_altitude * 0.3048,
 )
 
 dt_list = [T_vals[i] / N_CASADI for i in range(M)]

@@ -3,7 +3,6 @@ import casadi as ca
 from casadi import Opti, MX
 
 from physics.aircraft_environment_casadi import AircraftEnvironmentCasadi
-from physics.aircraft_dynamics import AircraftDynamics
 from physics.aircraft_kinematics_state_casadi import AircraftKinematicsStateCasadi
 
 
@@ -29,15 +28,13 @@ class MultiLandingTrajectoryOptimizer:
     4. Terminal flight path angle error: gamma (desired descent angle)
     5. Total flight time: shorter trajectories are preferred
     6. Control smoothness: minimize thrust changes, minimize load factor changes, minimize roll angle changes
-    7. Minimal height: above 0
-    8. horizontal and vertical separation: 1000m x 300m
-    9. time separation between flight landings: 90s
+    7. Minimal height: normally above runway
+    8. horizontal and vertical separation
     """
 
     def __init__(
         self,
         states:           list[AircraftKinematicsStateCasadi],
-        min_height:       float,
         N:                int   = 80,
         T_min:            float = 60.0,
         T_max:            float = 600.0,
@@ -64,11 +61,10 @@ class MultiLandingTrajectoryOptimizer:
         self.T_list: list[MX] = [self.opti.variable() for _ in range(self.M)]
 
         self.x0_param: MX      = self.opti.parameter(6 * self.M)
-        self.goal_param: MX    = self.opti.parameter(4 * self.M)
+        self.goal_param: MX    = self.opti.parameter(3 * self.M)
         self.heading_param: MX = self.opti.parameter(self.M)
-        self.min_height_param: MX = self.opti.parameter()  # min height
 
-        self.min_height: float = min_height
+        self.STALL_MARGIN_FACTOR: float = 1.2
 
         self._build()
 
@@ -112,7 +108,8 @@ class MultiLandingTrajectoryOptimizer:
         )
 
     def _build(self) -> None:
-        N = self.N; M = self.M
+        N = self.N
+        M = self.M
 
         # start condition
         self.opti.subject_to(self.X[:, 0] == self.x0_param)
@@ -128,10 +125,13 @@ class MultiLandingTrajectoryOptimizer:
 
         # dynamic constants per airplane
         for i in range(M):
-            si  = i * 6; ci = i * 3
-            dt_i = self.T_list[i] / N
-
+            si  = i * 6
+            ci = i * 3
             s = self.states[i]
+            # delta_tau = 1.0 / N
+            # dt_i = self.T_list[i] * delta_tau
+
+            dt_i = self.T_list[i] / N
 
             for k in range(N):
                 xk   = self.X[si:si+6, k]
@@ -148,10 +148,15 @@ class MultiLandingTrajectoryOptimizer:
                 self.opti.subject_to(uk[2] <=  s.aircraft_type.max_roll_angle)
 
             # state bounds in all time steps t
-            self.opti.subject_to(self.X[si+2, :] >= self.min_height_param)
-            self.opti.subject_to(self.X[si+3, :] >= s.stall_speed(self.min_height) * 1.2)
+            self.opti.subject_to(self.X[si+2, :] >= self.goal_param[i * 3 + 2]) # min height
             self.opti.subject_to(self.X[si+5, :] >= -0.70)
             self.opti.subject_to(self.X[si+5, :] <=  0.35)
+
+            stall_exclude_nodes = 5
+            stall_hard_until = N - stall_exclude_nodes
+            for k in range(stall_hard_until):
+                v_stall_k = s.stall_speed(self.X[si + 2, k])
+                self.opti.subject_to(self.X[si + 3, k] >= self.STALL_MARGIN_FACTOR * v_stall_k)
 
         # separations
         check_ks = list(range(0, N, self.sep_stride))
@@ -176,10 +181,11 @@ class MultiLandingTrajectoryOptimizer:
         for i in range(M):
             si = i * 6
             ci = i * 3
-            gx = self.goal_param[i * 4]
-            gy = self.goal_param[i * 4 + 1]
-            gz = self.goal_param[i * 4 + 2]
-            gv = self.goal_param[i * 4 + 3]
+            s  = self.states[i]
+            gx = self.goal_param[i * 3]
+            gy = self.goal_param[i * 3 + 1]
+            gz = self.goal_param[i * 3 + 2]
+            gv = 1.3 * s.stall_speed(gz) # self.STALL_MARGIN_FACTOR
             chi_goal = self.heading_param[i]
 
             # Position
@@ -234,22 +240,25 @@ class MultiLandingTrajectoryOptimizer:
         x0_list: list[np.ndarray],
         goal_list: list[np.ndarray],
         heading_goals_deg: list[float],
-        min_height: float,
     ) -> tuple[np.ndarray, np.ndarray, list[float]]:
         """
           X_val  : (6*M, N+1)
           U_val  : (3*M, N)
           T_vals : list[float]  – for individual flight time per aircraft
         """
-        self.opti.set_value(self.x0_param,      np.concatenate(x0_list))
-        self.opti.set_value(self.goal_param,     np.concatenate(goal_list))
-        self.opti.set_value(self.heading_param,  np.radians(heading_goals_deg))
-        self.opti.set_value(self.min_height_param, min_height)
+        self.opti.set_value(self.x0_param, np.concatenate(x0_list))
+        self.opti.set_value(self.goal_param, np.concatenate(goal_list))
+        self.opti.set_value(self.heading_param, np.radians(heading_goals_deg))
+
+        v_goal_guesses = [
+            float(self.STALL_MARGIN_FACTOR * self.states[i].stall_speed(float(goal_list[i][2])))
+            for i in range(self.M)
+        ]
 
         T_guesses = []
         for i in range(self.M):
             dist  = np.linalg.norm(goal_list[i][:3] - x0_list[i][:3])
-            v_avg = 0.5 * (float(x0_list[i][3]) + max(float(goal_list[i][3]), 30.0))
+            v_avg = 0.5 * (float(x0_list[i][3]) + max(v_goal_guesses[i], 30.0))
             T_g   = float(np.clip(dist / v_avg * 1.5, self.T_min, self.T_max))
             T_guesses.append(T_g)
 
@@ -271,7 +280,7 @@ class MultiLandingTrajectoryOptimizer:
                 lat_off[:2] = sign * perp * np.sqrt(self.D_h2) * 1.5
 
             v0    = float(x0_list[i][3])
-            vG    = max(float(goal_list[i][3]), 30.0)
+            vG    = max(v_goal_guesses[i], 30.0)
             chi0  = float(x0_list[i][4])
             gam0  = float(x0_list[i][5])
             chiG  = float(np.radians(heading_goals_deg[i]))

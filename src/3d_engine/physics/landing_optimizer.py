@@ -1,10 +1,8 @@
 import numpy as np
 import casadi as ca
-from OpenGL.raw.GL.NV import pixel_data_range
-from casadi import MX, Opti, DM
+from casadi import MX, Opti
 
 from physics.aircraft_environment_casadi import AircraftEnvironmentCasadi
-from physics.aircraft_dynamics import AircraftDynamics
 from physics.aircraft_kinematics_state_casadi import AircraftKinematicsStateCasadi
 
 
@@ -36,7 +34,6 @@ class LandingTrajectoryOptimizer:
     def __init__(
         self,
         state:           AircraftKinematicsStateCasadi,
-        min_height:      float,
         N:               int   = 80,
         T_min:           float = 60.0,
         T_max:           float = 1800.0,
@@ -52,10 +49,10 @@ class LandingTrajectoryOptimizer:
         self.T: MX = self.opti.variable()                  # free solving time t [s]
 
         self.x0_param: MX = self.opti.parameter(6)   # start state
-        self.goal_param: MX = self.opti.parameter(4)   # [x, y, z, v_td]
+        self.goal_param: MX = self.opti.parameter(3)   # [x, y, z]
         self.heading_param: MX = self.opti.parameter(1)   # χ_goal [rad]
-        self.min_height_param: MX = self.opti.parameter() # min height
-        self.min_height: float = min_height
+
+        self.STALL_MARGIN_FACTOR: float = 1.2
 
         self._build()
 
@@ -127,14 +124,13 @@ class LandingTrajectoryOptimizer:
         self.opti.subject_to(self.U[2, :] >= -self.state.aircraft_type.max_roll_angle)    # roll
         self.opti.subject_to(self.U[2, :] <=  self.state.aircraft_type.max_roll_angle)    # roll
 
-        self.opti.subject_to(self.X[2, :] >= self.min_height_param)    # terrain
-        self.opti.subject_to(self.X[3, :] >= self.state.stall_speed(self.min_height) * 1.2) # v stall speed (no Stall)
+        self.opti.subject_to(self.X[2, :] >= self.goal_param[2])    # terrain
         # this is set to prevent anything strange -> e.g. numerical overflow etc. and max load factor is for normal flight
         self.opti.subject_to(self.X[5, :] >= -0.70) # γ ≥ −40° delta, tied: 0.35, 0.70 and 0.2 is really smooth, but can get in the way when the load factor is too small
         self.opti.subject_to(self.X[5, :] <=  0.35) # γ ≤ 20° delta
 
         gx = self.goal_param[0]; gy = self.goal_param[1]
-        gz = self.goal_param[2]; gv = self.goal_param[3]
+        gz = self.goal_param[2]
         chi_goal = self.heading_param[0]  # [rad]
         gam_goal = -3.0 * ca.pi / 180.0  # −3 ° fixed glide path
 
@@ -142,6 +138,8 @@ class LandingTrajectoryOptimizer:
         TOL_Z = 5.0   # m altitude at threshold
         TOL_CHI = 3.0 * ca.pi / 180.0  # rad heading (±3°)
         TOL_GAM = 1.0 * ca.pi / 180.0  # rad glideslope (±1°)
+
+        gv = self.STALL_MARGIN_FACTOR * self.state.stall_speed(gz)
 
         self.opti.subject_to(self.X[0, N] >= gx - TOL_XY)
         self.opti.subject_to(self.X[0, N] <= gx + TOL_XY)
@@ -161,6 +159,13 @@ class LandingTrajectoryOptimizer:
         self.opti.subject_to(e_gam >= -TOL_GAM)
         self.opti.subject_to(e_gam <= TOL_GAM)
 
+        stall_exclude_nodes = 5
+
+        stall_hard_until = N - stall_exclude_nodes
+        for k in range(stall_hard_until):
+            v_stall_k = self.state.stall_speed(self.X[2, k])
+            self.opti.subject_to(self.X[3, k] >= self.STALL_MARGIN_FACTOR * v_stall_k)
+
         e_v = (self.X[3, N] - gv) / 20.0
         J = 0.5 * e_v ** 2
         # time penalty
@@ -178,14 +183,14 @@ class LandingTrajectoryOptimizer:
         self.opti.minimize(J)
 
         self.opti.solver("ipopt", {}, {
-            "max_iter":           2000,
-            "tol":                1e-4,
-            "acceptable_tol":     1e-3,
-            "acceptable_iter":      15,
+            "max_iter":           3000,
+            "tol":                1e-6,      # 1e-4
+            "acceptable_tol":     1e-4,      # 1e-3
+            "acceptable_iter":      5,       # 15
             "print_level":           3,
             "linear_solver":    "mumps",
             "mu_strategy":   "adaptive",
-            "bound_relax_factor": 1e-8,
+            "bound_relax_factor": 1e-9,     # 1e-8
         })
 
     def solve(
@@ -193,7 +198,6 @@ class LandingTrajectoryOptimizer:
         x0: np.ndarray,
         goal: np.ndarray,
         heading_goal_deg: float,
-        min_height: float,
         x_init: np.ndarray | None = None,
         u_init: np.ndarray | None = None,
         T_init: float | None = None,
@@ -206,13 +210,14 @@ class LandingTrajectoryOptimizer:
         self.opti.set_value(self.x0_param, x0)
         self.opti.set_value(self.goal_param, goal)
         self.opti.set_value(self.heading_param, float(np.radians(heading_goal_deg)))
-        self.opti.set_value(self.min_height_param, min_height)
+
+        v_goal_guess = float(self.STALL_MARGIN_FACTOR * self.state.stall_speed(float(goal[2])))
 
         if T_init is not None:
             T_guess = float(T_init)
         else:
             dist    = np.linalg.norm(goal[:3] - x0[:3])
-            v_avg   = 0.5 * (float(x0[3]) + max(float(goal[3]), 30.0))
+            v_avg   = 0.5 * (float(x0[3]) + max(v_goal_guess, 30.0))
             T_guess = float(np.clip(dist / v_avg * 1.5, self.T_min, self.T_max))
 
         self.opti.set_initial(self.T, T_guess)
@@ -225,7 +230,7 @@ class LandingTrajectoryOptimizer:
             chi0     = float(x0[4])
             gam0     = float(x0[5])
             pos_goal = goal[:3]
-            v_goal   = max(float(goal[3]), 30.0)
+            v_goal   = max(v_goal_guess, 30.0)
             chi_goal = float(np.radians(heading_goal_deg))
             d3       = pos_goal - pos0
             d_chi    = ((chi_goal - chi0) + np.pi) % (2 * np.pi) - np.pi

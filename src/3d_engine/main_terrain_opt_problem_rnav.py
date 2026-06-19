@@ -69,7 +69,6 @@ runway         = airport.arinc_424_runway[0]
 goal_x, goal_y = transformer.transform(runway.longitude, runway.latitude)
 goal_h         = runway.runway_altitude * 0.3048
 goal_chi_deg   = float(runway.bearing)
-V_TD           = 80.0
 
 _, FAP, _      = runway.approaches[0].get_final_approach_fixes()
 dx, dy = geo.latlon_to_utm(
@@ -129,18 +128,16 @@ optimizer = LandingTrajectoryRnavOptimizer(
     N               = N_casadi,
     T_min           = 60.0,
     T_max           = 1800.0,
-    min_height=runway.runway_altitude * 0.3048,
 )
 
 x0_vec = state_to_casadi(state)
-goal   = np.array([goal_x, goal_y, goal_h, V_TD])
+goal   = np.array([goal_x, goal_y, goal_h])
 
 X_opt, U_opt, T_opt = optimizer.solve(
     x0               = x0_vec,
     goal             = goal,
     heading_goal_deg = goal_chi_deg,
     via_point        = via_point,
-    min_height       = runway.runway_altitude * 0.3048,
 )
 
 dt_casadi = T_opt / N_casadi
@@ -241,7 +238,7 @@ def on_gui() -> None:
     hud.panel(10, 10, 320, 265, border_radius=8)
     hud.text("CasADi Landing",                                    20, 16,  size=17, color=(255, 210, 60), shadow=True)
     hud.line(20, 38, 320, 38,                                     color=(80, 80, 100, 180))
-    hud.text(f"Speed    {sv:6.1f} m/s  (goal {V_TD:.0f})",        20, 44,  size=15)
+    hud.text(f"Speed    {sv:6.1f} m/s",        20, 44,  size=15)
     hud.text(f"Altitude {sh:6.0f} m   (goal {goal_h:.0f})",       20, 64,  size=15)
     hud.text(f"Runway   {dist_rwy/1000:5.2f} km",                 20, 84,  size=15)
     hud.text(f"χ error  {dchi:+6.1f}°  (goal {goal_chi_deg:.0f}°)", 20, 124, size=15)
