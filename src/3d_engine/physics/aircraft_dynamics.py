@@ -1,3 +1,6 @@
+import pandas as pd
+from pandas import Series
+
 
 class AircraftDynamics:
     """
@@ -42,4 +45,19 @@ class AircraftDynamics:
             f"  {'max_load_factor':<{w}} {self.max_load_factor:>10.1f} g\n"
             f"  {'min_load_factor':<{w}} {self.min_load_factor:>10.1f} g\n"
             f"  {'max_roll_angle':<{w}} {self.max_roll_angle:>10.1f} °\n"
+        )
+
+    @classmethod
+    def from_row(cls, row: Series) -> "AircraftDynamics":
+        return cls(
+            mass=float(row["mass"]),
+            C_D0=float(row["C_D0"]),
+            area=float(row["area"]),
+            cl_max=float(row["cl_max"]),
+            max_thrust=float(row["max_thrust"]),
+            max_load_factor=float(row["max_load_factor"]),
+            min_load_factor=float(row["min_load_factor"]),
+            max_roll_angle=float(row["max_roll_angle"]),
+            k=float(row["k"]) if pd.notna(row.get("k")) else 0.2,
+            name=str(row["name"]) if pd.notna(row.get("name")) else "default",
         )

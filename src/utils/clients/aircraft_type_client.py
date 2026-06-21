@@ -11,8 +11,8 @@ class AircraftTypeClient:
     V_MARGIN: float = 1.3
 
     # CS-25 / 14 CFR 25.345(a)(1): with retracted flaps
-    MAX_LOAD_FACTOR_NORMAL_OPS: float = 1.3
-    MIN_LOAD_FACTOR_NORMAL_OPS: float = 0.8
+    MAX_LOAD_FACTOR_NORMAL_OPS: float = 1.5
+    MIN_LOAD_FACTOR_NORMAL_OPS: float = 0.5
 
     MAX_ROLL_ANGLE_NORMAL_OPS: float = 30.0
 
@@ -48,7 +48,11 @@ class AircraftTypeClient:
         else:
             raise TypeError("Expected str or Aircraft")
 
-        aircraft_data = data["response"]["aircraft"]
+        response = data.get("response")
+        if not isinstance(response, dict) or "aircraft" not in response:
+            raise ValueError(f"adsbdb hat keine Aircraft-Daten geliefert: {response!r}")
+
+        aircraft_data = response["aircraft"]
 
         return AircraftType(
             type=aircraft_data.get("type"),
@@ -61,14 +65,13 @@ class AircraftTypeClient:
         )
 
     def get_aircraft_dynamics(self, icao_type: str) -> AircraftDynamics:
-        ac    = openap.prop.aircraft(icao_type)
+        ac    = openap.prop.aircraft(icao_type, use_synonym=True)
         drag  = ac["drag"]
 
-        # Max Thrust
-        thrust_model = openap.Thrust(icao_type)
-        max_thrust   = thrust_model.eng_max_thrust * ac["engine"]["number"] * 1000 # convert from kn into newton
+        thrust_model = openap.Thrust(icao_type, use_synonym=True)
+        max_thrust = thrust_model.eng_max_thrust * ac["engine"]["number"] * 1000  # convert from kn into newton
 
-        wrap    = openap.WRAP(icao_type)
+        wrap = openap.WRAP(icao_type, use_synonym=True)
         v_app = wrap.landing_speed()["default"]
         v_stall_landing = v_app / self.V_MARGIN
 
@@ -95,7 +98,7 @@ class AircraftTypeClient:
 
 def main() -> None:
     client = AircraftTypeClient()
-    aircraft_type, aircraft_dynamics = client.get_aircraft_and_dynamics("3c0acb")
+    aircraft_type, aircraft_dynamics = client.get_aircraft_and_dynamics("71c077")
     print(aircraft_type)
     print(aircraft_dynamics)
 

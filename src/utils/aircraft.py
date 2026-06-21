@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 
 import pandas as pd
+from pandas import Series
 
 
 @dataclass
@@ -33,3 +34,15 @@ class AircraftType:
     registration: str | None = None
     registered_owner: str | None = None
     url_photo_thumbnail: str | None = None
+
+    @classmethod
+    def from_row(cls, row: Series) -> "AircraftType":
+        return cls(
+            type=row.get("type"),
+            icao_type=row.get("icao_type"),
+            manufacturer=row.get("manufacturer"),
+            mode_s=row.get("mode_s"),
+            registration=row.get("registration"),
+            registered_owner=row.get("registered_owner"),
+            url_photo_thumbnail=row.get("url_photo_thumbnail"),
+        )

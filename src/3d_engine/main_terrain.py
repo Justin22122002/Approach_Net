@@ -2,6 +2,7 @@ from pathlib import Path
 
 from pyproj import Transformer
 
+from utils.clients.open_airport_map_client import get_bbox_simple
 from utils.texture import Texture
 from utils.airport import Airport
 from utils.arinc_runway import ArincRunway
@@ -16,6 +17,7 @@ from utils_project.geo_transformer import GeoTransformer
 from utils_project.runway_project_mesh import RunwayProjectMesh
 from utils_project.taxiway_project_mesh import TaxiwayProjectMesh
 from utils_project.terrain_project_mesh import TerrainProjectMesh
+from utils.lineRenderer import LineRenderer
 
 icao_vancouver = {
     "icao": "CYVR",
@@ -29,7 +31,10 @@ icao_frankfurt = {
     "lon": 8.5622
 }
 
-icao = icao_frankfurt
+icao = icao_vancouver
+
+radius_km = 25.0  # depending on the airport choose -> 20 - 30 km
+bounds = get_bbox_simple(icao["lat"], icao["lon"], radius_km)
 
 crs_to: str = GeoTransformer.utm_epsg(icao["lat"], icao["lon"])
 
@@ -163,6 +168,27 @@ engine.camera.position = Vec3(
     geo.altitude_to_local(terrain_project_mesh.altitude) + 50,
     rw.z
 )
+
+bbox_lat_min, bbox_lon_min, bbox_lat_max, bbox_lon_max = bounds  # get_bbox_simple: (lat_min, lon_min, lat_max, lon_max)
+
+bbox_corners_latlon = [
+    (bbox_lat_min, bbox_lon_min),
+    (bbox_lat_min, bbox_lon_max),
+    (bbox_lat_max, bbox_lon_max),
+    (bbox_lat_max, bbox_lon_min),
+    (bbox_lat_min, bbox_lon_min),
+]
+
+bbox_height = geo.altitude_to_local(terrain_project_mesh.altitude + 100.0)
+
+bbox_points = []
+for lat, lon in bbox_corners_latlon:
+    local_x, local_z = geo.to_local(lat, lon)
+    bbox_points.append(Vec3(local_x, bbox_height, local_z))
+
+bbox_go = scene.spawn("DataBoundingBox")
+bbox_lr = LineRenderer.strip(bbox_points, color=Color(1.0, 1.0, 0.0))
+bbox_go.add_component(bbox_lr)
 
 def on_gui():
     hud = engine.hud

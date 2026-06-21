@@ -6,7 +6,6 @@ from matplotlib import pyplot as plt
 from pandas import DataFrame
 
 
-# todo: add extra data loader for batch load, for bigger datasets
 class AircraftHistoryInterpolator:
     """
     this class serves for interpolating and cleaning the aircraft history data
@@ -29,12 +28,10 @@ class AircraftHistoryInterpolator:
         # fill nan values with empty strings for later usage
         self.dataframe["serials"] = self.dataframe["serials"].apply(AircraftHistoryInterpolator.clean_serial_list)
         self.dataframe["callsign"] = self.dataframe["callsign"].fillna("")
-        self.dataframe["velocity"] = self.dataframe["velocity"].ffill()
+        self.dataframe["velocity"] = self.dataframe.groupby(["icao24", "flight_id"])["velocity"].ffill()
 
         cleaned_groups: list[DataFrame] = []
-        # remove duplicates with the same latitude and longitude for same aircraft a keep only the first one depending on the timestamp
-        for icao, group in self.dataframe.groupby("icao24"):
-            # sort by timestamp first
+        for (icao, flight_id), group in self.dataframe.groupby(["icao24", "flight_id"]):
             group = group.sort_values("time")
             duplicates_mask = group.duplicated(subset=["lat", "lon"], keep="first")
             group = group[~duplicates_mask]
@@ -42,10 +39,10 @@ class AircraftHistoryInterpolator:
 
         self.dataframe = pd.concat(cleaned_groups).reset_index(drop=True)
 
-    def interpolate(self) -> None:
+    def interpolate(self, max_gap_seconds: int = 300) -> None:
         interpolated_groups: list[DataFrame] = []
 
-        for icao, group in self.dataframe.groupby("icao24"):
+        for (icao, flight_id), group in self.dataframe.groupby(["icao24", "flight_id"]):
             group = group.sort_values("time").copy()
 
             # clip values to avoid altitudes under the airport
@@ -60,6 +57,10 @@ class AircraftHistoryInterpolator:
                 t1, t2 = int(row1["time"].timestamp()), int(row2["time"].timestamp())
                 dt = t2 - t1
                 if dt <= 1:
+                    traj_rows.append(row1.to_dict())
+                    continue
+
+                if dt > max_gap_seconds:
                     traj_rows.append(row1.to_dict())
                     continue
 
@@ -88,6 +89,7 @@ class AircraftHistoryInterpolator:
                     traj_rows.append({
                         "time": pd.Timestamp(t1 + s, unit='s', tz='UTC'),
                         "icao24": icao,
+                        "flight_id": flight_id,
                         "lat": new_lat,
                         "lon": new_lon,
                         "baroaltitude": new_baroaltitude,
@@ -108,6 +110,7 @@ class AircraftHistoryInterpolator:
 
         self.dataframe = pd.concat(interpolated_groups).reset_index(drop=True)
 
+    # todo: leave a few on gound in
     def remove_onground(self) -> None:
         if self.dataframe is None or self.dataframe.empty:
             return

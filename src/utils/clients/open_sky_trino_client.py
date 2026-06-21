@@ -18,21 +18,29 @@ class OpenSkyTrinoClient:
     note: this class converts the wsg84 coordinates to the 3855 projection -> e.g. msl in meter
 
     when bounds are provided, the lat and lon are ignored
+
+    see: https://trino.opensky-network.org/ui/ for running queries
     """
     def __init__(
         self,
-        start: datetime,
-        stop: datetime,
         arrival_airport: str,
         lat: float,
         lon: float,
+        start: datetime | None = None,
+        stop: datetime | None = None,
         radius_km: float = 10.0,
         bounds: tuple[float, float, float, float] | None = None,
     ) -> None:
         self.trino: Trino = Trino()
-        self.start: datetime = start
-        self.stop: datetime = stop
-        self.bounds: tuple[float, float, float, float] = bounds if bounds is not None else get_bbox_simple(lat, lon, radius_km)
+        self.start: datetime | None = start
+        self.stop: datetime | None = stop
+
+        if bounds is not None:
+            self.bounds: tuple[float, float, float, float] = bounds
+        else:
+            lat_min, lon_min, lat_max, lon_max = get_bbox_simple(lat, lon, radius_km)
+            self.bounds = (lon_min, lat_min, lon_max, lat_max)  # (west, south, east, north)
+
         self.arrival_airport: str = arrival_airport
         self.aircraft_client: AircraftTypeClient = AircraftTypeClient()
 
@@ -42,17 +50,112 @@ class OpenSkyTrinoClient:
             always_xy=True
         )
 
-    def load_arrivals(self) -> DataFrame:
-        landing_icao24s = self._fetch_landing_icao24s()
+    def _resolve_range(
+        self, start: datetime | None, stop: datetime | None
+    ) -> tuple[datetime, datetime]:
+        start = start or self.start
+        stop = stop or self.stop
+        if start is None or stop is None:
+            raise ValueError("start/stop müssen entweder im Konstruktor oder pro Aufruf übergeben werden.")
+        return start, stop
 
-        if not landing_icao24s:
+    def _fetch_landing_flights(
+            self, start: datetime | None = None, stop: datetime | None = None
+    ) -> DataFrame:
+        start, stop = self._resolve_range(start, stop)
+
+        df: DataFrame | None = self.trino.flightlist(
+            start=start, stop=stop, arrival_airport=self.arrival_airport,
+        )
+        if df is None or df.empty:
+            return pd.DataFrame(columns=["icao24", "lastseen"])
+
+        return df[["icao24", "lastseen"]].dropna(subset=["icao24", "lastseen"])
+
+    def load_arrivals(
+            self,
+            start: datetime | None = None,
+            stop: datetime | None = None,
+            max_approach_window: timedelta = timedelta(minutes=30),
+    ) -> DataFrame:
+        start, stop = self._resolve_range(start, stop)
+
+        landing_flights = self._fetch_landing_flights(start, stop)
+        if landing_flights.empty:
+            raise ValueError(f"No arrivals at {self.arrival_airport} found in the given time window.")
+
+        df_all = self._fetch_history(start, stop)
+        if df_all.empty:
             raise ValueError(
-                f"No arrivals at {self.arrival_airport} found in the given time window."
+                f"No history data returned for {self.arrival_airport} in window {start} -> {stop}."
             )
 
-        df_all = self._fetch_history()
-        df_arrivals = df_all[df_all["icao24"].isin(landing_icao24s)].copy()
-        return df_arrivals.reset_index(drop=True)
+        parts: list[DataFrame] = []
+        for icao24, lastseen in zip(landing_flights["icao24"], landing_flights["lastseen"]):
+            lastseen_ts = pd.Timestamp(lastseen)
+            window_start = lastseen_ts - max_approach_window
+
+            mask = (
+                    (df_all["icao24"] == icao24)
+                    & (df_all["time"] >= window_start)
+                    & (df_all["time"] <= lastseen_ts)
+            )
+            parts.append(df_all.loc[mask])
+
+        if not parts:
+            raise ValueError(f"No matching trajectory data found for arrivals at {self.arrival_airport}.")
+
+        df_arrivals = pd.concat(parts, ignore_index=True)
+        return self._assign_flight_ids(df_arrivals)
+
+    def load_n_arrivals(
+            self,
+            target_n: int,
+            batch: timedelta = timedelta(days=1),
+            end: datetime | None = None,
+            max_batches: int = 30,
+            trino_lag: timedelta = timedelta(days=2),
+            max_approach_window: timedelta = timedelta(minutes=30),
+    ) -> DataFrame:
+        end = end or (datetime.now(UTC) - trino_lag)
+        total_landings: int = 0
+        batch_bounds: list[tuple[datetime, datetime]] = []
+        batch_stop = end
+
+        for i in range(max_batches):
+            batch_start = batch_stop - batch
+            landing_flights = self._fetch_landing_flights(batch_start, batch_stop)
+            n_landings = len(landing_flights)
+            total_landings += n_landings
+            batch_bounds.append((batch_start, batch_stop))
+
+            print(f"[load_n_arrivals] Batch {i + 1}: {batch_start} -> {batch_stop}  "
+                  f"(+{n_landings} Landungen, gesamt {total_landings}/{target_n})")
+
+            if total_landings >= target_n:
+                break
+
+            batch_stop = batch_start
+        else:
+            print(f"[load_n_arrivals] max_batches={max_batches} erreicht, "
+                  f"nur {total_landings}/{target_n} Landungen gefunden.")
+
+        history_parts: list[DataFrame] = []
+        for batch_start, batch_stop in batch_bounds:
+            try:
+                history_parts.append(
+                    self.load_arrivals(batch_start, batch_stop, max_approach_window=max_approach_window)
+                )
+            except ValueError:
+                continue
+
+        if not history_parts:
+            raise ValueError(
+                f"No arrivals at {self.arrival_airport} found while batching for {target_n} flights."
+            )
+
+        df_combined = pd.concat(history_parts, ignore_index=True)
+        return self._assign_flight_ids(df_combined)
 
     def save_dataframe(
         self,
@@ -83,10 +186,14 @@ class OpenSkyTrinoClient:
                 case _:
                     raise ValueError(f"Unsupported format: {file_format}")
 
-    def _fetch_history(self) -> DataFrame:
+    def _fetch_history(
+            self, start: datetime | None = None, stop: datetime | None = None
+    ) -> DataFrame:
+        start, stop = self._resolve_range(start, stop)
+
         df: DataFrame | None = self.trino.history(
-            start=self.start,
-            stop=self.stop,
+            start=start,
+            stop=stop,
             bounds=self.bounds,
             selected_columns=(
                 "time",
@@ -136,33 +243,14 @@ class OpenSkyTrinoClient:
         df["lat"] = lat_new
         df["geoaltitude"] = alt_new
 
-        if df is None:
-            raise ValueError("No data returned from Trino.")
+        return df.sort_values(["icao24", "time"]).reset_index(drop=True)
 
+    @staticmethod
+    def _assign_flight_ids(df: DataFrame, gap: pd.Timedelta = pd.Timedelta("2h")) -> DataFrame:
         df = df.sort_values(["icao24", "time"]).reset_index(drop=True)
-
-        df["time_diff"] = df.groupby("icao24")["time"].diff()
-        # filter out the first row (which is NaN)
-        df["time_diff"] = df["time_diff"].fillna(pd.Timedelta(0))
-
-        df["flight_id"] = (
-            (df["time_diff"] > pd.Timedelta("2h"))
-            .groupby(df["icao24"])
-            .cumsum()
-        )
-
+        time_diff = df.groupby("icao24")["time"].diff().fillna(pd.Timedelta(0))
+        df["flight_id"] = (time_diff > gap).groupby(df["icao24"]).cumsum()
         return df
-
-    def _fetch_landing_icao24s(self) -> set[str]:
-        df: DataFrame | None = self.trino.flightlist(
-            start=self.start,
-            stop=self.stop,
-            arrival_airport=self.arrival_airport,
-        )
-        if df is None or df.empty:
-            return set()
-
-        return set(df["icao24"].dropna().unique())
 
     def extract_aircraft_table(self, df: DataFrame) -> DataFrame:
         unique_icao24 = df["icao24"].dropna().unique()
@@ -181,8 +269,7 @@ class OpenSkyTrinoClient:
             row["icao24"] = icao24
 
             try:
-                aircraft_data, aircraft_dynamics = self.aircraft_client.get_aircraft_and_dynamics(icao24)
-
+                aircraft_data = self.aircraft_client.get_aircraft_type(icao24)
                 row.update({
                     "type": aircraft_data.type,
                     "icao_type": aircraft_data.icao_type,
@@ -191,6 +278,15 @@ class OpenSkyTrinoClient:
                     "registration": aircraft_data.registration,
                     "registered_owner": aircraft_data.registered_owner,
                     "url_photo_thumbnail": aircraft_data.url_photo_thumbnail,
+                })
+            except Exception as e:
+                print(f"[WARN] adsbdb fetch failed {icao24}: {e}")
+                rows.append(row)
+                continue
+
+            try:
+                aircraft_dynamics = self.aircraft_client.get_aircraft_dynamics(aircraft_data.icao_type)
+                row.update({
                     "mass": aircraft_dynamics.mass,
                     "C_D0": aircraft_dynamics.C_D0,
                     "area": aircraft_dynamics.area,
@@ -202,9 +298,8 @@ class OpenSkyTrinoClient:
                     "k": aircraft_dynamics.k,
                     "name": aircraft_dynamics.name,
                 })
-
             except Exception as e:
-                print(f"[WARN] Aircraft fetch failed {icao24}: {e}")
+                print(f"[WARN] OpenAP dynamics fetch failed {icao24} ({aircraft_data.icao_type}): {e}")
 
             rows.append(row)
 
@@ -227,7 +322,14 @@ class OpenSkyTrinoClient:
         c = 2.0 * np.arcsin(np.sqrt(a))
         return R * c
 
-    def assign_runway(self, df: DataFrame, airport: Airport) -> DataFrame:
+    def assign_runway(
+            self,
+            df: DataFrame,
+            airport: Airport,
+            max_heading_dev: float = 10.0, # old: 35
+            max_match_distance_m: float = 1000.0, # old: 300.0
+            min_touchdown_speed_ms: float = 30.0,
+    ) -> DataFrame:
         runway_data = []
         for runway in airport.arinc_424_runway:
             for ap in runway.approaches:
@@ -245,8 +347,6 @@ class OpenSkyTrinoClient:
         if not runway_data:
             raise ValueError("No valid runway fixes for airport found.")
 
-        # Extrahieren der Arrays für die mathematischen Berechnungen
-        rwy_names = [r["runway_identifier"] for r in runway_data]
         rwy_lats = np.array([r["fix_latitude"] for r in runway_data])
         rwy_lons = np.array([r["fix_longitude"] for r in runway_data])
         rwy_alts = np.array([r["fix_altitude_m"] for r in runway_data])
@@ -264,46 +364,40 @@ class OpenSkyTrinoClient:
             flight_lons = final_phase["lon"].to_numpy()
             flight_alts = final_phase["geoaltitude"].to_numpy()
             flight_headings = final_phase["heading"].to_numpy()
+            flight_speeds = final_phase["velocity"].to_numpy()
 
             if len(flight_lats) == 0:
                 continue
 
-            f_lats_m = flight_lats[:, np.newaxis]
-            f_lons_m = flight_lons[:, np.newaxis]
-            r_lats_m = rwy_lats[np.newaxis, :]
-            r_lons_m = rwy_lons[np.newaxis, :]
-
             horizontal_dist_matrix = self._haversine_vectorized(
-                f_lats_m, f_lons_m, r_lats_m, r_lons_m
+                flight_lats[:, np.newaxis], flight_lons[:, np.newaxis],
+                rwy_lats[np.newaxis, :], rwy_lons[np.newaxis, :]
             )
-
-            f_alts_m = flight_alts[:, np.newaxis]
-            r_alts_m = rwy_alts[np.newaxis, :]
-            vertical_dist_matrix = f_alts_m - r_alts_m
-
+            vertical_dist_matrix = flight_alts[:, np.newaxis] - rwy_alts[np.newaxis, :]
             dist_matrix_3d = np.sqrt(horizontal_dist_matrix ** 2 + vertical_dist_matrix ** 2)
 
-            f_head_m = flight_headings[:, np.newaxis]
-            r_bear_m = rwy_bearings[np.newaxis, :]
-
-            heading_diff = np.abs(f_head_m - r_bear_m)
+            heading_diff = np.abs(flight_headings[:, np.newaxis] - rwy_bearings[np.newaxis, :])
             heading_diff = np.minimum(heading_diff, 360.0 - heading_diff)
-
-            MAX_HEADING_DEV = 35.0
-            dist_matrix_3d[heading_diff > MAX_HEADING_DEV] = np.inf
+            dist_matrix_3d[heading_diff > max_heading_dev] = np.inf
 
             min_dist_per_rwy = np.min(dist_matrix_3d, axis=0)
 
             if np.all(min_dist_per_rwy == np.inf):
-                dist_matrix_3d = np.sqrt(horizontal_dist_matrix ** 2 + vertical_dist_matrix ** 2)
-                min_dist_per_rwy = np.min(dist_matrix_3d, axis=0)
+                continue
 
             best_rwy_idx = np.argmin(min_dist_per_rwy)
+            best_distance = min_dist_per_rwy[best_rwy_idx]
+
+            if best_distance > max_match_distance_m:
+                continue
+
             closest_trackpoint_idx = np.argmin(dist_matrix_3d[:, best_rwy_idx])
+            touchdown_speed = flight_speeds[closest_trackpoint_idx]
 
-            aircraft_landing_alt = flight_alts[closest_trackpoint_idx]
+            if touchdown_speed < min_touchdown_speed_ms:
+                continue
+
             matched_fix = runway_data[best_rwy_idx]
-
             results.append({
                 "icao24": icao24,
                 "flight_id": flight_id,
@@ -313,8 +407,8 @@ class OpenSkyTrinoClient:
                 "fix_longitude": matched_fix["fix_longitude"],
                 "fix_elevation_m": matched_fix["fix_altitude_m"],
                 "runway_bearing": matched_fix["bearing"],
-                "distance_3d": min_dist_per_rwy[best_rwy_idx],
-                "aircraft_landing_alt_m": aircraft_landing_alt
+                "distance_3d": best_distance,
+                "aircraft_landing_alt_m": flight_alts[closest_trackpoint_idx],
             })
 
         if not results:
@@ -326,42 +420,37 @@ class OpenSkyTrinoClient:
 
         return pd.DataFrame(results)
 
+
 if __name__ == "__main__":
     path: Path = Path("../../pyproj")
     datadir.append_data_dir(path)
 
-    basePath: Path = Path("../../data")
-    airport = Airport.load_from_folder(basePath, "EDDF")
+    arrival_airport: str = "CYVR"
 
-    now = datetime.now(UTC)
-    day = now - timedelta(days=20)
-
-    start = day.replace(hour=19, minute=0, second=0, microsecond=0)
-    stop = day.replace(hour=19, minute=30, second=0, microsecond=0)
-
-    bounds = (8.0, 49.5, 9.5, 50.8)
+    basePath: Path = Path("../../data/")
+    airport = Airport.load_from_folder(basePath, arrival_airport)
 
     client = OpenSkyTrinoClient(
-        start=start,
-        stop=stop,
-        arrival_airport="EDDF",
-        lat=50.0379,
-        lon=8.5622,
-        radius_km=10.0,
-        bounds=bounds
+        arrival_airport=arrival_airport,
+        lat=49.1947,
+        lon=-123.1792,
+        radius_km=25.0,
     )
 
-    df = client.load_arrivals()
+    df = client.load_n_arrivals(target_n=1000, batch=timedelta(days=1))
+
     print(df.head())
-    print(f"Arriving aircraft: {df['icao24'].nunique()}")
+    print(f"Arriving unique aircraft: {df['icao24'].nunique()}")
     print(f"Total state vectors: {len(df)}")
 
-    suffix = f"frankfurt_{start:%Y%m%d_%H%M}_{stop:%H%M}"
-    history_file_path = basePath / f"arrivals_raw_{suffix}.parquet"
+    suffix = datetime.now(UTC).strftime("%Y%m%d_%H%M")
+    history_file_path = basePath / arrival_airport / f"arrivals_raw_{suffix}.parquet"
     df.to_parquet(history_file_path)
 
     print("\nStart interpolating with AircraftHistoryInterpolator...")
-    interpolator = AircraftHistoryInterpolator(history_file_path, airport_height=airport.arinc_424_runway[0].runway_altitude)
+    interpolator = AircraftHistoryInterpolator(
+        history_file_path, airport_height=airport.arinc_424_runway[0].runway_altitude
+    )
     interpolator.clean_dataframe()
     interpolator.interpolate()
     interpolator.remove_onground()
@@ -370,13 +459,20 @@ if __name__ == "__main__":
 
     print("\nStart Runway-assignment...")
     df_runways = client.assign_runway(df_interpolated, airport)
+
+    df_interpolated = df_interpolated.merge(
+        df_runways[["icao24", "flight_id"]],
+        on=["icao24", "flight_id"],
+        how="inner",
+    )
+
     print(df_runways.head())
 
     print("\nLoad aircraft details")
     df_aircraft = client.extract_aircraft_table(df_interpolated)
     print(df_aircraft.head())
 
-    client.save_dataframe(df_interpolated, Path(f"../../data/arrivals_{suffix}"))
-    client.save_dataframe(df_aircraft, Path(f"../../data/aircraft_{suffix}"))
-    client.save_dataframe(df_runways, Path(f"../../data/runway_assignments_{suffix}"))
+    client.save_dataframe(df_interpolated, basePath / arrival_airport / f"arrivals_{suffix}", formats=["csv", "parquet"])
+    client.save_dataframe(df_aircraft, basePath / arrival_airport / f"aircraft_{suffix}", formats=["csv", "parquet"])
+    client.save_dataframe(df_runways, basePath / arrival_airport / f"runway_assignments_{suffix}", formats=["csv", "parquet"])
     print("\n[INFO] Pipeline finished successfully!")

@@ -29,7 +29,14 @@ icao_frankfurt = {
     "lat": 50.0379,
     "lon": 8.5622
 }
-icao = icao_frankfurt
+
+icao_vancouver = {
+    "icao": "CYVR",
+    "lat": 49.1967,
+    "lon": -123.1815
+}
+
+icao = icao_vancouver
 
 crs_to: str = GeoTransformer.utm_epsg(icao["lat"], icao["lon"])
 transformer: Transformer = Transformer.from_crs(
@@ -41,10 +48,10 @@ transformer: Transformer = Transformer.from_crs(
 basePath: Path = Path("../data")
 frankfurt = Airport.load_from_folder(basePath, icao["icao"])
 
-history_file_path: Path = basePath / Path("arrivals_frankfurt_20260530_1900_1930.parquet")
+history_file_path: Path = basePath / Path("CYVR/arrivals_20260621_1946.parquet")
 interpolator: AircraftHistoryInterpolator = AircraftHistoryInterpolator(history_file_path, airport_height=frankfurt.arinc_424_runway[0].runway_altitude)
-interpolator.clean_dataframe()
-interpolator.interpolate()
+# interpolator.clean_dataframe()
+# interpolator.interpolate()
 
 runways: list[ArincRunway] = frankfurt.arinc_424_runway
 

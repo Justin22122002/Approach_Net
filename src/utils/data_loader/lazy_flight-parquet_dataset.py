@@ -1,16 +1,38 @@
+from pathlib import Path
 from matplotlib import pyplot as plt
 
 import pandas as pd
 from pandas import DataFrame, Series
 from torch.utils.data import Dataset
 
+from physics.aircraft_dynamics import AircraftDynamics
+from utils.aircraft import AircraftType
 
+
+# todo: create a base class for this and crate a data loader that loads all current data point for a sorted time !
 class LazyFlightParquetDataset(Dataset[DataFrame]):
-    def __init__(self, file_path: str) -> None:
-        self.file_path: str = file_path
+    """
+        ../../data/frankfurt_20260530_1900_1930
+        -> folder structure
+        arrivals_frankfurt_20260530_1900_1930.parquet
+        aircraft_frankfurt_20260530_1900_1930.parquet
+        runway_assignments_frankfurt_20260530_1900_1930.parquet
+
+    """
+    def __init__(self, base_path: str | Path) -> None:
+        base_path: str | Path = Path(base_path)
+        directory = base_path.parent
+        suffix    = base_path.name
+
+        self.flight_path: Path   = directory / f"arrivals_{suffix}.parquet"
+        self.aircraft_path: Path = directory / f"aircraft_{suffix}.parquet"
+        self.runway_path: Path   = directory / f"runway_assignments_{suffix}.parquet"
+
+        self._aircraft_cache: dict[str, tuple[AircraftType, AircraftDynamics]] | None = None
+        self._runway_cache: DataFrame | None = None
 
         meta_df: DataFrame = pd.read_parquet(
-            file_path, columns=["icao24", "flight_id"]
+            self.flight_path, columns=["icao24", "flight_id"]
         )
 
         meta_df["flight_id"] = meta_df["flight_id"].astype("Int64")
@@ -36,7 +58,7 @@ class LazyFlightParquetDataset(Dataset[DataFrame]):
         icao24, flight_id = self.flights[idx]
 
         df_flight: DataFrame = pd.read_parquet(
-            self.file_path,
+            self.flight_path,
             filters=[
                 ("icao24", "==", str(icao24)),
                 ("flight_id", "==", int(flight_id)),
@@ -57,64 +79,72 @@ class LazyFlightParquetDataset(Dataset[DataFrame]):
 
         return start_point, end_point
 
-if __name__ == "__main__":
-    file_path = (
-        "../../data/arrivals_frankfurt_20260530_1900_1930.parquet"
-    )
+    def load_aircraft_table(self) -> dict[str, tuple[AircraftType, AircraftDynamics]]:
+        if self._aircraft_cache is None:
+            df = pd.read_parquet(self.aircraft_path)
+            cache: dict[str, tuple[AircraftType, AircraftDynamics]] = {}
+            for _, row in df.iterrows():
+                if pd.isna(row.get("mass")):
+                    continue
+                cache[row["icao24"]] = (AircraftType.from_row(row), AircraftDynamics.from_row(row))
+            self._aircraft_cache = cache
+        return self._aircraft_cache
 
-    dataset = LazyFlightParquetDataset(file_path)
+    def get_aircraft(self, icao24: str) -> tuple[AircraftType, AircraftDynamics]:
+        table = self.load_aircraft_table()
+        if icao24 not in table:
+            raise KeyError(f"No aircraft data for icao24={icao24!r} (Fetch fehlgeschlagen oder unbekannt).")
+        return table[icao24]
+
+    def load_runway_assignments(self) -> DataFrame:
+        if self._runway_cache is None:
+            self._runway_cache = pd.read_parquet(self.runway_path)
+        return self._runway_cache
+
+    def get_runway_assignment(self, icao24: str, flight_id: int) -> Series:
+        df = self.load_runway_assignments()
+        match = df[(df["icao24"] == icao24) & (df["flight_id"] == flight_id)]
+        if match.empty:
+            raise KeyError(f"No runway assignment for icao24={icao24!r}, flight_id={flight_id!r}.")
+        return match.iloc[0]
+
+if __name__ == "__main__":
+    base_path = "../../data/CYVR/20260621_1839"
+
+    dataset = LazyFlightParquetDataset(base_path)
     print(f"Number of available flights in dataset: {len(dataset)}")
 
     if len(dataset) == 0:
         print("[ERROR] No flights found in the dataset.")
     else:
-        df_flight = dataset[1]
+        df_flight = dataset[0]
 
         if df_flight.empty:
-            print(
-                "[ERROR] Filtering failed. The DataFrame is empty!"
-            )
+            print("[ERROR] Filtering failed. The DataFrame is empty!")
         else:
             icao24 = df_flight["icao24"].iloc[0]
             flight_id = df_flight["flight_id"].iloc[0]
-            print(
-                f"\n[INFO] Unique flight loaded at index 1: "
-                f"Aircraft {icao24} with specific Flight ID: {flight_id}"
-            )
+            print(f"\n[INFO] Unique flight loaded at index 1: Aircraft {icao24} with Flight ID: {flight_id}")
             print(f"Number of trackpoints: {len(df_flight)}")
+
+            aircraft_type, aircraft_dynamics = dataset.get_aircraft(icao24)
+            print(aircraft_type)
+            print(aircraft_dynamics)
+
+            runway_row = dataset.get_runway_assignment(icao24, flight_id)
+            print(runway_row)
 
             df_flight = df_flight.sort_values("time")
 
             plt.figure(figsize=(10, 6))
             scatter = plt.scatter(
-                df_flight["lon"],
-                df_flight["lat"],
-                c=df_flight["geoaltitude"],
-                cmap="viridis",
-                s=15,
-                edgecolors="none",
+                df_flight["lon"], df_flight["lat"],
+                c=df_flight["geoaltitude"], cmap="viridis", s=15, edgecolors="none",
             )
-
-            plt.plot(
-                df_flight["lon"].iloc[0],
-                df_flight["lat"].iloc[0],
-                "go",
-                markersize=10,
-                label="Entry Point (Start)",
-            )
-            plt.plot(
-                df_flight["lon"].iloc[-1],
-                df_flight["lat"].iloc[-1],
-                "ro",
-                markersize=10,
-                label="Landing / Fix (End)",
-            )
-
-            plt.title(
-                f"Flight Path for {icao24} (ID: {flight_id}) - Arrival Frankfurt (EDDF)"
-            )
-            plt.xlabel("Longitude")
-            plt.ylabel("Latitude")
+            plt.plot(df_flight["lon"].iloc[0], df_flight["lat"].iloc[0], "go", markersize=10, label="Entry Point (Start)")
+            plt.plot(df_flight["lon"].iloc[-1], df_flight["lat"].iloc[-1], "ro", markersize=10, label="Landing / Fix (End)")
+            plt.title(f"Flight Path for {icao24} (ID: {flight_id}) - Arrival Frankfurt (EDDF)")
+            plt.xlabel("Longitude"); plt.ylabel("Latitude")
             plt.grid(True, linestyle="--", alpha=0.6)
             plt.legend()
 
