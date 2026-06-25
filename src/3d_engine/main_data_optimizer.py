@@ -117,12 +117,12 @@ def run_batch_optimization(
 
     for idx in range(len(dataset)):
         icao24, flight_id = dataset.flights[idx]
-        print(f"\n[{idx + 1}/{len(dataset)}] Optimiere {icao24} / flight_id={flight_id} ...")
+        print(f"\n[{idx + 1}/{len(dataset)}] optimize {icao24} / flight_id={flight_id} ...")
 
         try:
             df_flight = dataset[idx]
             if df_flight.empty:
-                raise ValueError("DataFrame ist leer.")
+                raise ValueError("DataFrame is empty.")
 
             result = solve_single_flight(icao24, flight_id, df_flight, dataset, transformer, N, T_min, T_max)
             trajectory_frames.append(trajectory_to_dataframe(result))
@@ -130,10 +130,11 @@ def run_batch_optimization(
             print(f"  [OK] T_opt={result['T_opt']:.1f} s")
 
         except KeyError as e:
-            print(f"  [SKIP] Fehlende Stammdaten: {e}")
+            # todo: when no aircraft could be loaded, then use a fall back
+            print(f"  [SKIP] missing aircraft data: {e}")
             status_rows.append({"icao24": icao24, "flight_id": flight_id, "success": False, "T_opt": None, "error": str(e)})
         except Exception as e:
-            print(f"  [FAIL] Optimierung fehlgeschlagen: {e}")
+            print(f"  [FAIL] optimization failed: {e}")
             status_rows.append({"icao24": icao24, "flight_id": flight_id, "success": False, "T_opt": None, "error": str(e)})
 
     suffix = datetime.now(UTC).strftime("%Y%m%d_%H%M")
@@ -143,17 +144,17 @@ def run_batch_optimization(
             output_dir / f"optimized_trajectories_{suffix}.parquet"
         )
     else:
-        print("[WARN] Keine Trajektorie konnte optimiert werden.")
+        print("[WARN] No trajectory could be optimized.")
 
     df_status = pd.DataFrame(status_rows)
     df_status.to_parquet(output_dir / f"optimization_status_{suffix}.parquet")
 
     n_ok = int(df_status["success"].sum())
-    print(f"\n[DONE] {n_ok}/{len(df_status)} Flüge erfolgreich optimiert.")
+    print(f"\n[DONE] {n_ok}/{len(df_status)} flights successfully optimized.")
 
 
 if __name__ == "__main__":
-    base_path = "../data/CYVR/20260622_1510"
+    base_path = "../data/CYVR/20260625_1508"
     dataset = LazyFlightParquetDataset(base_path)
 
     run_batch_optimization(
