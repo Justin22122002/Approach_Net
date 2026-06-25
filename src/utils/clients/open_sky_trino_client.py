@@ -330,6 +330,7 @@ class OpenSkyTrinoClient:
             max_match_distance_m: float = 1000.0, # old: 300.0
             min_touchdown_speed_ms: float = 30.0,
     ) -> DataFrame:
+        # note: assign_runway should only be used for interpolated and filtered data
         runway_data = []
         for runway in airport.arinc_424_runway:
             for ap in runway.approaches:

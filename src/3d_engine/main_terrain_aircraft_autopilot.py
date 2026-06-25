@@ -23,29 +23,25 @@ from utils_project.terrain_project_mesh import TerrainProjectMesh
 
 icao_vancouver = {
     "icao": "CYVR",
-    "lat": 49.1967,
-    "lon": -123.1815
 }
 
 icao_frankfurt = {
     "icao": "EDDF",
-    "lat": 50.0379,
-    "lon": 8.5622
 }
 
 icao = icao_frankfurt
 
-crs_to: str = GeoTransformer.utm_epsg(icao["lat"], icao["lon"])
+# --- load airport data section ---
+basePath: Path = Path("../data")
+airport = Airport.load_from_folder(basePath, icao["icao"])
+
+crs_to: str = GeoTransformer.utm_epsg(airport.lat, airport.lon)
 
 transformer: Transformer = Transformer.from_crs(
     crs_from="EPSG:4326",
     crs_to=crs_to,
     always_xy=True
 )
-
-# --- load airport data section ---
-basePath: Path = Path("../data")
-airport = Airport.load_from_folder(basePath, icao["icao"])
 
 # instead of loading the runway data from the client via: AiracNetClient().get_airport_full(icao["icao"])
 # we load the pre saved data from the base path
@@ -56,10 +52,10 @@ password = "Copernicus2026!"
 
 delta = 0.2
 
-LAT_MIN = icao["lat"] - delta
-LAT_MAX = icao["lat"] + delta
-LON_MIN = icao["lon"] - delta
-LON_MAX = icao["lon"] + delta
+LAT_MIN = airport.lat - delta
+LAT_MAX = airport.lat + delta
+LON_MIN = airport.lon - delta
+LON_MAX = airport.lon + delta
 
 provider = CopernicusDEMProvider(email, password)
 
@@ -127,7 +123,7 @@ cam = OrbitCamera(distance=5.0)
 cam.pitch = 15.0
 engine.camera = cam
 
-x, y = transformer.transform(icao["lon"], icao["lat"])
+x, y = transformer.transform(airport.lon, airport.lat)
 
 constraints = AircraftDynamics(
     cl_max=3.0,

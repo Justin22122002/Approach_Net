@@ -27,19 +27,19 @@ datadir.append_data_dir(path)
 
 icao_vancouver = {
     "icao": "CYVR",
-    "lat": 49.1967,
-    "lon": -123.1815
 }
 
 icao_frankfurt = {
     "icao": "EDDF",
-    "lat": 50.0379,
-    "lon": 8.5622
 }
 
 icao = icao_frankfurt
 
-crs_to: str = GeoTransformer.utm_epsg(icao["lat"], icao["lon"])
+# --- load airport data section ---
+basePath: Path = Path("../data")
+airport = Airport.load_from_folder(basePath, icao["icao"])
+
+crs_to: str = GeoTransformer.utm_epsg(airport.lat, airport.lon)
 
 transformer: Transformer = Transformer.from_crs(
     crs_from="EPSG:4326",
@@ -47,23 +47,19 @@ transformer: Transformer = Transformer.from_crs(
     always_xy=True
 )
 
-# --- load airport data section ---
-basePath: Path = Path("../data")
-airport_data = Airport.load_from_folder(basePath, icao["icao"])
-
 # instead of loading the runway data from the client via: AiracNetClient().get_airport_full(icao["icao"])
 # we load the pre saved data from the base path
-runways: list[ArincRunway] = airport_data.arinc_424_runway
+runways: list[ArincRunway] = airport.arinc_424_runway
 
 email = "justin.groh@study.thws.de"
 password = "Copernicus2026!"
 
 delta = 0.2
 
-LAT_MIN = icao["lat"] - delta
-LAT_MAX = icao["lat"] + delta
-LON_MIN = icao["lon"] - delta
-LON_MAX = icao["lon"] + delta
+LAT_MIN = airport.lat - delta
+LAT_MAX = airport.lat + delta
+LON_MIN = airport.lon - delta
+LON_MAX = airport.lon + delta
 
 provider = CopernicusDEMProvider(email, password)
 
@@ -171,7 +167,7 @@ def on_update(dt: float) -> None:
     current_time = time.time()
 
     if current_time - last_update_time >= 5:
-        flight_df = opensky_client.get_flights_in_area(half_edge_km, icao["lat"], icao["lon"])
+        flight_df = opensky_client.get_flights_in_area(half_edge_km, airport.lat, airport.lon)
         last_update_time = current_time
         print(f"Flüge aktualisiert: {len(flight_df) if flight_df is not None else 0}")
 
@@ -199,7 +195,7 @@ def on_update(dt: float) -> None:
                 category = row.get("category")
 
                 if pd.isna(geoaltitude):
-                     geoaltitude = airport_data.arinc_424_runway[0].runway_altitude * 0.3048
+                     geoaltitude = airport.arinc_424_runway[0].runway_altitude * 0.3048
                 else:
                     _, _, new_height = tform.transform(
                         longitude,

@@ -22,22 +22,33 @@ from utils_project.runway_project_mesh import RunwayProjectMesh
 from utils_project.terrain_project_mesh import TerrainProjectMesh
 
 
-icao = {"icao": "EDDF", "lat": 50.0379, "lon": 8.5622}
-crs_to = GeoTransformer.utm_epsg(icao["lat"], icao["lon"])
+icao_vancouver = {
+    "icao": "CYVR",
+}
+
+icao_frankfurt = {
+    "icao": "EDDF",
+}
+
+icao = icao_vancouver
+
+# --- load airport data section ---
+basePath: Path = Path("../data")
+airport = Airport.load_from_folder(basePath, icao["icao"])
+
+crs_to      = GeoTransformer.utm_epsg(airport.lat, airport.lon)
 transformer = Transformer.from_crs("EPSG:4326", crs_to, always_xy=True)
 
 radius_km = 25.0  # depending on the airport choose -> 20 - 30 km
-bounds = get_bbox_simple(icao["lat"], icao["lon"], radius_km)
+bounds = get_bbox_simple(airport.lat, airport.lon, radius_km)
 
-basePath = Path("../data")
-airport  = Airport.load_from_folder(basePath, icao["icao"])
 runways: list[ArincRunway] = airport.arinc_424_runway
 
 provider = CopernicusDEMProvider("justin.groh@study.thws.de", "Copernicus2026!")
 delta    = 0.2
 grid     = provider.get_terrain(
-    icao["lat"] - delta, icao["lon"] - delta,
-    icao["lat"] + delta, icao["lon"] + delta,
+    airport.lat - delta, airport.lon - delta,
+    airport.lat + delta, airport.lon + delta,
     1024, 1024,
 )
 
@@ -49,8 +60,8 @@ engine = Engine(1280, 720, "CasADi Landing")
 scene  = engine.scene
 TerrainProjectMesh(
     grid=grid,
-    lat_min=icao["lat"] - delta, lon_min=icao["lon"] - delta,
-    lat_max=icao["lat"] + delta, lon_max=icao["lon"] + delta,
+    lat_min=airport.lat - delta, lon_min=airport.lon - delta,
+    lat_max=airport.lat + delta, lon_max=airport.lon + delta,
     horizontal_scale=horizontal_scale, vertical_scale=vertical_scale,
     transformer=transformer,
 ).spawn(scene, geo)
@@ -98,7 +109,7 @@ geod = Geod(ellps="WGS84")
 approach_bearing_deg = goal_chi_deg % 360.0
 
 start_lon, start_lat, _ = geod.fwd(
-    icao["lon"], icao["lat"],
+    airport.lon, airport.lat,
     az=approach_bearing_deg,
     dist=radius_km * 1000.0,
 )

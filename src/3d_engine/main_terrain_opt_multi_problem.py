@@ -23,19 +23,30 @@ from utils_project.runway_project_mesh import RunwayProjectMesh
 from utils_project.terrain_project_mesh import TerrainProjectMesh
 
 
-icao = {"icao": "EDDF", "lat": 50.0379, "lon": 8.5622}
-crs_to      = GeoTransformer.utm_epsg(icao["lat"], icao["lon"])
+icao_vancouver = {
+    "icao": "CYVR",
+}
+
+icao_frankfurt = {
+    "icao": "EDDF",
+}
+
+icao = icao_vancouver
+
+# --- load airport data section ---
+basePath: Path = Path("../data")
+airport = Airport.load_from_folder(basePath, icao["icao"])
+
+crs_to      = GeoTransformer.utm_epsg(airport.lat, airport.lon)
 transformer = Transformer.from_crs("EPSG:4326", crs_to, always_xy=True)
 
-basePath = Path("../data")
-airport  = Airport.load_from_folder(basePath, icao["icao"])
 runways: list[ArincRunway] = airport.arinc_424_runway
 
 provider = CopernicusDEMProvider("justin.groh@study.thws.de", "Copernicus2026!")
 delta    = 0.2
 grid     = provider.get_terrain(
-    icao["lat"] - delta, icao["lon"] - delta,
-    icao["lat"] + delta, icao["lon"] + delta,
+    airport.lat - delta, airport.lon - delta,
+    airport.lat + delta, airport.lon + delta,
     1024, 1024,
 )
 
@@ -47,8 +58,8 @@ engine = Engine(1280, 720, "CasADi Multi-Landing")
 scene  = engine.scene
 TerrainProjectMesh(
     grid=grid,
-    lat_min=icao["lat"] - delta, lon_min=icao["lon"] - delta,
-    lat_max=icao["lat"] + delta, lon_max=icao["lon"] + delta,
+    lat_min=airport.lat - delta, lon_min=airport.lon - delta,
+    lat_max=airport.lat + delta, lon_max=airport.lon + delta,
     horizontal_scale=horizontal_scale, vertical_scale=vertical_scale,
     transformer=transformer,
 ).spawn(scene, geo)
@@ -80,7 +91,7 @@ goal_go.add_component(PointRenderer(color=Color(1, 0, 0), size=140))
 gx, gz = geo.to_local_in_m(goal_x, goal_y)
 goal_go.transform.position = Vec3(gx, geo.altitude_to_local(goal_h), gz)
 
-x0_utm, y0_utm = transformer.transform(icao["lon"], icao["lat"])
+x0_utm, y0_utm = transformer.transform(airport.lon, airport.lat)
 
 AIRCRAFT_CONFIGS = [
     # (dx, dy, dh, v0, gamma_deg, dchi_deg, color)

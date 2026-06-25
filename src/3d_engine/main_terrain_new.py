@@ -17,29 +17,25 @@ from utils_project.terrain_project_mesh import TerrainProjectMesh
 
 icao_vancouver = {
     "icao": "CYVR",
-    "lat": 49.1967,
-    "lon": -123.1815
 }
 
 icao_frankfurt = {
     "icao": "EDDF",
-    "lat": 50.0379,
-    "lon": 8.5622
 }
 
 icao = icao_frankfurt
 
-crs_to: str = GeoTransformer.utm_epsg(icao["lat"], icao["lon"])
+# --- load airport data section ---
+basePath: Path = Path("../data")
+airport = Airport.load_from_folder(basePath, icao["icao"])
+
+crs_to: str = GeoTransformer.utm_epsg(airport.lat, airport.lon)
 
 transformer: Transformer = Transformer.from_crs(
     crs_from="EPSG:4326",
     crs_to=crs_to,
     always_xy=True
 )
-
-# --- load airport data section ---
-basePath: Path = Path("../data")
-airport = Airport.load_from_folder(basePath, icao["icao"])
 
 # instead of loading the runway data from the client via: AiracNetClient().get_airport_full(icao["icao"])
 # we load the pre saved data from the base path
@@ -104,8 +100,8 @@ for taxiway in airport.taxiways:
 
     builder = TaxiwayProjectMesh(
         coordinates=taxiway.coordinates,
-        airport_lat=icao["lat"],
-        airport_lon=icao["lon"],
+        airport_lat=airport.lat,
+        airport_lon=airport.lon,
         airport_altitude_ft=runways[0].runway_altitude if runways else 0.0,
         horizontal_scale=horizontal_scale,
         vertical_scale=vertical_scale,

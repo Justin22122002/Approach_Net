@@ -4,7 +4,7 @@ import requests
 from physics.aircraft_dynamics import AircraftDynamics
 from utils.aircraft import Aircraft, AircraftType
 
-
+# use https://www.eurocontrol.int/model/bada
 class AircraftTypeClient:
     BASE_URL: str = "https://api.adsbdb.com/v0/aircraft"
     # Vref = V_MARGIN * Vs_land (FAA AC 25-7 / 14 CFR 25.125)
@@ -69,7 +69,7 @@ class AircraftTypeClient:
         drag  = ac["drag"]
 
         thrust_model = openap.Thrust(icao_type, use_synonym=True)
-        max_thrust = thrust_model.eng_max_thrust * ac["engine"]["number"] * 1000  # convert from kn into newton
+        max_thrust = thrust_model.eng_max_thrust * ac["engine"]["number"]  # convert from kn into newton
 
         wrap = openap.WRAP(icao_type, use_synonym=True)
         v_app = wrap.landing_speed()["default"]
@@ -101,6 +101,7 @@ def main() -> None:
     aircraft_type, aircraft_dynamics = client.get_aircraft_and_dynamics("71c077")
     print(aircraft_type)
     print(aircraft_dynamics)
+    print(aircraft_dynamics.max_thrust)
 
 if __name__ == "__main__":
     main()

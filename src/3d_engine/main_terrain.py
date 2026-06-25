@@ -21,22 +21,22 @@ from utils.lineRenderer import LineRenderer
 
 icao_vancouver = {
     "icao": "CYVR",
-    "lat": 49.1967,
-    "lon": -123.1815
 }
 
 icao_frankfurt = {
     "icao": "EDDF",
-    "lat": 50.0379,
-    "lon": 8.5622
 }
 
 icao = icao_vancouver
 
-radius_km = 25.0  # depending on the airport choose -> 20 - 30 km
-bounds = get_bbox_simple(icao["lat"], icao["lon"], radius_km)
+# --- load airport data section ---
+basePath: Path = Path("../data")
+airport = Airport.load_from_folder(basePath, icao["icao"])
 
-crs_to: str = GeoTransformer.utm_epsg(icao["lat"], icao["lon"])
+radius_km = 25.0  # depending on the airport choose -> 20 - 30 km
+bounds = get_bbox_simple(airport.lat, airport.lon, radius_km)
+
+crs_to: str = GeoTransformer.utm_epsg(airport.lat, airport.lon)
 
 transformer: Transformer = Transformer.from_crs(
     crs_from="EPSG:4326",
@@ -44,23 +44,19 @@ transformer: Transformer = Transformer.from_crs(
     always_xy=True
 )
 
-# --- load airport data section ---
-basePath: Path = Path("../data")
-frankfurt = Airport.load_from_folder(basePath, icao["icao"])
-
 # instead of loading the runway data from the client via: AiracNetClient().get_airport_full(icao["icao"])
 # we load the pre saved data from the base path
-runways: list[ArincRunway] = frankfurt.arinc_424_runway
+runways: list[ArincRunway] = airport.arinc_424_runway
 
 email = "justin.groh@study.thws.de"
 password = "Copernicus2026!"
 
 delta = 0.2
 
-LAT_MIN = icao["lat"] - delta
-LAT_MAX = icao["lat"] + delta
-LON_MIN = icao["lon"] - delta
-LON_MAX = icao["lon"] + delta
+LAT_MIN = airport.lat - delta
+LAT_MAX = airport.lat + delta
+LON_MIN = airport.lon - delta
+LON_MAX = airport.lon + delta
 
 provider = CopernicusDEMProvider(email, password)
 
@@ -137,14 +133,14 @@ for runway in runways:
 
         builder.spawn(scene, geo)
 
-for taxiway in frankfurt.taxiways:
+for taxiway in airport.taxiways:
     if len(taxiway.coordinates) < 2:
         continue
 
     builder = TaxiwayProjectMesh(
         coordinates=taxiway.coordinates,
-        airport_lat=icao["lat"],
-        airport_lon=icao["lon"],
+        airport_lat=airport.lat,
+        airport_lon=airport.lon,
         airport_altitude_ft=runways[0].runway_altitude if runways else 0.0,
         horizontal_scale=horizontal_scale,
         vertical_scale=vertical_scale,

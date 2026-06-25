@@ -68,9 +68,22 @@ class AircraftHistoryInterpolator:
                 baroaltitude = row1["baroaltitude"] if pd.notna(row1["baroaltitude"]) else 0
                 geoaltitude = row1["geoaltitude"] if pd.notna(row1["geoaltitude"]) else 0
                 geoaltitude2 = row2["geoaltitude"] if pd.notna(row2["geoaltitude"]) else geoaltitude
-                vel = row1["velocity"] if pd.notna(row1["velocity"]) else 0
-                vert_rate = row1["vertrate"] if pd.notna(row1["vertrate"]) else 0
-                heading = row1["heading"] if pd.notna(row1["heading"]) else 0
+
+                # calculate vertrate from change of height of geoaltitude
+                vr1 = row1["vertrate"] if pd.notna(row1["vertrate"]) else 0
+                vr2 = row2["vertrate"] if pd.notna(row2["vertrate"]) else vr1
+
+                h1 = row1["heading"] if pd.notna(row1["heading"]) else 0
+                h2 = row2["heading"] if pd.notna(row2["heading"]) else h1
+
+                delta_heading = ((h2 - h1 + 180) % 360) - 180
+
+                # or
+                # from geopy.distance import geodesic
+                # dist = geodesic((lat1, lon1), (row2["lat"], row2["lon"])).meters
+                # speed_est = dist / dt
+                v1 = row1["velocity"] if pd.notna(row1["velocity"]) else 0
+                v2 = row2["velocity"] if pd.notna(row2["velocity"]) else v1
 
                 row1_onground = bool(row1.get("onground", False))
                 row2_onground = bool(row2.get("onground", False))
@@ -86,6 +99,12 @@ class AircraftHistoryInterpolator:
                     new_geoaltitude = max(linear_geoaltitude, self.airport_height)
                     is_onground = row1_onground if fraction < 0.5 else row2_onground
 
+                    new_vel = v1 + fraction * (v2 - v1)
+
+                    new_vert_rate = vr1 + fraction * (vr2 - vr1)
+
+                    new_heading = (h1 + fraction * delta_heading) % 360
+
                     traj_rows.append({
                         "time": pd.Timestamp(t1 + s, unit='s', tz='UTC'),
                         "icao24": icao,
@@ -94,9 +113,9 @@ class AircraftHistoryInterpolator:
                         "lon": new_lon,
                         "baroaltitude": new_baroaltitude,
                         "geoaltitude": new_geoaltitude,
-                        "velocity": vel,
-                        "heading": heading,
-                        "vertrate": vert_rate,
+                        "velocity": new_vel,
+                        "heading": new_heading,
+                        "vertrate": new_vert_rate,
                         "onground": is_onground,
                         "callsign": row1.get("callsign", ""),
                         "squawk": row1.get("squawk", ""),

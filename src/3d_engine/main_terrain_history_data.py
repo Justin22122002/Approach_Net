@@ -1,3 +1,4 @@
+import math
 from collections import defaultdict, deque
 from datetime import timedelta
 from pathlib import Path
@@ -48,7 +49,7 @@ transformer: Transformer = Transformer.from_crs(
 basePath: Path = Path("../data")
 frankfurt = Airport.load_from_folder(basePath, icao["icao"])
 
-history_file_path: Path = basePath / Path("CYVR/arrivals_20260621_1946.parquet")
+history_file_path: Path = basePath / Path("CYVR/arrivals_20260622_1510.parquet")
 interpolator: AircraftHistoryInterpolator = AircraftHistoryInterpolator(history_file_path, airport_height=frankfurt.arinc_424_runway[0].runway_altitude)
 # interpolator.clean_dataframe()
 # interpolator.interpolate()
@@ -142,7 +143,7 @@ scene.directional_light = DirectionalLight(
     intensity=1.0
 )
 
-engine.camera          = FlyCamera(speed=100.0)
+engine.camera = FlyCamera(speed=100.0)
 engine.camera.position = Vec3(
     rw.x,
     geo.altitude_to_local(terrain_project_mesh.altitude) + 50,
@@ -193,11 +194,19 @@ for icao24 in grouped:
     )
     line_go.add_component(line_renderer)
 
+    heading_go = scene.spawn(f"ac_{icao24}_heading")
+    heading_renderer = LineRenderer(
+        points=[Vec3.zero(), Vec3.zero()],
+        color=Color(1.0, 0.3, 0.3),
+    )
+    heading_go.add_component(heading_renderer)
+
     aircraft_gos[icao24] = {
         "point_go":       point_go,
         "point_renderer": point_renderer,
         "line_go":        line_go,
         "line_renderer":  line_renderer,
+        "heading_renderer": heading_renderer,
     }
 
 def on_update(dt: float) -> None:
@@ -217,6 +226,38 @@ def on_update(dt: float) -> None:
 
         gos = aircraft_gos[icao24]
         gos["point_go"].transform.position = pos
+
+        heading_deg = row.get("heading")
+        vert_rate_mps = row.get("vertrate") # m/s per second
+
+        heading_renderer = gos["heading_renderer"]
+
+        if not pd.isna(heading_deg):
+            heading_rad = math.radians(heading_deg)
+
+            dir_x = math.sin(heading_rad)
+            dir_z = -math.cos(heading_rad)
+
+            vector_length = 2.0
+
+            if pd.isna(vert_rate_mps):
+                vert_rate_mps = 0.0
+
+            dir_y = vert_rate_mps * vertical_scale * 5.0
+
+            end_pos = Vec3(
+                pos.x + dir_x * vector_length,
+                pos.y + dir_y,
+                pos.z + dir_z * vector_length
+            )
+
+            heading_renderer.points = [pos, end_pos]
+
+            if heading_renderer._vao is not None:
+                glDeleteVertexArrays(1, [heading_renderer._vao])
+                glDeleteBuffers(1, [heading_renderer._vbo])
+                heading_renderer._vao = None
+                heading_renderer._vbo = None
 
         trail = trails[icao24]
         trail.append(pos)
@@ -252,7 +293,6 @@ def on_update(dt: float) -> None:
 
 
 engine.on_update = on_update
-
 
 def on_gui() -> None:
     hud = engine.hud
