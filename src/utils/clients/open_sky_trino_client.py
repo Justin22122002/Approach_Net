@@ -322,6 +322,7 @@ class OpenSkyTrinoClient:
         c = 2.0 * np.arcsin(np.sqrt(a))
         return R * c
 
+    # todo: get first approch and get FAP point and save as in the data
     def assign_runway(
             self,
             df: DataFrame,

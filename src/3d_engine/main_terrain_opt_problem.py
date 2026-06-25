@@ -50,7 +50,7 @@ grid     = provider.get_terrain(
 
 horizontal_scale = 0.01
 vertical_scale   = 0.01
-geo = GeoTransformer(0.0, 0.0, horizontal_scale, vertical_scale, transformer)
+geo = GeoTransformer(airport.lat, airport.lon, horizontal_scale, vertical_scale, transformer)
 
 engine = Engine(1280, 720, "CasADi Landing")
 scene  = engine.scene

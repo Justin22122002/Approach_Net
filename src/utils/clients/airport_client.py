@@ -9,11 +9,11 @@ from src.utils.airport import Airport, AirportTerminal
 from utils.terrain import Terrain
 from src.utils.open_street_map_runway import Coordinate, OpenStreetMapRunway
 from utils.taxiway import Taxiway
-from src.utils.sqlite_airinc24_database_client import SQLiteArInC24DatabaseClient
-from utils.airac_net_client import AiracNetClient
-from utils.arinc_runway import ArincRunway
-from utils.open_airport_map_client import get_bbox_simple
-from utils.terrain_client import CopernicusDEMProvider
+from src.utils.clients.sqlite_airinc24_database_client import SQLiteArInC24DatabaseClient
+from src.utils.clients.airac_net_client import AiracNetClient
+from src.utils.arinc_runway import ArincRunway
+from src.utils.clients.open_airport_map_client import get_bbox_simple
+from src.utils.clients.terrain_client import CopernicusDEMProvider
 
 def only_r_approaches(r: list[ArincRunway]) -> list[ArincRunway]:
     for runway in r:
@@ -50,6 +50,7 @@ class OpenStreetMapAirportClient:
 
         if len(arinc_runways) == 0:
             print("Get Runways from AirAC.net")
+            # todo: here we can also get lat and lon directly, instead from the outside
             client: AiracNetClient = AiracNetClient()
             runways: list[ArincRunway] = client.get_airport_full(icao)
             filtered_arinc_runways = runway_approach_filter(runways)

@@ -95,7 +95,7 @@ class AiracNetClient:
             fix_coordinates = fix.get("fix_coordinates", {"lat": 0, "lon": 0})
             lat = fix_coordinates["lat"]
             lon = fix_coordinates["lon"]
-            fix_identifier = fix["fix_identifier"]
+            fix_identifier = fix.get("fix_identifier", "no fix name")
             path_terminator = fix["path_terminator"]
             sequence = fix["sequence"]
             altitude = fix.get("altitude_ft", 0) # set default to 0

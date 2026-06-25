@@ -76,8 +76,8 @@ horizontal_scale = 0.01
 vertical_scale = 0.01
 
 geo = GeoTransformer(
-    lat=0.0,
-    lon=0.0,
+    lat=airport.lat,
+    lon=airport.lon,
     horizontal_scale=horizontal_scale,
     vertical_scale=vertical_scale,
     transformer=transformer
