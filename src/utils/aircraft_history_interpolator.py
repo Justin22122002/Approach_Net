@@ -47,6 +47,7 @@ class AircraftHistoryInterpolator:
 
             # clip values to avoid altitudes under the airport
             group["geoaltitude"] = group["geoaltitude"].fillna(0).clip(lower=self.airport_height)
+            group["baroaltitude"] = group["baroaltitude"].fillna(0).clip(lower=self.airport_height)
 
             traj_rows = []
 
@@ -66,6 +67,7 @@ class AircraftHistoryInterpolator:
 
                 lat1, lon1 = row1["lat"], row1["lon"]
                 baroaltitude = row1["baroaltitude"] if pd.notna(row1["baroaltitude"]) else 0
+                baroaltitude2 = row2["baroaltitude"] if pd.notna(row2["baroaltitude"]) else baroaltitude
                 geoaltitude = row1["geoaltitude"] if pd.notna(row1["geoaltitude"]) else 0
                 geoaltitude2 = row2["geoaltitude"] if pd.notna(row2["geoaltitude"]) else geoaltitude
 
@@ -93,7 +95,9 @@ class AircraftHistoryInterpolator:
 
                     new_lat = lat1 + fraction * (row2["lat"] - lat1)
                     new_lon = lon1 + fraction * (row2["lon"] - lon1)
-                    new_baroaltitude = baroaltitude + fraction * (row2["baroaltitude"] - baroaltitude) if pd.notna(row2["baroaltitude"]) else baroaltitude
+
+                    linear_baroaltitude = baroaltitude + fraction * (baroaltitude2 - baroaltitude)
+                    new_baroaltitude = max(linear_baroaltitude, self.airport_height)
 
                     linear_geoaltitude = geoaltitude + fraction * (geoaltitude2 - geoaltitude)
                     new_geoaltitude = max(linear_geoaltitude, self.airport_height)

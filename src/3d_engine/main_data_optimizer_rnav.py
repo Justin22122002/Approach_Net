@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from pathlib import Path
 
 import numpy as np
@@ -10,6 +9,7 @@ from pyproj import Transformer
 
 from physics.aircraft_dynamics import AircraftDynamics
 from physics.aircraft_kinematics_state_casadi import AircraftKinematicsStateCasadi
+from physics.batch_result_store import already_processed, append_trajectory, append_status
 from physics.landing_optimizer_rnav import LandingTrajectoryRnavOptimizer, state_to_casadi
 from utils_project.geo_transformer import GeoTransformer
 from src.utils.data_loader.lazy_flight_parquet_dataset import LazyFlightParquetDataset
@@ -27,7 +27,7 @@ def build_start_state(
     h0 = float(start_point["geoaltitude"])
 
     heading0 = float(start_point["heading"]) if pd.notna(start_point["heading"]) else 0.0
-    chi0 = -heading0
+    chi0 = heading0
 
     vertrate0 = float(start_point["vertrate"]) if pd.notna(start_point["vertrate"]) else 0.0
     gamma0 = float(np.degrees(np.arctan2(vertrate0, max(v0, 1e-3))))
@@ -85,7 +85,7 @@ def solve_single_flight(
 
     x0_vec = state_to_casadi(state)
 
-    X_opt, U_opt, T_opt = optimizer.solve(
+    X_opt, U_opt, T_opt, success = optimizer.solve(
         x0=x0_vec,
         goal=goal,
         heading_goal_deg=goal_chi_deg,
@@ -99,6 +99,7 @@ def solve_single_flight(
         "U_opt": U_opt,
         "T_opt": T_opt,
         "N": N,
+        "success": success,
     }
 
 
@@ -143,6 +144,7 @@ def run_batch_optimization(
     N: int = 100,
     T_min: float = 60.0,
     T_max: float = 1800.0,
+    resume: bool = True,
 ) -> None:
 
     crs_to = GeoTransformer.utm_epsg(airport_lat, airport_lon)
@@ -150,13 +152,21 @@ def run_batch_optimization(
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    trajectory_frames: list[DataFrame] = []
-    status_rows: list[dict] = []
+    trajectories_path = output_dir / "rnav_trajectories.parquet"
+    status_path = output_dir / "rnav_status.jsonl"
 
-    for idx in range(len(dataset)):
+    n_ok = 0
+    n_total = len(dataset)
+
+    for idx in range(n_total):
         icao24, flight_id = dataset.flights[idx]
 
-        print(f"\n[{idx + 1}/{len(dataset)}] RNAV optimize {icao24} / flight_id={flight_id}")
+        print(f"\n[{idx + 1}/{n_total}] RNAV optimize {icao24} / flight_id={flight_id}")
+
+        if resume and already_processed(status_path, icao24, flight_id):
+            print("  [SKIP] already processed (resume=True)")
+            n_ok += 1
+            continue
 
         try:
             df_flight = dataset[idx]
@@ -174,41 +184,35 @@ def run_batch_optimization(
                 T_max,
             )
 
-            trajectory_frames.append(trajectory_to_dataframe(result))
+            df_traj = trajectory_to_dataframe(result)
+            append_trajectory(df_traj, trajectories_path)
 
-            status_rows.append({
+            append_status(status_path, {
                 "icao24": icao24,
                 "flight_id": flight_id,
-                "success": True,
+                "success": result["success"],
                 "T_opt": result["T_opt"],
-                "error": None
+                "error": None if result["success"] else "IPOPT did not converge",
             })
-
-            print(f"  [OK] T_opt={result['T_opt']:.1f}s")
+            if result["success"]:
+                n_ok += 1
+                print(f"  [OK] T_opt={result['T_opt']:.1f} s (saved)")
+            else:
+                print(f"  [WARN] not converged, T_opt={result['T_opt']:.1f} s (best-so-far, saved)")
 
         except Exception as e:
             print(f"  [FAIL] {e}")
-
-            status_rows.append({
+            append_status(status_path, {
                 "icao24": icao24,
                 "flight_id": flight_id,
                 "success": False,
                 "T_opt": None,
-                "error": str(e)
+                "error": str(e),
             })
 
-    suffix = datetime.now(UTC).strftime("%Y%m%d_%H%M")
-
-    if trajectory_frames:
-        pd.concat(trajectory_frames, ignore_index=True).to_parquet(
-            output_dir / f"rnav_trajectories_{suffix}.parquet"
-        )
-
-    pd.DataFrame(status_rows).to_parquet(
-        output_dir / f"rnav_status_{suffix}.parquet"
-    )
-
-    print(f"\n[DONE] {sum(r['success'] for r in status_rows)}/{len(status_rows)} success")
+    print(f"\n[DONE] {n_ok}/{n_total} success")
+    print(f"  Trajektorien: {trajectories_path}")
+    print(f"  Status-Log:   {status_path}")
 
 
 if __name__ == "__main__":
@@ -219,7 +223,7 @@ if __name__ == "__main__":
         dataset=dataset,
         airport_lat=49.1967,
         airport_lon=-123.1815,
-        output_dir=Path("../../data/CYVR/rnav_optimized"),
+        output_dir=Path("../data/CYVR/rnav_optimized"),
         N=200,
         T_min=60.0,
         T_max=1800.0,

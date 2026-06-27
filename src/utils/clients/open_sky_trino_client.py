@@ -322,29 +322,40 @@ class OpenSkyTrinoClient:
         c = 2.0 * np.arcsin(np.sqrt(a))
         return R * c
 
-    # todo: get first approch and get FAP point and save as in the data
     def assign_runway(
             self,
             df: DataFrame,
             airport: Airport,
             max_heading_dev: float = 10.0, # old: 35
-            max_match_distance_m: float = 1000.0, # old: 300.0
+            max_match_distance_m: float = 1000.0, # old: 300.0 # todo: split in separate things -> e.g height and lateral / long etc
             min_touchdown_speed_ms: float = 30.0,
     ) -> DataFrame:
         # note: assign_runway should only be used for interpolated and filtered data
         runway_data = []
         for runway in airport.arinc_424_runway:
-            for ap in runway.approaches:
-                _, _, rw_fix = ap.get_final_approach_fixes()
-                if rw_fix is not None and rw_fix.fix_identifier:
-                    runway_data.append({
-                        "runway_identifier": runway.runway_identifier,
-                        "fix_identifier": rw_fix.fix_identifier,
-                        "fix_latitude": rw_fix.latitude,
-                        "fix_longitude": rw_fix.longitude,
-                        "fix_altitude_m": rw_fix.altitude * 0.3048,
-                        "bearing": runway.bearing
-                    })
+            if not runway.approaches:
+                continue
+
+            ap = runway.approaches[0]
+
+            entry_fixes, fix_before, rw_fix = ap.get_final_approach_fixes()
+
+            if rw_fix is None or fix_before is None:
+                continue
+
+            if rw_fix is not None and rw_fix.fix_identifier:
+                runway_data.append({
+                    "runway_identifier": runway.runway_identifier,
+                    "fix_identifier": rw_fix.fix_identifier,
+                    "fix_latitude": rw_fix.latitude,
+                    "fix_longitude": rw_fix.longitude,
+                    "fix_altitude_m": rw_fix.altitude * 0.3048,
+                    "bearing": runway.bearing,
+                    "faf_identifier": fix_before.fix_identifier,
+                    "faf_latitude": fix_before.latitude,
+                    "faf_longitude": fix_before.longitude,
+                    "faf_altitude_m": fix_before.altitude * 0.3048 if fix_before.altitude else 0.0,
+                })
 
         if not runway_data:
             raise ValueError("No valid runway fixes for airport found.")
@@ -403,11 +414,19 @@ class OpenSkyTrinoClient:
             results.append({
                 "icao24": icao24,
                 "flight_id": flight_id,
+
                 "landing_runway": matched_fix["runway_identifier"],
+
                 "fix_identifier": matched_fix["fix_identifier"],
                 "fix_latitude": matched_fix["fix_latitude"],
                 "fix_longitude": matched_fix["fix_longitude"],
                 "fix_elevation_m": matched_fix["fix_altitude_m"],
+
+                "faf_identifier": matched_fix["faf_identifier"],
+                "faf_latitude": matched_fix["faf_latitude"],
+                "faf_longitude": matched_fix["faf_longitude"],
+                "faf_elevation_m": matched_fix["faf_altitude_m"],
+
                 "runway_bearing": matched_fix["bearing"],
                 "distance_3d": best_distance,
                 "aircraft_landing_alt_m": flight_alts[closest_trackpoint_idx],

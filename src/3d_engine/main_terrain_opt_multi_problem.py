@@ -146,7 +146,7 @@ x0_inputs       = [state_to_casadi(s) for s in states_list]
 goals_inputs    = [goal_vec for _ in range(M)]
 headings_inputs = [goal_chi_deg for _ in range(M)]
 
-X_opt, U_opt, T_vals = optimizer.solve(
+X_opt, U_opt, T_vals, _ = optimizer.solve(
     x0_inputs,
     goals_inputs,
     headings_inputs,

@@ -46,7 +46,7 @@ transformer: Transformer = Transformer.from_crs(
     always_xy=True
 )
 
-history_file_path: Path = basePath / Path("CYVR/arrivals_20260624_1330.parquet")
+history_file_path: Path = basePath / Path("CYVR/arrivals_20260625_1508.parquet")
 interpolator: AircraftHistoryInterpolator = AircraftHistoryInterpolator(history_file_path, airport_height=airport.arinc_424_runway[0].runway_altitude)
 # interpolator.clean_dataframe()
 # interpolator.interpolate()

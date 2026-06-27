@@ -243,7 +243,7 @@ class MultiLandingTrajectoryOptimizer:
         x0_list: list[np.ndarray],
         goal_list: list[np.ndarray],
         heading_goals_deg: list[float],
-    ) -> tuple[np.ndarray, np.ndarray, list[float]]:
+    ) -> tuple[np.ndarray, np.ndarray, list[float], bool]:
         """
           X_val  : (6*M, N+1)
           U_val  : (3*M, N)
@@ -303,6 +303,7 @@ class MultiLandingTrajectoryOptimizer:
             for k in range(self.N):
                 self.opti.set_initial(self.U[ci:ci+3, k], [120_000.0, 1.0, 0.0])
 
+        success: bool = False
         try:
             sol   = self.opti.solve()
             X_val = sol.value(self.X)
@@ -310,10 +311,12 @@ class MultiLandingTrajectoryOptimizer:
             T_vals = [float(sol.value(Ti)) for Ti in self.T_list]
             for i, t in enumerate(T_vals):
                 print(f"[MultiOptimizer] AC{i} IPOPT converged  T = {t:.1f} s")
+            success = True
         except RuntimeError as e:
             print(f"[MultiOptimizer] IPOPT failed: {e}\n ->  best-so-far")
             X_val  = self.opti.debug.value(self.X)
             U_val  = self.opti.debug.value(self.U)
             T_vals = [float(self.opti.debug.value(Ti)) for Ti in self.T_list]
+            success = False
 
-        return X_val, U_val, T_vals
+        return X_val, U_val, T_vals, success

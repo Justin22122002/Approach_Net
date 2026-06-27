@@ -256,7 +256,7 @@ class LandingTrajectoryRnavOptimizer:
         x_init: np.ndarray | None = None,
         u_init: np.ndarray | None = None,
         T_init: float | None = None,
-    ) -> tuple[np.ndarray, np.ndarray, float]:
+    ) -> tuple[np.ndarray, np.ndarray, float, bool]:
         """
         X_val : ndarray (6, N+1)  — optimized state trajectory
         U_val : ndarray (3, N)    — optimized control sequence
@@ -328,16 +328,19 @@ class LandingTrajectoryRnavOptimizer:
             for k in range(self.N):
                 self.opti.set_initial(self.U[:, k], [120_000.0, 1.0, 0.0])
 
+        success: bool = False
         try:
             sol   = self.opti.solve()
             X_val = sol.value(self.X)
             U_val = sol.value(self.U)
             T_val = float(sol.value(self.T))
             print(f"[LandingOptimizer] IPOPT converged  T = {T_val:.1f} s")
+            success = True
         except RuntimeError as e:
             print(f"[LandingOptimizer] IPOPT failed: {e}\n -> best-so-far")
             X_val = self.opti.debug.value(self.X)
             U_val = self.opti.debug.value(self.U)
             T_val = float(self.opti.debug.value(self.T))
+            success = False
 
-        return X_val, U_val, T_val
+        return X_val, U_val, T_val, success

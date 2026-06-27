@@ -62,6 +62,7 @@ class AiracNetClient:
 
         return all_procedures
 
+    # filter out duplicated procedures
     def get_procedure_detail(self, icao: str, identifier: str) -> Approach:
         params = {}
 
@@ -91,7 +92,6 @@ class AiracNetClient:
         fixes: list[FixIdentifier] = []
 
         for fix in all_fixes:
-            # "course" "speed_kts" "turn_direction" "altitude_restriction"
             fix_coordinates = fix.get("fix_coordinates", {"lat": 0, "lon": 0})
             lat = fix_coordinates["lat"]
             lon = fix_coordinates["lon"]
@@ -120,8 +120,6 @@ class AiracNetClient:
                     altitude_restriction=altitude_restriction,
                 )
             )
-
-        #print(proc_identifier)
 
         return Approach(
             procedure_identifier=proc_identifier,

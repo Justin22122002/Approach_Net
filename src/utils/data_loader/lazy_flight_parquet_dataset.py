@@ -93,7 +93,7 @@ class LazyFlightParquetDataset(Dataset[DataFrame]):
     def get_aircraft(self, icao24: str) -> tuple[AircraftType, AircraftDynamics]:
         table = self.load_aircraft_table()
         if icao24 not in table:
-            raise KeyError(f"No aircraft data for icao24={icao24!r} (Fetch fehlgeschlagen oder unbekannt).")
+            raise KeyError(f"No aircraft data for icao24={icao24!r}.")
         return table[icao24]
 
     def load_runway_assignments(self) -> DataFrame:

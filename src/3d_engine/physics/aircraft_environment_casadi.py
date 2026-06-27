@@ -206,6 +206,48 @@ class AircraftEnvironmentCasadi:
 
         return self.state.to_array()
 
+    def inverse_action(
+            self,
+            next_state: AircraftKinematicsStateCasadi,
+    ) -> tuple[ca.MX, ca.MX, ca.MX]:
+        """
+        note: this method does not cap the actions based on the max constraints
+        Inverse dynamics between two neighboring states.
+            v̇ = ((T - D) / m) · t̂ + (L / m) · n̂ + g⃗
+            T = m · ((v̇ - g⃗) · t̂) + D
+            n = ((v̇ - g⃗) · n̂) / g
+            φ = arctan( v · 𝒳̇ / g )
+        """
+        # v⃗_k , v⃗_{k+1}
+        v_vec_k = self.state.velocity_vector()
+        v_vec_k1 = next_state.velocity_vector()
+
+        # v̇ ≈ (v⃗_{k+1} - v⃗_k) / dt
+        v_dot = (v_vec_k1 - v_vec_k) / self.dt
+
+        # 𝒳̇ ≈ Δχ / dt, Δχ in [-180°, 180°] gewrapped.
+        d_chi = next_state.chi - self.state.chi
+        d_chi = d_chi - 360.0 * ca.floor((d_chi + 180.0) / 360.0)
+        chi_dot = (d_chi * (ca.pi / 180.0)) / self.dt
+
+        # φ = arctan( v · 𝒳̇ / g )
+        roll = ca.atan((self.state.v * chi_dot) / 9.81) * (180.0 / ca.pi)
+
+        # t̂, n̂ at state_k under this roll
+        t_hat, _, n_hat = self.unit_vectors_with_roll(roll)
+
+        # n = ((v̇ - g⃗) · n̂) / g
+        load_factor = ca.dot(v_dot - self.gravity, n_hat) / 9.81
+
+        requested_cl = self.state.required_lift_coefficient(load_factor=load_factor)
+        actual_cl = ca.fmin(requested_cl, self.state.aircraft_type.cl_max)
+        drag = self.state.drag_force(actual_cl)
+
+        # T = m · ((v̇ - g⃗) · t̂) + D
+        thrust = self.state.aircraft_type.mass * ca.dot(v_dot - self.gravity, t_hat) + drag
+
+        return thrust, load_factor, roll
+
     def autopilot(self) -> tuple[ca.MX, ca.MX, ca.MX]:
         p0 = ca.vertcat(self.state.x, self.state.y, self.state.h)
         v_vec = self.state.velocity_vector()

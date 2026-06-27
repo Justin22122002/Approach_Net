@@ -144,7 +144,7 @@ optimizer = LandingTrajectoryRnavOptimizer(
 x0_vec = state_to_casadi(state)
 goal   = np.array([goal_x, goal_y, goal_h])
 
-X_opt, U_opt, T_opt = optimizer.solve(
+X_opt, U_opt, T_opt, _ = optimizer.solve(
     x0               = x0_vec,
     goal             = goal,
     heading_goal_deg = goal_chi_deg,

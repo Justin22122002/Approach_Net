@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from pathlib import Path
 
 import numpy as np
@@ -10,9 +9,10 @@ from pyproj import Transformer
 
 from physics.aircraft_dynamics import AircraftDynamics
 from physics.aircraft_kinematics_state_casadi import AircraftKinematicsStateCasadi
+from physics.batch_result_store import already_processed, append_trajectory, append_status
 from physics.landing_optimizer import LandingTrajectoryOptimizer, state_to_casadi
 from utils_project.geo_transformer import GeoTransformer
-from src.utils.data_loader.lazy_flight_parquet_dataset import  LazyFlightParquetDataset
+from src.utils.data_loader.lazy_flight_parquet_dataset import LazyFlightParquetDataset
 
 
 def build_start_state(
@@ -30,7 +30,7 @@ def build_start_state(
     h0 = float(start_point["geoaltitude"])
 
     heading0 = float(start_point["heading"]) if pd.notna(start_point["heading"]) else 0.0
-    chi0 = -heading0
+    chi0 = heading0
 
     vertrate0 = float(start_point["vertrate"]) if pd.notna(start_point["vertrate"]) else 0.0
     gamma0 = float(np.degrees(np.arctan2(vertrate0, max(v0, 1e-3))))
@@ -68,11 +68,16 @@ def solve_single_flight(
     optimizer = LandingTrajectoryOptimizer(state=state, N=N, T_min=T_min, T_max=T_max)
     x0_vec = state_to_casadi(state)
 
-    X_opt, U_opt, T_opt = optimizer.solve(x0_vec, goal, goal_chi_deg)
+    X_opt, U_opt, T_opt, success = optimizer.solve(x0_vec, goal, goal_chi_deg)
 
     return {
-        "icao24": icao24, "flight_id": flight_id,
-        "X_opt": X_opt, "U_opt": U_opt, "T_opt": T_opt, "N": N,
+        "icao24": icao24,
+        "flight_id": flight_id,
+        "X_opt": X_opt,
+        "U_opt": U_opt,
+        "T_opt": T_opt,
+        "N": N,
+        "success": success,
     }
 
 
@@ -106,18 +111,27 @@ def run_batch_optimization(
     N: int = 100,
     T_min: float = 60.0,
     T_max: float = 1800.0,
+    resume: bool = True,
 ) -> None:
     crs_to = GeoTransformer.utm_epsg(airport_lat, airport_lon)
     transformer = Transformer.from_crs("EPSG:4326", crs_to, always_xy=True)
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    trajectory_frames: list[DataFrame] = []
-    status_rows: list[dict] = []
+    trajectories_path = output_dir / "optimized_trajectories.parquet"
+    status_path = output_dir / "optimization_status.jsonl"
 
-    for idx in range(len(dataset)):
+    n_ok = 0
+    n_total = len(dataset)
+
+    for idx in range(n_total):
         icao24, flight_id = dataset.flights[idx]
-        print(f"\n[{idx + 1}/{len(dataset)}] optimize {icao24} / flight_id={flight_id} ...")
+        print(f"\n[{idx + 1}/{n_total}] optimize {icao24} / flight_id={flight_id} ...")
+
+        if resume and already_processed(status_path, icao24, flight_id):
+            print("  [SKIP] already processed (resume=True)")
+            n_ok += 1
+            continue
 
         try:
             df_flight = dataset[idx]
@@ -125,32 +139,46 @@ def run_batch_optimization(
                 raise ValueError("DataFrame is empty.")
 
             result = solve_single_flight(icao24, flight_id, df_flight, dataset, transformer, N, T_min, T_max)
-            trajectory_frames.append(trajectory_to_dataframe(result))
-            status_rows.append({"icao24": icao24, "flight_id": flight_id, "success": True, "T_opt": result["T_opt"], "error": None})
-            print(f"  [OK] T_opt={result['T_opt']:.1f} s")
+
+            df_traj = trajectory_to_dataframe(result)
+            append_trajectory(df_traj, trajectories_path)
+
+            append_status(status_path, {
+                "icao24": icao24,
+                "flight_id": flight_id,
+                "success": result["success"],
+                "T_opt": result["T_opt"],
+                "error": None if result["success"] else "IPOPT did not converge",
+            })
+            if result["success"]:
+                n_ok += 1
+                print(f"  [OK] T_opt={result['T_opt']:.1f} s (saved)")
+            else:
+                print(f"  [WARN] not converged, T_opt={result['T_opt']:.1f} s (best-so-far, saved)")
 
         except KeyError as e:
             # todo: when no aircraft could be loaded, then use a fall back
             print(f"  [SKIP] missing aircraft data: {e}")
-            status_rows.append({"icao24": icao24, "flight_id": flight_id, "success": False, "T_opt": None, "error": str(e)})
+            append_status(status_path, {
+                "icao24": icao24,
+                "flight_id": flight_id,
+                "success": False,
+                "T_opt": None,
+                "error": str(e),
+            })
         except Exception as e:
             print(f"  [FAIL] optimization failed: {e}")
-            status_rows.append({"icao24": icao24, "flight_id": flight_id, "success": False, "T_opt": None, "error": str(e)})
+            append_status(status_path, {
+                "icao24": icao24,
+                "flight_id": flight_id,
+                "success": False,
+                "T_opt": None,
+                "error": str(e),
+            })
 
-    suffix = datetime.now(UTC).strftime("%Y%m%d_%H%M")
-
-    if trajectory_frames:
-        pd.concat(trajectory_frames, ignore_index=True).to_parquet(
-            output_dir / f"optimized_trajectories_{suffix}.parquet"
-        )
-    else:
-        print("[WARN] No trajectory could be optimized.")
-
-    df_status = pd.DataFrame(status_rows)
-    df_status.to_parquet(output_dir / f"optimization_status_{suffix}.parquet")
-
-    n_ok = int(df_status["success"].sum())
-    print(f"\n[DONE] {n_ok}/{len(df_status)} flights successfully optimized.")
+    print(f"\n[DONE] {n_ok}/{n_total} flights successfully optimized.")
+    print(f"  Trajektorien: {trajectories_path}")
+    print(f"  Status-Log:   {status_path}")
 
 
 if __name__ == "__main__":
@@ -161,6 +189,8 @@ if __name__ == "__main__":
         dataset=dataset,
         airport_lat=49.1967,
         airport_lon=-123.1815,
-        output_dir=Path("../../data/CYVR/optimized"),
-        N=100, T_min=60.0, T_max=1800.0,
+        output_dir=Path("../data/CYVR/optimized"),
+        N=100,
+        T_min=60.0,
+        T_max=1800.0,
     )
