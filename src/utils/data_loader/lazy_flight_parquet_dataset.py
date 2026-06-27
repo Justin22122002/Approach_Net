@@ -109,7 +109,7 @@ class LazyFlightParquetDataset(Dataset[DataFrame]):
         return match.iloc[0]
 
 if __name__ == "__main__":
-    base_path = "../../data/CYVR/20260621_1839"
+    base_path = "../../data/CYVR/20260627_1403"
 
     dataset = LazyFlightParquetDataset(base_path)
     print(f"Number of available flights in dataset: {len(dataset)}")

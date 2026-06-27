@@ -479,7 +479,11 @@ if __name__ == "__main__":
     df_interpolated = interpolator.dataframe
 
     print("\nStart Runway-assignment...")
-    df_runways = client.assign_runway(df_interpolated, airport)
+    df_runways = client.assign_runway(
+        df_interpolated, airport,
+        max_horizontal_dist_m=100.0,
+        max_vertical_dist_m=1000.0,
+    )
 
     df_interpolated = df_interpolated.merge(
         df_runways[["icao24", "flight_id"]],

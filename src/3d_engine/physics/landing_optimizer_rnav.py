@@ -66,7 +66,7 @@ class LandingTrajectoryRnavOptimizer:
         self.goal_param: MX = self.opti.parameter(3)   # [x, y, z]
         self.heading_param: MX = self.opti.parameter(1)   # χ_goal [rad]
         self.via_param: MX = self.opti.parameter(3)  # [x, y, z] via-point
-        self.gam_ref_param:    MX = self.opti.parameter()   # γ_ref [rad]
+        self.gam_ref_param: MX = self.opti.parameter()   # γ_ref [rad]
 
         self.STALL_MARGIN_FACTOR: float = 1.2
         self.APPROACH_SPEED_FACTOR: float = 1.3  # Vref = 1.3·Vstall
