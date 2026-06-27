@@ -196,6 +196,12 @@ class LandingTrajectoryOptimizer:
             "bound_relax_factor": 1e-9,     # 1e-8
         })
 
+        self.opti.solver("fatrop", {}, {
+            "max_iter": 3000,
+            "tol": 1e-6,
+            "print_level": 3,
+        })
+
     def solve(
         self,
         x0: np.ndarray,

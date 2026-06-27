@@ -9,7 +9,7 @@ from pandas import DataFrame, Series
 from pyproj import Transformer
 
 from physics.batch_result_store import load_status_log
-from src.utils.data_loader.lazy_flight_parquet_dataset import LazyFlightParquetDataset
+from ml.utils.data_loader.lazy_flight_parquet_dataset import LazyFlightParquetDataset
 
 
 @dataclass

@@ -11,7 +11,7 @@ from pyproj import Transformer
 from physics.aircraft_kinematics_state_casadi import AircraftKinematicsStateCasadi
 from physics.aircraft_environment_casadi import AircraftEnvironmentCasadi
 from utils_project.geo_transformer import GeoTransformer
-from src.utils.data_loader.lazy_flight_parquet_dataset import LazyFlightParquetDataset
+from ml.utils.data_loader.lazy_flight_parquet_dataset import LazyFlightParquetDataset
 
 
 TrajectoryMode: type[str] = Literal["raw", "reconstructed"]

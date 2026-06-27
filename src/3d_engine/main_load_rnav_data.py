@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 from pyproj import Transformer
 
-from src.utils.data_loader.lazy_flight_parquet_dataset import LazyFlightParquetDataset
+from ml.utils.data_loader.lazy_flight_parquet_dataset import LazyFlightParquetDataset
 from utils.airport import Airport
 from utils.arinc_runway import ArincRunway
 from utils.clients.terrain_client import CopernicusDEMProvider
@@ -120,7 +120,6 @@ for runway in runways:
         transformer=transformer,
     ).spawn(scene, geo)
 
-# goal / via-point markers (aus den echten Runway-Assignments)
 dataset = LazyFlightParquetDataset(DATASET_BASE_PATH)
 runway_row = dataset.get_runway_assignment(ICAO24, FLIGHT_ID)
 
@@ -144,7 +143,6 @@ via_go.add_component(PointRenderer(color=Color(0, 1, 0), size=120))
 vx, vz = geo.to_local_in_m(faf_x, faf_y)
 via_go.transform.position = Vec3(vx, geo.altitude_to_local(faf_h), vz)
 
-# echte ADS-B Trajektorie laden
 flight_idx = dataset.flights.index((ICAO24, FLIGHT_ID))
 df_real = dataset[flight_idx].sort_values("time").reset_index(drop=True)
 
@@ -155,14 +153,12 @@ real_t = to_seconds_since_start(df_real["time"])
 print(f"[INFO] Real trajectory geladen: {len(df_real)} trackpoints, "
       f"Dauer={real_t[-1]:.1f}s")
 
-# statische Pfade (komplett) zum Vergleich
 opt_line_go = scene.spawn("OptimizedPath")
 opt_line_go.add_component(LineRenderer(to_world_points(geo, opt_x, opt_y, opt_h), color=Color(1, 1, 0)))
 
 real_line_go = scene.spawn("RealPath")
 real_line_go.add_component(LineRenderer(to_world_points(geo, real_x, real_y, real_h), color=Color(0, 0.6, 1)))
 
-# bewegte Marker, Echtzeit-Replay synchron über % Fortschritt
 opt_go = scene.spawn("Aircraft_Optimized")
 opt_go.add_component(PointRenderer(color=Color(1, 0.85, 0), size=120))
 

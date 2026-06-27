@@ -12,7 +12,7 @@ from physics.aircraft_kinematics_state_casadi import AircraftKinematicsStateCasa
 from physics.batch_result_store import already_processed, append_trajectory, append_status
 from physics.landing_optimizer_rnav import LandingTrajectoryRnavOptimizer, state_to_casadi
 from utils_project.geo_transformer import GeoTransformer
-from src.utils.data_loader.lazy_flight_parquet_dataset import LazyFlightParquetDataset
+from ml.utils.data_loader.lazy_flight_parquet_dataset import LazyFlightParquetDataset
 
 
 def build_start_state(
