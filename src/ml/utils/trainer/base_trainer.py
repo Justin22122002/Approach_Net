@@ -1,7 +1,9 @@
 import random
+import time
 from abc import ABCMeta, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import date, datetime
 from pathlib import Path
 
 import numpy as np
@@ -46,7 +48,7 @@ class BaseTrainer[INPUTS: Tensor, OUTPUTS: Tensor, LABELS: Tensor, METRICS](meta
         self.best_val_loss: float = float("inf")
         self.patience_counter: float = 0
         self.metrics_list: list[METRICS | TrainingMetrics] = []
-        self.results_path: Path | None = results_path
+        self.results_path: Path | None = results_path / datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
     @abstractmethod
     def forward_pass(self, inputs: torch.Tensor) -> OUTPUTS:

@@ -455,7 +455,7 @@ if __name__ == "__main__":
         arrival_airport=arrival_airport,
         lat=49.1947,
         lon=-123.1792,
-        radius_km=25.0,
+        radius_km=30.0,
     )
 
     df = client.load_n_arrivals(target_n=1000, batch=timedelta(days=1))
@@ -480,9 +480,8 @@ if __name__ == "__main__":
 
     print("\nStart Runway-assignment...")
     df_runways = client.assign_runway(
-        df_interpolated, airport,
-        max_horizontal_dist_m=100.0,
-        max_vertical_dist_m=1000.0,
+        df_interpolated,
+        airport,
     )
 
     df_interpolated = df_interpolated.merge(

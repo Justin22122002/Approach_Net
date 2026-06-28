@@ -137,10 +137,24 @@ def reconstruct_and_replay(trajectory, dynamics, timestamps, max_dt=None):
             continue
 
         env = AircraftEnvironmentCasadi(state=trajectory[i], goal=None, dt=dt)
-        # todo: consider max actions for capping the actions !!!
         thrust, load_factor, roll = env.inverse_action(trajectory[i + 1])
 
-        actions.append((float(thrust), float(load_factor), float(roll)))
+        thrust = float(thrust)
+        load_factor = float(load_factor)
+        roll = float(roll)
+
+        thrust = np.clip(thrust, 0.0, dynamics.max_thrust)
+        load_factor = np.clip(load_factor,
+                              dynamics.min_load_factor,
+                              dynamics.max_load_factor)
+        roll = np.clip(roll,
+                       -dynamics.max_roll_angle,
+                       dynamics.max_roll_angle)
+
+        actions.append((thrust, load_factor, roll))
+
+        # when no capping
+        # actions.append((float(thrust), float(load_factor), float(roll)))
         dts.append(dt)
 
     sim_state = clone(trajectory[0])
