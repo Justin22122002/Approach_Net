@@ -8,6 +8,8 @@ import pandas as pd
 from pandas import DataFrame, Series
 from pyproj import Transformer
 
+from physics.aircraft_dynamics import AircraftDynamics
+from physics.aircraft_kinematics_state_casadi import AircraftKinematicsStateCasadi
 from physics.batch_result_store import load_status_log
 from ml.utils.data_loader.lazy_flight_parquet_dataset import LazyFlightParquetDataset
 
@@ -20,8 +22,11 @@ class FlightEvaluation:
     lateral_dev_m: float | None
     vertical_dev_m: float | None
     angle_dev_deg: float | None
+    gamma_dev_deg: float | None
     cpa_step: int | None
     success: bool
+    velocity_dev_ms: float | None = None
+    approach_speed_ref_ms: float | None = None
 
 
 class TrajectorySuccessEvaluator:
@@ -38,6 +43,9 @@ class TrajectorySuccessEvaluator:
             vertical_tol_down_m if vertical_tol_down_m is not None else vertical_tol_up_m
         )
         self.angle_tol_deg: float = angle_tol_deg
+
+        self.APPROACH_SPEED_FACTOR: float = 1.3
+        self.STANDARD_GLIDE_PATH_DEG: float = -3.0
 
     @staticmethod
     def _project_goal(
@@ -57,6 +65,7 @@ class TrajectorySuccessEvaluator:
         df_traj_flight: DataFrame,
         converged: bool,
         runway_row: Series,
+        aircraft_dynamics: AircraftDynamics,
         transformer: Transformer,
     ) -> FlightEvaluation:
 
@@ -68,7 +77,9 @@ class TrajectorySuccessEvaluator:
         xs = df_sorted["x"].to_numpy()
         ys = df_sorted["y"].to_numpy()
         hs = df_sorted["h"].to_numpy()
-        chis = df_sorted["chi"].to_numpy()  # rad
+        vs = df_sorted["v"].to_numpy()
+        chis = df_sorted["chi"].to_numpy()      # rad
+        gammas = df_sorted["gamma"].to_numpy()   # rad
 
         goal_x, goal_y, goal_h, heading_goal_deg = self._project_goal(transformer, runway_row)
 
@@ -89,6 +100,13 @@ class TrajectorySuccessEvaluator:
         )
         angle_dev_deg = float(abs(np.degrees(e_chi)))
 
+        glide_goal_rad = np.radians(self.STANDARD_GLIDE_PATH_DEG)
+        e_gam = np.arctan2(
+            np.sin(gammas[idx] - glide_goal_rad),
+            np.cos(gammas[idx] - glide_goal_rad),
+        )
+        gamma_dev_deg = float(abs(np.degrees(e_gam)))
+
         if vertical_dev_m >= 0:
             vertical_ok = vertical_dev_m <= self.vertical_tol_up_m
         else:
@@ -102,6 +120,18 @@ class TrajectorySuccessEvaluator:
 
         success = converged and geometry_ok
 
+        velocity_dev_ms: float | None = None
+        approach_speed_ref_ms: float | None = None
+
+        if success:
+            dummy_state = AircraftKinematicsStateCasadi(
+                x=0.0, y=0.0, h=goal_h, v=0.0, gamma=0.0, chi=0.0,
+                aircraft_type=aircraft_dynamics,
+            )
+            v_stall = float(dummy_state.stall_speed(goal_h))
+            approach_speed_ref_ms = v_stall * self.APPROACH_SPEED_FACTOR
+            velocity_dev_ms = float(vs[idx] - approach_speed_ref_ms)
+
         return FlightEvaluation(
             icao24=icao24,
             flight_id=flight_id,
@@ -109,8 +139,11 @@ class TrajectorySuccessEvaluator:
             lateral_dev_m=lateral_dev_m,
             vertical_dev_m=vertical_dev_m,
             angle_dev_deg=angle_dev_deg,
+            gamma_dev_deg=gamma_dev_deg,
             cpa_step=int(steps[idx]),
             success=success,
+            velocity_dev_ms=velocity_dev_ms,
+            approach_speed_ref_ms=approach_speed_ref_ms,
         )
 
     def evaluate_batch(
@@ -143,7 +176,14 @@ class TrajectorySuccessEvaluator:
             except KeyError:
                 continue
 
-            evaluation = self.evaluate_flight(group, converged, runway_row, transformer)
+            try:
+                _, aircraft_dynamics = dataset.get_aircraft(str(icao24))
+            except KeyError:
+                continue
+
+            evaluation = self.evaluate_flight(
+                group, converged, runway_row, aircraft_dynamics, transformer
+            )
             results.append(evaluation)
 
         return pd.DataFrame([vars(e) for e in results])
@@ -159,10 +199,12 @@ class TrajectorySuccessEvaluator:
         converged_df = eval_df[eval_df["converged"]]
         n_converged = len(converged_df)
 
-        def _stats(col: str) -> dict:
-            if converged_df.empty:
+        success_df = eval_df[eval_df["success"]]
+
+        def _stats(df: DataFrame, col: str) -> dict:
+            if df.empty:
                 return {"mean": None, "median": None, "std": None, "max": None}
-            s = converged_df[col].abs()
+            s = df[col].abs()
             return {
                 "mean": float(s.mean()),
                 "median": float(s.median()),
@@ -174,9 +216,11 @@ class TrajectorySuccessEvaluator:
             "n_total": n_total,
             "n_converged": n_converged,
             "success_rate": success_rate,
-            "lateral_dev_m": _stats("lateral_dev_m"),
-            "vertical_dev_m": _stats("vertical_dev_m"),
-            "angle_dev_deg": _stats("angle_dev_deg"),
+            "lateral_dev_m": _stats(converged_df, "lateral_dev_m"),
+            "vertical_dev_m": _stats(converged_df, "vertical_dev_m"),
+            "angle_dev_deg": _stats(converged_df, "angle_dev_deg"),
+            "gamma_dev_deg": _stats(converged_df, "gamma_dev_deg"),
+            "velocity_dev_ms": _stats(success_df, "velocity_dev_ms"),
         }
 
 
@@ -208,6 +252,6 @@ if __name__ == "__main__":
     print(eval_df)
 
     stats = evaluator.aggregate(eval_df)
-    print("\n[AGGREGATE]")
+
     for key, value in stats.items():
         print(f"  {key}: {value}")
