@@ -24,7 +24,7 @@ class TrainingMetrics:
     epoch: int
 
 
-class BaseTrainer[INPUTS: Tensor, OUTPUTS: Tensor, LABELS: Tensor, METRICS](metaclass=ABCMeta):
+class BaseTrainer[INPUTS: Tensor, OUTPUTS: Tensor, LABELS: Tensor, METRICS: TrainingMetrics | object](metaclass=ABCMeta):
     def __init__(
         self,
         model: nn.Module,
@@ -36,7 +36,7 @@ class BaseTrainer[INPUTS: Tensor, OUTPUTS: Tensor, LABELS: Tensor, METRICS](meta
         patience: int = 10,
         best_model_name: str = "best_model.pth",
         results_path: Path | None = None,
-    ):
+    ) -> None:
         self.model: nn.Module = model.to(device)
         self.optimizer: optim.Optimizer = optimizer
         self.loss: _Loss | Callable[[Tensor, Tensor], Tensor] = loss
@@ -49,6 +49,7 @@ class BaseTrainer[INPUTS: Tensor, OUTPUTS: Tensor, LABELS: Tensor, METRICS](meta
         self.patience_counter: float = 0
         self.metrics_list: list[METRICS | TrainingMetrics] = []
         self.results_path: Path | None = results_path / datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        self.is_classification: bool = self._is_classification_loss(loss)
 
     @abstractmethod
     def forward_pass(self, inputs: torch.Tensor) -> OUTPUTS:
@@ -82,6 +83,21 @@ class BaseTrainer[INPUTS: Tensor, OUTPUTS: Tensor, LABELS: Tensor, METRICS](meta
 
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
+
+    def _is_classification_loss(self, loss_fn: _Loss | Callable) -> bool:
+        classification_losses = (
+            nn.CrossEntropyLoss,
+            nn.NLLLoss,
+            nn.BCELoss,
+            nn.BCEWithLogitsLoss,
+            nn.MultiLabelMarginLoss,
+        )
+        return isinstance(loss_fn, classification_losses)
+
+    def format_metric(self, value: float) -> str:
+        if self.is_classification:
+            return f"{value * 100:.2f}%"
+        return f"{value:.4f}"
 
     def early_stopping(self, val_loss: float) -> bool:
         if val_loss < self.best_val_loss:
@@ -161,7 +177,11 @@ class BaseTrainer[INPUTS: Tensor, OUTPUTS: Tensor, LABELS: Tensor, METRICS](meta
             )
 
             print(
-                f"Epoch {epoch + 1}/{epochs} | Train Loss: {avg_loss:.4f} | Train Acc: {avg_accuracy:.4f}% | Val Loss: {val_loss:.4f} | Val Acc: {val_accuracy:.4f}%",
+                f"Epoch {epoch + 1}/{epochs} | "
+                f"Train Loss: {avg_loss:.4f} | "
+                f"Train Metric: {self.format_metric(avg_accuracy)} | "
+                f"Val Loss: {val_loss:.4f} | "
+                f"Val Metric: {self.format_metric(val_accuracy)}"
             )
 
             self.save_best_model(val_loss)

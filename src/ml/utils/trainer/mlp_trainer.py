@@ -3,9 +3,10 @@ import torch
 from torch import Tensor
 from typing_extensions import override
 
-from ml.utils.trainer.base_trainer import BaseTrainer
+from ml.utils.trainer.base_trainer import BaseTrainer, TrainingMetrics
 
-class LandingActionTrainer(BaseTrainer[Tensor, Tensor, Tensor, None]):
+
+class LandingActionTrainer(BaseTrainer[Tensor, Tensor, Tensor, TrainingMetrics]):
     @override
     def forward_pass(self, inputs: Tensor) -> Tensor:
         return self.model(inputs)

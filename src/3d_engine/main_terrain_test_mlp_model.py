@@ -27,10 +27,10 @@ from utils_project.terrain_project_mesh import TerrainProjectMesh
 
 
 ICAO = "CYVR"
-FLIGHT_DATA_PATH = "../data/CYVR/20260628_1254"
+FLIGHT_DATA_PATH = "../data/CYVR/20260625_1508" # 20260628_1254, 20260625_1508
 FLIGHT_IDX = 100
 
-TIME = "2026-06-28_15-03-27"
+TIME = "2026-06-29_16-14-44"
 
 MODEL_PATH = f"../ml/results/landing_action_mlp/{TIME}/best_model.pth"
 NORM_X_PATH = f"../ml/results/landing_action_mlp/{TIME}/normalization_x.csv"

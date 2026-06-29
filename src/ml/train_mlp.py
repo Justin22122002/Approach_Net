@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from pathlib import Path
 
 from torch import nn, optim
@@ -11,6 +9,9 @@ from ml.utils.models.mlp_model import LandingActionMLP
 from ml.utils.trainer.mlp_trainer import LandingActionTrainer
 
 if __name__ == "__main__":
+    # set seed for removing the random factor
+    LandingActionTrainer.set_seed()
+
     flight_dataset = LazyFlightParquetDataset("../data/CYVR/20260628_1254")
     dataset = LandingActionDataset(flight_dataset, max_dt=5.0)
 

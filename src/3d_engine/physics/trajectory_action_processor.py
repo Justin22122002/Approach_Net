@@ -6,8 +6,11 @@ import matplotlib.pyplot as plt
 import math
 
 from typing import Literal
+
+from pandas import Series
 from pyproj import Transformer
 
+from physics.aircraft_dynamics import AircraftDynamics
 from physics.aircraft_kinematics_state_casadi import AircraftKinematicsStateCasadi
 from physics.aircraft_environment_casadi import AircraftEnvironmentCasadi
 from utils_project.geo_transformer import GeoTransformer
@@ -22,7 +25,7 @@ class FlightTrajectoryProcessor:
     def __init__(self, dataset: LazyFlightParquetDataset):
         self.dataset: LazyFlightParquetDataset = dataset
 
-    def load(self, idx: int, mode: TrajectoryMode):
+    def load(self, idx: int, mode: TrajectoryMode) -> tuple[list[AircraftKinematicsStateCasadi], AircraftDynamics, list[Series]]:
 
         df = self.dataset[idx].sort_values("time").reset_index(drop=True)
         icao24, _ = self.dataset.flights[idx]
@@ -124,7 +127,12 @@ def clone(s: AircraftKinematicsStateCasadi) -> AircraftKinematicsStateCasadi:
     )
 
 
-def reconstruct_and_replay(trajectory, dynamics, timestamps, max_dt=None):
+def reconstruct_and_replay(
+        trajectory: list[AircraftKinematicsStateCasadi],
+        dynamics: AircraftDynamics,
+        timestamps: list[Series],
+        max_dt: float = None
+) -> tuple[np.ndarray, np.ndarray, np.ndarray,]:
     actions = []
     dts = []
 
@@ -170,41 +178,64 @@ def reconstruct_and_replay(trajectory, dynamics, timestamps, max_dt=None):
     return real, np.array(sim), np.array(actions)
 
 
-def plot(real, sim, timestamps=None):
+def plot(
+    real: np.ndarray,
+    sim: np.ndarray,
+    actions: np.ndarray | None = None,
+    timestamps: list[Series] | None = None,
+) -> None:
     t = np.arange(len(real)) if timestamps is None else np.array(
         [(ts - timestamps[0]).total_seconds() for ts in timestamps[:len(real)]]
     )
 
-    fig, axes = plt.subplots(1, 3, figsize=(16, 5))
+    fig, axes = plt.subplots(2, 2, figsize=(16, 10))
 
-    axes[0].plot(real[:, 0], real[:, 1], "k-", label="Real trajectory")
-    axes[0].plot(sim[:, 0], sim[:, 1], "r--", label="Reconstructed")
-    axes[0].scatter(real[0, 0], real[0, 1], c="green", s=80, zorder=5)
-    axes[0].scatter(real[-1, 0], real[-1, 1], c="red", s=80, zorder=5)
-    axes[0].set_xlabel("x [m]")
-    axes[0].set_ylabel("y [m]")
-    axes[0].set_title("ground track")
-    axes[0].axis("equal")
-    axes[0].grid(True)
-    axes[0].legend()
+    axes[0, 0].plot(real[:, 0], real[:, 1], "k-", label="Real trajectory")
+    axes[0, 0].plot(sim[:, 0], sim[:, 1], "r--", label="Reconstructed")
+    axes[0, 0].scatter(real[0, 0], real[0, 1], c="green", s=80)
+    axes[0, 0].scatter(real[-1, 0], real[-1, 1], c="red", s=80)
+    axes[0, 0].set_title("Ground track")
+    axes[0, 0].axis("equal")
+    axes[0, 0].grid(True)
+    axes[0, 0].legend()
 
-    axes[1].plot(t, real[:, 2], "k-", label="Real trajectory")
-    axes[1].plot(t, sim[:, 2], "r--", label="Reconstructed")
-    axes[1].set_xlabel("t [s]")
-    axes[1].set_ylabel("h [m]")
-    axes[1].set_title("altitude")
-    axes[1].grid(True)
-    axes[1].legend()
+    axes[0, 1].plot(t, real[:, 2], "k-", label="Real")
+    axes[0, 1].plot(t, sim[:, 2], "r--", label="Reconstructed")
+    axes[0, 1].set_title("Altitude")
+    axes[0, 1].grid(True)
+    axes[0, 1].legend()
 
-    axes[2].plot(t, real[:, 3], "k-", label="Real trajectory")
-    axes[2].plot(t, sim[:, 3], "r--", label="Reconstructed")
-    axes[2].set_xlabel("t [s]")
-    axes[2].set_ylabel("v [m/s]")
-    axes[2].set_title("velocity")
-    axes[2].grid(True)
-    axes[2].legend()
+    axes[1, 0].plot(t, real[:, 3], "k-", label="Real")
+    axes[1, 0].plot(t, sim[:, 3], "r--", label="Reconstructed")
+    axes[1, 0].set_title("Velocity")
+    axes[1, 0].grid(True)
+    axes[1, 0].legend()
 
-    fig.suptitle("Trajectory Reconstruction (Inverse Dynamics + Replay)")
+    if actions is not None and len(actions) > 0:
+        actions = np.asarray(actions, dtype=np.float64)
+
+        fig2, ax2 = plt.subplots(3, 1, figsize=(10, 8), sharex=True)
+
+        ax2[0].plot(t[:len(actions)], actions[:, 0])
+        ax2[0].set_title("Thrust")
+        ax2[0].grid(True)
+
+        ax2[1].plot(t[:len(actions)], actions[:, 1])
+        ax2[1].set_title("Load factor")
+        ax2[1].grid(True)
+
+        ax2[2].plot(t[:len(actions)], actions[:, 2])
+        ax2[2].set_title("Roll")
+        ax2[2].set_xlabel("t [s]")
+        ax2[2].grid(True)
+
+        fig2.suptitle("Control actions")
+        fig2.tight_layout()
+
+    else:
+        axes[1, 1].axis("off")
+
+    fig.suptitle("Trajectory Reconstruction + Controls")
     fig.tight_layout()
     plt.show()
 
@@ -222,4 +253,4 @@ if __name__ == "__main__":
         trajectory, dynamics, timestamps, max_dt=5.0
     )
 
-    plot(real, sim, timestamps)
+    plot(real, sim, actions, timestamps)
