@@ -1,8 +1,7 @@
+import pickle
 import random
-import time
 from abc import ABCMeta, abstractmethod
 from collections.abc import Callable
-from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
 
@@ -14,17 +13,11 @@ from torch.optim.lr_scheduler import LRScheduler
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-
-@dataclass
-class TrainingMetrics:
-    train_loss: float
-    train_accuracy: float
-    val_loss: float
-    val_accuracy: float
-    epoch: int
+from ml.utils.trainer.training_metrics import BaseTrainingMetrics, TrainingMetrics
+from ml.utils.trainer.training_plotter import TrainingPlotter
 
 
-class BaseTrainer[INPUTS: Tensor, OUTPUTS: Tensor, LABELS: Tensor, METRICS: TrainingMetrics | object](metaclass=ABCMeta):
+class BaseTrainer[INPUTS: Tensor, OUTPUTS: Tensor, LABELS: Tensor, METRICS: BaseTrainingMetrics](metaclass=ABCMeta):
     def __init__(
         self,
         model: nn.Module,
@@ -62,6 +55,22 @@ class BaseTrainer[INPUTS: Tensor, OUTPUTS: Tensor, LABELS: Tensor, METRICS: Trai
     @abstractmethod
     def calculate_accuracy(self, outputs: OUTPUTS, labels: LABELS) -> float:
         pass
+
+    @property
+    def plotter(self) -> TrainingPlotter:
+        return TrainingPlotter(self.metrics_list)
+
+    def plot_metrics(
+        self,
+        group_by_type: bool,
+        groups: dict[str, list[str]] = None
+    ) -> None:
+        self.plotter.plot_all(
+            is_classification=self.is_classification,
+            group_by_type=group_by_type,
+            groups=groups,
+            save_path=self.results_path / "training_plot.png"
+        )
 
     @staticmethod
     def get_device() -> torch.device:
@@ -212,4 +221,22 @@ class BaseTrainer[INPUTS: Tensor, OUTPUTS: Tensor, LABELS: Tensor, METRICS: Trai
                 total_accuracy += self.calculate_accuracy(outputs, labels)
 
         return total_loss / len(loader), total_accuracy / len(loader)
+
+    def save_metrics(self, filename: str = "metrics.pkl") -> None:
+        if not self.results_path:
+            raise ValueError("results_path is not defined in the Trainer.")
+
+        self.results_path.mkdir(parents=True, exist_ok=True)
+        file_path = self.results_path / filename
+
+        with open(file_path, "wb") as f:
+            pickle.dump(self.metrics_list, f)
+
+    def load_metrics(self, file_path: str | Path) -> None:
+        path = Path(file_path)
+        if not path.exists():
+            raise FileNotFoundError(f"File not found for loading metrics: {path}")
+
+        with open(path, "rb") as f:
+            self.metrics_list = pickle.load(f)
 

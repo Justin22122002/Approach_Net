@@ -8,6 +8,8 @@ from ml.utils.data_loader.lazy_flight_parquet_dataset import LazyFlightParquetDa
 from ml.utils.models.mlp_model import LandingActionMLP
 from ml.utils.trainer.mlp_trainer import LandingActionTrainer
 
+
+# todo: make save trajectories and evaluate
 if __name__ == "__main__":
     # set seed for removing the random factor
     LandingActionTrainer.set_seed()

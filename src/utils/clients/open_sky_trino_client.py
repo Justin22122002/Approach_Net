@@ -252,6 +252,25 @@ class OpenSkyTrinoClient:
         df["flight_id"] = (time_diff > gap).groupby(df["icao24"]).cumsum()
         return df
 
+    # extracts flight vie the callsign and time gap
+    #@staticmethod
+    #def _assign_flight_ids(
+    #        df: DataFrame,
+    #        gap: pd.Timedelta = pd.Timedelta("2h")
+    #) -> DataFrame:
+    #    df = df.sort_values(["icao24", "time"]).reset_index(drop=True)
+
+    #    time_diff = df.groupby("icao24")["time"].diff().fillna(pd.Timedelta(0))
+    #    callsign_changed = (
+    #        df.groupby("icao24")["callsign"]
+    #        .transform(lambda s: s.ne(s.shift()).fillna(False))
+    #    )
+
+    #    new_flight = (time_diff > gap) | callsign_changed
+
+    #    df["flight_id"] = new_flight.groupby(df["icao24"]).cumsum()
+    #    return df
+
     def extract_aircraft_table(self, df: DataFrame) -> DataFrame:
         unique_icao24 = df["icao24"].dropna().unique()
 

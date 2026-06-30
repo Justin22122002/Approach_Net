@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -222,36 +220,3 @@ class TrajectorySuccessEvaluator:
             "gamma_dev_deg": _stats(converged_df, "gamma_dev_deg"),
             "velocity_dev_ms": _stats(success_df, "velocity_dev_ms"),
         }
-
-
-if __name__ == "__main__":
-    from pyproj import Transformer as Trf
-    from utils_project.geo_transformer import GeoTransformer
-
-    base_path = "../data/CYVR/20260625_1508"
-    dataset = LazyFlightParquetDataset(base_path)
-
-    airport_lat, airport_lon = 49.1967, -123.1815
-    crs_to = GeoTransformer.utm_epsg(airport_lat, airport_lon)
-    transformer = Trf.from_crs("EPSG:4326", crs_to, always_xy=True)
-
-    evaluator = TrajectorySuccessEvaluator(
-        lateral_tol_m=15.0,
-        vertical_tol_up_m=20.0,
-        angle_tol_deg=10.0,
-    )
-
-    output_dir = Path("../data/CYVR/rnav_optimized")
-    eval_df = evaluator.evaluate_batch(
-        trajectories_path=output_dir / "rnav_trajectories.parquet",
-        status_path=output_dir / "rnav_status.jsonl",
-        dataset=dataset,
-        transformer=transformer,
-    )
-
-    print(eval_df)
-
-    stats = evaluator.aggregate(eval_df)
-
-    for key, value in stats.items():
-        print(f"  {key}: {value}")
