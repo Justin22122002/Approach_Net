@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -9,6 +7,7 @@ from typing import Literal
 
 from pandas import Series
 from pyproj import Transformer
+from scipy.interpolate import UnivariateSpline
 
 from physics.aircraft_dynamics import AircraftDynamics
 from physics.aircraft_kinematics_state_casadi import AircraftKinematicsStateCasadi
@@ -17,7 +16,7 @@ from utils_project.geo_transformer import GeoTransformer
 from ml.utils.data_loader.lazy_flight_parquet_dataset import LazyFlightParquetDataset
 
 
-TrajectoryMode: type[str] = Literal["raw", "reconstructed"]
+TrajectoryMode: type[str] = Literal["raw", "reconstructed", "bspline_position", "bspline_state"]
 
 
 class FlightTrajectoryProcessor:
@@ -25,7 +24,13 @@ class FlightTrajectoryProcessor:
     def __init__(self, dataset: LazyFlightParquetDataset):
         self.dataset: LazyFlightParquetDataset = dataset
 
-    def load(self, idx: int, mode: TrajectoryMode) -> tuple[list[AircraftKinematicsStateCasadi], AircraftDynamics, list[Series]]:
+    def load(
+            self,
+            idx: int,
+            mode: TrajectoryMode,
+            smoothing_factor: float | dict[str, float] | None = None,
+            spline_degree: int = 5,
+    ) -> tuple[list[AircraftKinematicsStateCasadi], AircraftDynamics, list[Series]]:
 
         df = self.dataset[idx].sort_values("time").reset_index(drop=True)
         icao24, _ = self.dataset.flights[idx]
@@ -34,10 +39,25 @@ class FlightTrajectoryProcessor:
         lat0, lon0 = float(df["lat"].iloc[0]), float(df["lon"].iloc[0])
 
         transformer = Transformer.from_crs(
-            "EPSG:4326",
-            GeoTransformer.utm_epsg(lat0, lon0),
-            always_xy=True
+            "EPSG:4326", GeoTransformer.utm_epsg(lat0, lon0), always_xy=True
         )
+
+        if mode in ("raw", "reconstructed"):
+            return self._load_legacy(df, transformer, dynamics, mode)
+        elif mode == "bspline_position":
+            return self._load_bspline_position(df, transformer, dynamics, smoothing_factor, spline_degree)
+        elif mode == "bspline_state":
+            return self._load_bspline_state(df, transformer, dynamics, smoothing_factor, spline_degree)
+        else:
+            raise ValueError(mode)
+
+    def _load_legacy(
+            self,
+            df: pd.DataFrame,
+            transformer: Transformer,
+            dynamics: AircraftDynamics,
+            mode: TrajectoryMode,
+    ) -> tuple[list[AircraftKinematicsStateCasadi], AircraftDynamics, list[Series]]:
 
         if mode == "raw":
 
@@ -118,6 +138,112 @@ class FlightTrajectoryProcessor:
         else:
             raise ValueError(mode)
 
+    @staticmethod
+    def _time_seconds(df: pd.DataFrame) -> np.ndarray:
+        t0 = df["time"].iloc[0]
+        return np.array([(t - t0).total_seconds() for t in df["time"]])
+
+    def _load_bspline_position(
+            self,
+            df: pd.DataFrame,
+            transformer: Transformer,
+            dynamics: AircraftDynamics,
+            smoothing_factor: float | dict[str, float] | None,
+            k: int,
+    ) -> tuple[list[AircraftKinematicsStateCasadi], AircraftDynamics, list[Series]]:
+
+        coords = [transformer.transform(float(r["lon"]), float(r["lat"])) for _, r in df.iterrows()]
+        xs = np.array([c[0] for c in coords])
+        ys = np.array([c[1] for c in coords])
+        hs = df["geoaltitude"].to_numpy(dtype=float)
+        ts = self._time_seconds(df)
+
+        m = len(ts)
+        if isinstance(smoothing_factor, dict):
+            s_x = smoothing_factor.get("x", m * 4.0 ** 2)
+            s_y = smoothing_factor.get("y", m * 4.0 ** 2)
+            s_h = smoothing_factor.get("h", m * 8.0 ** 2)
+        elif smoothing_factor is None:
+            s_x = s_y = m * 4.0 ** 2
+            s_h = m * 8.0 ** 2
+        else:
+            s_x = s_y = s_h = float(smoothing_factor)
+
+        spl_x = UnivariateSpline(ts, xs, k=k, s=s_x)
+        spl_y = UnivariateSpline(ts, ys, k=k, s=s_y)
+        spl_h = UnivariateSpline(ts, hs, k=k, s=s_h)
+
+        x_s, y_s, h_s = spl_x(ts), spl_y(ts), spl_h(ts)
+        vx, vy, vh = spl_x.derivative(1)(ts), spl_y.derivative(1)(ts), spl_h.derivative(1)(ts)
+
+        v = np.sqrt(vx ** 2 + vy ** 2)
+        chi = np.degrees(np.arctan2(vx, vy)) % 360.0
+        gamma = np.degrees(np.arctan2(vh, np.maximum(v, 1e-3)))
+
+        traj = [
+            AircraftKinematicsStateCasadi(
+                x=float(x_s[i]), y=float(y_s[i]), h=float(h_s[i]),
+                v=float(v[i]), gamma=float(gamma[i]), chi=float(chi[i]),
+                aircraft_type=dynamics,
+            )
+            for i in range(m)
+        ]
+        return traj, dynamics, list(df["time"])
+
+    def _load_bspline_state(
+            self,
+            df: pd.DataFrame,
+            transformer: Transformer,
+            dynamics: AircraftDynamics,
+            smoothing_factor: float | dict[str, float] | None,
+            k: int,
+    ) -> tuple[list[AircraftKinematicsStateCasadi], AircraftDynamics, list[Series]]:
+        coords = [transformer.transform(float(r["lon"]), float(r["lat"])) for _, r in df.iterrows()]
+        xs = np.array([c[0] for c in coords])
+        ys = np.array([c[1] for c in coords])
+        hs = df["geoaltitude"].to_numpy(dtype=float)
+        ts = self._time_seconds(df)
+        m = len(ts)
+
+        v_raw = df["velocity"].to_numpy(dtype=float)
+        chi_raw = df["heading"].fillna(0.0).to_numpy(dtype=float)
+        vr_raw = df["vertrate"].fillna(0.0).to_numpy(dtype=float)
+
+        chi_unwrapped = np.degrees(np.unwrap(np.radians(chi_raw)))
+
+        if isinstance(smoothing_factor, dict):
+            s_v = smoothing_factor.get("v", m * 1.0 ** 2)
+            s_chi = smoothing_factor.get("chi", m * 3.0 ** 2)
+            s_vr = smoothing_factor.get("vr", m * 0.3 ** 2)
+        elif smoothing_factor is None:
+            s_v, s_chi, s_vr = m * 1.0 ** 2, m * 3.0 ** 2, m * 0.3 ** 2
+        else:
+            s_v = s_chi = s_vr = float(smoothing_factor)
+
+        spl_v = UnivariateSpline(ts, v_raw, k=k, s=s_v)
+        spl_chi = UnivariateSpline(ts, chi_unwrapped, k=k, s=s_chi)
+        spl_vr = UnivariateSpline(ts, vr_raw, k=k, s=s_vr)
+
+        v_s = spl_v(ts)
+        chi_s = spl_chi(ts) % 360.0
+        vr_s = spl_vr(ts)
+        gamma_s = np.degrees(np.arctan2(vr_s, np.maximum(v_s, 1e-3)))
+
+        spl_x = UnivariateSpline(ts, xs, k=k, s=m * 4.0 ** 2)
+        spl_y = UnivariateSpline(ts, ys, k=k, s=m * 4.0 ** 2)
+        spl_h = UnivariateSpline(ts, hs, k=k, s=m * 8.0 ** 2)
+        x_s, y_s, h_s = spl_x(ts), spl_y(ts), spl_h(ts)
+
+        traj = [
+            AircraftKinematicsStateCasadi(
+                x=float(x_s[i]), y=float(y_s[i]), h=float(h_s[i]),
+                v=float(v_s[i]), gamma=float(gamma_s[i]), chi=float(chi_s[i]),
+                aircraft_type=dynamics,
+            )
+            for i in range(m)
+        ]
+        return traj, dynamics, list(df["time"])
+
 
 def clone(s: AircraftKinematicsStateCasadi) -> AircraftKinematicsStateCasadi:
     return AircraftKinematicsStateCasadi(
@@ -151,6 +277,7 @@ def reconstruct_and_replay(
         load_factor = float(load_factor)
         roll = float(roll)
 
+        # capping to the aircraft dynamics
         thrust = np.clip(thrust, 0.0, dynamics.max_thrust)
         load_factor = np.clip(load_factor,
                               dynamics.min_load_factor,
@@ -246,8 +373,13 @@ if __name__ == "__main__":
 
     processor = FlightTrajectoryProcessor(dataset)
 
-    trajectory, dynamics, timestamps = processor.load(idx=128, mode="raw")
+    # "raw" | "reconstructed" | "bspline_position" | "bspline_state"
+    trajectory, dynamics, timestamps = processor.load(idx=128, mode="bspline_state")
+    # trajectory, dynamics, timestamps = processor.load(idx=128, mode="bspline_position")
+    # trajectory, dynamics, timestamps = processor.load(idx=128, mode="raw")
     # trajectory, dynamics, timestamps = processor.load(idx=4, mode="reconstructed")
+
+    print(dynamics.max_thrust)
 
     real, sim, actions = reconstruct_and_replay(
         trajectory, dynamics, timestamps, max_dt=5.0
