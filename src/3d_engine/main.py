@@ -9,6 +9,8 @@ from utils.camera import FlyCamera
 from utils.mesh import Mesh
 from utils.texture import Texture
 from utils.simplematerial import SimpleMaterial
+from utils.interactable import Interactable
+from utils.boxCollider import BoxCollider
 
 engine = Engine(800, 600, "My Game")
 scene  = engine.scene
@@ -20,8 +22,29 @@ cube1.add_component(MeshRenderer(Mesh.cube(), material=wood_material))
 cube1.transform.position = Vec3(0, 0, -5)
 
 cube2 = scene.spawn("Cube")
-cube2.add_component(MeshRenderer(Mesh.cube(), material=None))
 cube2.transform.position = Vec3(0, 0, -8)
+
+cube2_default_color = Color(0.6, 0.6, 0.6, 1.0)
+cube2_hover_color    = Color(1.0, 0.8, 0.2, 1.0)
+cube2_material = SimpleMaterial(color=cube2_default_color)
+
+cube2.add_component(MeshRenderer(Mesh.cube(), material=cube2_material))
+cube2.add_component(BoxCollider(half_extents=Vec3(0.5, 0.5, 0.5)))
+
+def on_cube2_hover_enter(go):
+    cube2_material.color = cube2_hover_color
+
+def on_cube2_hover_exit(go):
+    cube2_material.color = cube2_default_color
+
+def on_cube2_click(go):
+    engine.gizmo.attach(go)
+
+cube2.add_component(Interactable(
+    on_hover_enter=on_cube2_hover_enter,
+    on_hover_exit=on_cube2_hover_exit,
+    on_click=on_cube2_click,
+))
 
 label = scene.spawn("Label")
 label.transform.position = Vec3(2, 1.5, 0)
@@ -163,7 +186,6 @@ def on_gui():
         show_value=True,
     )
     scene.ambient_light = Color(ambient_b, ambient_b, ambient_b)
-    # -----------------------------------------------------------------------
 
     hud.button(
         "Auto-Sonne: An" if state["auto_sun"] else "Auto-Sonne: Aus",

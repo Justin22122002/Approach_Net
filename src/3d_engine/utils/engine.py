@@ -1,5 +1,6 @@
 from collections.abc import Callable
 
+import numpy as np
 import pygame
 
 from OpenGL.GL import (
@@ -22,6 +23,13 @@ from OpenGL.GL import (
 from pygame import Surface
 import time as t
 from pygame.time import Clock
+import math
+
+from utils.gizmo import TransformGizmo
+from utils.gameObject import GameObject
+from utils.interactable import Interactable
+from utils.boxCollider import BoxCollider
+from utils.raycast import screen_to_ray, ray_aabb_intersect
 
 from utils.color import Color
 from utils.camera import Camera, FlyCamera
@@ -64,6 +72,10 @@ class Engine:
         self.time: float        = 0.0       # total elapsed seconds
         self.frame: int         = 0
         self.sky: Sky | None = None
+        self._hovered: GameObject | None = None
+        self.gizmo: TransformGizmo = TransformGizmo()
+
+        self.rt_mode: bool = False
 
         # lifecycle hooks (assign lambdas or functions)
         self.on_start:  Callable[[], None] | None      = None
@@ -129,21 +141,51 @@ class Engine:
             self.frame += 1
 
             # events
+            view = self.camera.get_view()
+            proj = self.camera.get_projection(self.width, self.height)
+
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     self._running = False
                 if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
                     self._running = False
+                if event.type == pygame.KEYDOWN and event.key == pygame.K_g:
+                    self.gizmo.mode = "rotate" if self.gizmo.mode == "translate" else "translate"
                 if event.type == pygame.VIDEORESIZE:
                     self.width, self.height = event.w, event.h
+
+                if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                    mx, my = event.pos
+                    origin, direction = screen_to_ray(
+                        mx, my, self.width, self.height, view, proj, self.camera.position
+                    )
+                    if not self.gizmo.try_start_drag(origin, direction):
+                        if self._hovered is not None:
+                            ia = self._hovered.get_component(Interactable)
+                            if ia:
+                                ia._handle_click()
+                        else:
+                            self.gizmo.detach()
+
+                if event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+                    self.gizmo.end_drag()
+
+                if event.type == pygame.MOUSEMOTION and self.gizmo.is_dragging:
+                    mx, my = event.pos
+                    origin, direction = screen_to_ray(
+                        mx, my, self.width, self.height, view, proj, self.camera.position
+                    )
+                    self.gizmo.update_drag(origin, direction)
+
                 self.input._process_event(event)
-                self.camera.handle_event(event)
+                if not self.gizmo.is_dragging:
+                    self.camera.handle_event(event)
                 self.hud._handle_event(event)
 
             keys = pygame.key.get_pressed()
 
-            # update
-            self.camera.update(dt, keys)
+            if not self.gizmo.is_dragging:
+                self.camera.update(dt, keys)
             self.scene._update_all(dt)
             if self.on_update:
                 self.on_update(dt)
@@ -154,6 +196,8 @@ class Engine:
 
             view = self.camera.get_view()
             proj = self.camera.get_projection(self.width, self.height)
+
+            self._update_picking(view, proj)
 
             if self.sky:
                 self.sky.render(
@@ -166,6 +210,7 @@ class Engine:
                 )
 
             self.scene._draw_all(view, proj)
+            self.gizmo.draw(view, proj)
 
             self.hud._begin()
             if self.on_gui:
@@ -182,3 +227,34 @@ class Engine:
 
     def quit(self) -> None:
         self._running = False
+
+    def _update_picking(self, view: np.ndarray, proj: np.ndarray) -> None:
+        mx, my = pygame.mouse.get_pos()
+        origin, direction = screen_to_ray(
+            mx, my, self.width, self.height, view, proj, self.camera.position
+        )
+
+        closest_obj = None
+        closest_t = math.inf
+        for go in self.scene._objects:
+            if not go.active:
+                continue
+            ia = go.get_component(Interactable)
+            col = go.get_component(BoxCollider)
+            if not ia or not col:
+                continue
+            t = ray_aabb_intersect(origin, direction, col.world_min(), col.world_max())
+            if t is not None and t < closest_t:
+                closest_t = t
+                closest_obj = go
+
+        if closest_obj is not self._hovered:
+            if self._hovered is not None:
+                old_ia = self._hovered.get_component(Interactable)
+                if old_ia:
+                    old_ia._set_hovered(False)
+            self._hovered = closest_obj
+            if self._hovered is not None:
+                new_ia = self._hovered.get_component(Interactable)
+                if new_ia:
+                    new_ia._set_hovered(True)

@@ -7,6 +7,7 @@ import pandas as pd
 from pandas import DataFrame
 
 
+# todo: also save actions
 def atomic_write_parquet(df: DataFrame, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = path.with_suffix(path.suffix + ".tmp")

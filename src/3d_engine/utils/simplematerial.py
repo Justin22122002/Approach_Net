@@ -73,7 +73,7 @@ class ComplexMaterial(Material):
 
         # normal matrix (inverse transpose of upper-left 3×3)
         nm = np.linalg.inv(model_mat[:3,:3]).T.astype(np.float32)
-        glUniformMatrix3fv(glGetUniformLocation(prog, "uNormalMat"), 1, GL_FALSE, nm)
+        glUniformMatrix3fv(glGetUniformLocation(prog, "uNormalMat"), 1, GL_TRUE, nm)
 
         cam_pos = np.linalg.inv(view_mat)[:3, 3].astype(np.float32)
         glUniform3f(glGetUniformLocation(prog, "uCamPos"), float(cam_pos[0]), float(cam_pos[1]), float(cam_pos[2]))
@@ -169,7 +169,7 @@ class SimpleMaterial(Material):
 
         # normal matrix (inverse transpose of upper-left 3×3)
         nm = np.linalg.inv(model_mat[:3,:3]).T.astype(np.float32)
-        glUniformMatrix3fv(glGetUniformLocation(prog, "uNormalMat"), 1, GL_FALSE, nm)
+        glUniformMatrix3fv(glGetUniformLocation(prog, "uNormalMat"), 1, GL_TRUE, nm)
 
         # lighting
         amb = scene.ambient_light

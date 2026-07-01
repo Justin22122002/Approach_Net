@@ -23,9 +23,6 @@ from OpenGL.GL import (
     glVertexAttribPointer,
 )
 
-from utils.vec3 import Vec3
-
-
 class Mesh:
     """
     Vertex layout: [x,y,z,  nx,ny,nz,  u,v]  → 8 floats per vertex
@@ -67,10 +64,10 @@ class Mesh:
 
         glBindVertexArray(0)
 
-    def draw(self):
+    def draw(self, mode=GL_TRIANGLES):
         self._upload()
         glBindVertexArray(self._vao)
-        glDrawElements(GL_TRIANGLES, len(self.indices), GL_UNSIGNED_INT, None)
+        glDrawElements(mode, len(self.indices), GL_UNSIGNED_INT, None)
         glBindVertexArray(0)
 
     def destroy(self):
@@ -215,3 +212,57 @@ class Mesh:
                 indices.append(cache[key])
         return Mesh(np.array(verts, dtype=np.float32),
                     np.array(indices, dtype=np.uint32))
+
+    @staticmethod
+    def cylinder(radius=0.035, height=0.75, segments=10):
+        verts, idx = [], []
+        for i in range(segments):
+            a0 = 2 * math.pi * i / segments
+            a1 = 2 * math.pi * (i + 1) / segments
+            x0, z0 = radius * math.cos(a0), radius * math.sin(a0)
+            x1, z1 = radius * math.cos(a1), radius * math.sin(a1)
+            nx0, nz0 = math.cos(a0), math.sin(a0)
+            nx1, nz1 = math.cos(a1), math.sin(a1)
+            base = len(verts) // 8
+            verts += [x0, 0, z0, nx0, 0, nz0, 0, 0]
+            verts += [x1, 0, z1, nx1, 0, nz1, 1, 0]
+            verts += [x1, height, z1, nx1, 0, nz1, 1, 1]
+            verts += [x0, height, z0, nx0, 0, nz0, 0, 1]
+            idx += [base, base + 1, base + 2, base, base + 2, base + 3]
+        return Mesh(np.array(verts, dtype=np.float32), np.array(idx, dtype=np.uint32))
+
+    @staticmethod
+    def cone(radius=0.09, height=0.25, segments=10):
+        verts, idx = [], []
+        for i in range(segments):
+            a0 = 2 * math.pi * i / segments
+            a1 = 2 * math.pi * (i + 1) / segments
+            x0, z0 = radius * math.cos(a0), radius * math.sin(a0)
+            x1, z1 = radius * math.cos(a1), radius * math.sin(a1)
+            nx0, nz0 = math.cos(a0), math.sin(a0)
+            nx1, nz1 = math.cos(a1), math.sin(a1)
+            base = len(verts) // 8
+            verts += [x0, 0, z0, nx0, 0.3, nz0, 0, 0]
+            verts += [x1, 0, z1, nx1, 0.3, nz1, 1, 0]
+            verts += [0, height, 0, 0, 1, 0, 0.5, 1]
+            idx += [base, base + 1, base + 2]
+        return Mesh(np.array(verts, dtype=np.float32), np.array(idx, dtype=np.uint32))
+
+    @staticmethod
+    def ring(radius=0.9, segments=64, axis="z"):
+        verts = []
+        for i in range(segments):
+            a = 2 * math.pi * i / segments
+            cu, cv = radius * math.cos(a), radius * math.sin(a)
+            if axis == "x":
+                x, y, z = 0.0, cu, cv
+                n = (1, 0, 0)
+            elif axis == "y":
+                x, y, z = cu, 0.0, cv
+                n = (0, 1, 0)
+            else:
+                x, y, z = cu, cv, 0.0
+                n = (0, 0, 1)
+            verts += [x, y, z, *n, 0, 0]
+        idx = list(range(segments))
+        return Mesh(np.array(verts, dtype=np.float32), np.array(idx, dtype=np.uint32))
