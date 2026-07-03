@@ -15,7 +15,11 @@ if __name__ == "__main__":
     LandingActionTrainer.set_seed()
 
     flight_dataset = LazyFlightParquetDataset("../data/CYVR/20260628_1254")
-    dataset = LandingActionDataset(flight_dataset, max_dt=5.0)
+    dataset = LandingActionDataset(
+        flight_dataset=flight_dataset,
+        mode="bspline_state",
+        max_dt=5.0
+    )
 
     print(f"Samples: {len(dataset)}, input_dim: {dataset.input_dim}")
 

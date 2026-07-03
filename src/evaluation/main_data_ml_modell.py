@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from pathlib import Path
 
 import numpy as np
@@ -42,6 +40,7 @@ def predict_action(
 
     t, n, phi = (y_norm * y_std + y_mean).tolist()
 
+    # capping of the actions
     t = float(np.clip(t, 0.0, aircraft_dynamics.max_thrust))
     n = float(np.clip(n, aircraft_dynamics.min_load_factor, aircraft_dynamics.max_load_factor))
     phi = float(np.clip(phi, -aircraft_dynamics.max_roll_angle, aircraft_dynamics.max_roll_angle))
@@ -228,7 +227,7 @@ if __name__ == "__main__":
     base_path = "../data/CYVR/20260625_1508"
     dataset = LazyFlightParquetDataset(base_path)
 
-    TIME = "2026-06-28_15-03-27"
+    TIME = "2026-07-01_14-10-11"
     MODEL_PATH = f"../ml/results/landing_action_mlp/{TIME}/best_model.pth"
     NORM_X_PATH = f"../ml/results/landing_action_mlp/{TIME}/normalization_x.csv"
     NORM_Y_PATH = f"../ml/results/landing_action_mlp/{TIME}/normalization_y.csv"

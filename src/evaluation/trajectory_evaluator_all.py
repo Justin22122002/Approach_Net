@@ -130,3 +130,12 @@ if __name__ == "__main__":
         label="MLP",
         n_samples=6,
     )
+
+    evaluate_dir(
+        evaluator, dataset, transformer,
+        output_dir=Path("../data/CYVR/resnet_rollout"),
+        traj_filename="resnet_rollout_trajectories.parquet",
+        status_filename="resnet_rollout_status.jsonl",
+        label="MLP",
+        n_samples=6,
+    )

@@ -27,10 +27,10 @@ from utils_project.terrain_project_mesh import TerrainProjectMesh
 
 
 ICAO = "CYVR"
-FLIGHT_DATA_PATH = "../data/CYVR/20260625_1508" # 20260628_1254, 20260625_1508
+FLIGHT_DATA_PATH = "../data/CYVR/20260628_1254" # 20260628_1254, 20260625_1508
 FLIGHT_IDX = 100
 
-TIME = "2026-06-29_16-14-44"
+TIME = "2026-07-01_14-10-11"
 
 MODEL_PATH = f"../ml/results/landing_action_mlp/{TIME}/best_model.pth"
 NORM_X_PATH = f"../ml/results/landing_action_mlp/{TIME}/normalization_x.csv"
@@ -134,7 +134,7 @@ rwy_feat = np.array([
     runway_row["fix_elevation_m"], runway_row["runway_bearing"],
 ], dtype=np.float32)
 
-model = LandingActionMLP(input_dim=19, output_dim=3)
+model = LandingActionMLP(input_dim=15, output_dim=3)
 model.load_state_dict(torch.load(MODEL_PATH, map_location="cpu"))
 model.eval()
 

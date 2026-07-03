@@ -5,29 +5,31 @@ from torch.utils.data import Dataset, Subset
 
 from ml.utils.data_loader.lazy_flight_parquet_dataset import LazyFlightParquetDataset
 from physics.aircraft_environment_casadi import AircraftEnvironmentCasadi
-from physics.trajectory_action_processor import FlightTrajectoryProcessor
+from physics.trajectory_action_processor import FlightTrajectoryProcessor, TrajectoryMode
 
 
 class LandingActionDataset(Dataset):
     """
-    input  (19): aircraft dynamics (9) + state lat/lon/h/v/gamma/chi (6)
+    input  (19): aircraft dynamics (5) + state lat/lon/h/v/gamma/chi (6)
                  + landing runway lat/lon/elevation/heading (4)
     output (3) : thrust, load_factor, roll
     """
 
+    # "max_thrust", "max_load_factor", "min_load_factor", "max_roll_angle",
     DYNAMICS_KEYS = (
-        "mass", "C_D0", "area", "cl_max",
-        "max_thrust", "max_load_factor", "min_load_factor", "max_roll_angle", "k",
+        "mass", "C_D0", "area", "cl_max", "k",
     )
 
     def __init__(
         self,
         flight_dataset: LazyFlightParquetDataset,
+        mode: TrajectoryMode,
         max_dt: float = 5.0,
     ) -> None:
         self.flight_dataset: LazyFlightParquetDataset = flight_dataset
         self.processor: FlightTrajectoryProcessor = FlightTrajectoryProcessor(flight_dataset)
-        self.max_dt = max_dt
+        self.max_dt: float = max_dt
+        self.mode: TrajectoryMode = mode
 
         self._cache: dict[int, tuple[np.ndarray, np.ndarray]] = {}  # flight_idx -> (X, Y)
         self.samples: list[tuple[int, int]] = []                    # (flight_idx, step_idx)
@@ -52,7 +54,7 @@ class LandingActionDataset(Dataset):
         ], dtype=np.float32)
 
     def _build_flight(self, flight_idx: int) -> tuple[np.ndarray, np.ndarray]:
-        traj, dynamics, timestamps = self.processor.load(flight_idx, mode="raw")
+        traj, dynamics, timestamps = self.processor.load(flight_idx, mode=self.mode)
         icao24, flight_id = self.flight_dataset.flights[flight_idx]
 
         df = self.flight_dataset[flight_idx].sort_values("time").reset_index(drop=True)
@@ -100,6 +102,7 @@ class LandingActionDataset(Dataset):
             thrust, load_factor, roll = env.inverse_action(traj[i + 1])
             thrust, load_factor, roll = float(thrust), float(load_factor), float(roll)
 
+            # capping of the data
             thrust = float(np.clip(thrust, 0.0, dynamics.max_thrust))
             load_factor = float(np.clip(load_factor, dynamics.min_load_factor, dynamics.max_load_factor))
             roll = float(np.clip(roll, -dynamics.max_roll_angle, dynamics.max_roll_angle))
@@ -181,7 +184,7 @@ if __name__ == "__main__":
 
     base = LazyFlightParquetDataset("../../../data/CYVR/20260628_1254")
 
-    dataset = LandingActionDataset(base)
+    dataset = LandingActionDataset(base, mode="bspline_state", max_dt=5.0)
 
     print(f"Loaded {len(dataset)} transitions")
     print(f"Valid flights: {len(dataset._cache)}")
