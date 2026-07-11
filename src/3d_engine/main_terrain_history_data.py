@@ -27,7 +27,7 @@ from utils.lineRenderer import LineRenderer
 from OpenGL.GL import glDeleteVertexArrays, glDeleteBuffers
 
 icao_vancouver = {
-    "icao": "CYVR",
+    "icao": "CYYC",
 }
 
 icao_frankfurt = {
@@ -46,7 +46,7 @@ transformer: Transformer = Transformer.from_crs(
     always_xy=True
 )
 
-history_file_path: Path = basePath / Path("CYVR/train/arrivals_20260701_1614.parquet")
+history_file_path: Path = basePath / Path("CYYC/train/arrivals_20260708_1247.parquet")
 interpolator: AircraftHistoryInterpolator = AircraftHistoryInterpolator(history_file_path, airport_height=airport.arinc_424_runway[0].runway_altitude)
 # interpolator.clean_dataframe()
 # interpolator.interpolate()

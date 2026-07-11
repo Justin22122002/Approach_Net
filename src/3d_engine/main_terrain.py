@@ -20,7 +20,7 @@ from utils_project.terrain_project_mesh import TerrainProjectMesh
 from utils.lineRenderer import LineRenderer
 
 icao_vancouver = {
-    "icao": "CYVR",
+    "icao": "CYYZ",
 }
 
 icao_frankfurt = {

@@ -124,6 +124,10 @@ class BaseTrainer[INPUTS: Tensor, OUTPUTS: Tensor, LABELS: Tensor, METRICS: Base
             torch.save(self.model.state_dict(), self.results_path / self.best_model_name)
             print(f"Best model updated with validation loss {val_loss:.4f}.")
 
+    def save_last_model(self) -> None:
+        self.results_path.mkdir(parents=True, exist_ok=True)
+        torch.save(self.model.state_dict(), self.results_path / "last_model.pth")
+
     def train(
         self,
         train_loader: DataLoader[tuple[INPUTS, OUTPUTS]],

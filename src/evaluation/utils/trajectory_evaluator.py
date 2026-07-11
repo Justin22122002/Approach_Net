@@ -27,6 +27,7 @@ class FlightEvaluation:
     approach_speed_ref_ms: float | None = None
 
 
+# todo: landing metric landing on the right runway and landing on any runway assigned
 class TrajectorySuccessEvaluator:
     def __init__(
         self,

@@ -8,6 +8,7 @@ from matplotlib import pyplot as plt
 from pyproj import Transformer
 
 from evaluation.utils.trajectory_evaluator import TrajectorySuccessEvaluator
+from utils.airport import Airport
 from utils_project.geo_transformer import GeoTransformer
 from ml.utils.data_loader.lazy_flight_parquet_dataset import LazyFlightParquetDataset
 
@@ -99,12 +100,12 @@ def evaluate_dir(
 
 
 if __name__ == "__main__":
-    base_path = "../data/CYVR/20260625_1508"
+    icao = "CYVR"
+    base_path = f"../data/{icao}/20260625_1508"
     dataset = LazyFlightParquetDataset(base_path)
 
-    # todo: load airport dynamically
-    airport_lat, airport_lon = 49.1967, -123.1815
-    crs_to = GeoTransformer.utm_epsg(airport_lat, airport_lon)
+    airport: Airport = Airport.load_from_folder(base_path=Path("../data/"), icao=icao)
+    crs_to = GeoTransformer.utm_epsg(airport.lat, airport.lon)
     transformer = Transformer.from_crs("EPSG:4326", crs_to, always_xy=True)
 
     evaluator = TrajectorySuccessEvaluator(
@@ -134,8 +135,61 @@ if __name__ == "__main__":
     evaluate_dir(
         evaluator, dataset, transformer,
         output_dir=Path("../data/CYVR/resnet_rollout"),
-        traj_filename="resnet_rollout_trajectories.parquet",
+        traj_filename="resnet_rollout_status.parquet",
         status_filename="resnet_rollout_status.jsonl",
-        label="MLP",
+        label="RESNET",
         n_samples=6,
     )
+
+    evaluate_dir(
+        evaluator, dataset, transformer,
+        output_dir=Path("../data/CYVR/resnet_guided_rollout"),
+        traj_filename="resnet_guided_rollout.parquet",
+        status_filename="resnet_guided_rollout_status.jsonl",
+        label="RESNET_CONSTRAINT",
+        n_samples=6,
+    )
+
+    evaluate_dir(
+        evaluator, dataset, transformer,
+        output_dir=Path("../data/CYVR/resnet_qp_rollout"),
+        traj_filename="resnet_qp_rollout.parquet",
+        status_filename="resnet_qp_rollout_status.jsonl",
+        label="RESNET_CONSTRAINT_QP",
+        n_samples=6,
+    )
+
+    evaluate_dir(
+        evaluator, dataset, transformer,
+        output_dir=Path("../data/CYVR/multiple_airports_resnet_qp_rollout"),
+        traj_filename="resnet_qp_rollout.parquet",
+        status_filename="resnet_qp_rollout_status.jsonl",
+        label="RESNET_CONSTRAINT_QP",
+        n_samples=6,
+    )
+
+    # multiple airport section
+    airport_list_icao: list[str] = [
+        "CYVR",
+        "CYUL",
+        "CYYZ",
+        # "CYYC", data problem
+        # "CYEG", data problem
+    ]
+
+    for airport_icao in airport_list_icao:
+        test_base_path = f"../data/{airport_icao}/test/20260709_1207"
+        airport_dataset = LazyFlightParquetDataset(test_base_path)
+
+        airport_obj: Airport = Airport.load_from_folder(base_path=Path("../data/"), icao=airport_icao)
+        crs_to = GeoTransformer.utm_epsg(airport_obj.lat, airport_obj.lon)
+        airport_transformer = Transformer.from_crs("EPSG:4326", crs_to, always_xy=True)
+
+        evaluate_dir(
+            evaluator, airport_dataset, airport_transformer,
+            output_dir=Path(f"../data/{airport_icao}/multiple_airports_resnet_qp_rollout"),
+            traj_filename="resnet_qp_rollout.parquet",
+            status_filename="resnet_qp_rollout_status.jsonl",
+            label="RESNET_CONSTRAINT_QP",
+            n_samples=6,
+        )

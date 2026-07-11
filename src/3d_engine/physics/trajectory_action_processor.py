@@ -7,14 +7,13 @@ from typing import Literal
 
 from pandas import Series
 from pyproj import Transformer
-from scipy.interpolate import UnivariateSpline
+from scipy.interpolate import UnivariateSpline, splprep, splev
 
 from physics.aircraft_dynamics import AircraftDynamics
 from physics.aircraft_kinematics_state_casadi import AircraftKinematicsStateCasadi
 from physics.aircraft_environment_casadi import AircraftEnvironmentCasadi
 from utils_project.geo_transformer import GeoTransformer
 from ml.utils.data_loader.lazy_flight_parquet_dataset import LazyFlightParquetDataset
-
 
 TrajectoryMode: type[str] = Literal["raw", "reconstructed", "bspline_position", "bspline_state"]
 
@@ -38,6 +37,7 @@ class FlightTrajectoryProcessor:
 
         lat0, lon0 = float(df["lat"].iloc[0]), float(df["lon"].iloc[0])
 
+        # problem, when using different utm zones
         transformer = Transformer.from_crs(
             "EPSG:4326", GeoTransformer.utm_epsg(lat0, lon0), always_xy=True
         )
@@ -60,7 +60,6 @@ class FlightTrajectoryProcessor:
     ) -> tuple[list[AircraftKinematicsStateCasadi], AircraftDynamics, list[Series]]:
 
         if mode == "raw":
-
             traj = []
             ts = []
 
@@ -151,43 +150,53 @@ class FlightTrajectoryProcessor:
             smoothing_factor: float | dict[str, float] | None,
             k: int,
     ) -> tuple[list[AircraftKinematicsStateCasadi], AircraftDynamics, list[Series]]:
-
         coords = [transformer.transform(float(r["lon"]), float(r["lat"])) for _, r in df.iterrows()]
         xs = np.array([c[0] for c in coords])
         ys = np.array([c[1] for c in coords])
         hs = df["geoaltitude"].to_numpy(dtype=float)
         ts = self._time_seconds(df)
-
         m = len(ts)
+
         if isinstance(smoothing_factor, dict):
-            s_x = smoothing_factor.get("x", m * 4.0 ** 2)
-            s_y = smoothing_factor.get("y", m * 4.0 ** 2)
+            s_xy = smoothing_factor.get("xy", m * 4.0 ** 2)
             s_h = smoothing_factor.get("h", m * 8.0 ** 2)
         elif smoothing_factor is None:
-            s_x = s_y = m * 4.0 ** 2
+            s_xy = m * 4.0 ** 2
             s_h = m * 8.0 ** 2
         else:
-            s_x = s_y = s_h = float(smoothing_factor)
+            s_xy = s_h = float(smoothing_factor)
 
-        spl_x = UnivariateSpline(ts, xs, k=k, s=s_x)
-        spl_y = UnivariateSpline(ts, ys, k=k, s=s_y)
+        tck, _ = splprep([xs, ys], u=ts, k=k, s=s_xy)
+        x_s, y_s = splev(ts, tck)
+        x_s, y_s = np.asarray(x_s), np.asarray(y_s)
+
         spl_h = UnivariateSpline(ts, hs, k=k, s=s_h)
+        h_s = spl_h(ts)
 
-        x_s, y_s, h_s = spl_x(ts), spl_y(ts), spl_h(ts)
-        vx, vy, vh = spl_x.derivative(1)(ts), spl_y.derivative(1)(ts), spl_h.derivative(1)(ts)
+        traj = []
 
-        v = np.sqrt(vx ** 2 + vy ** 2)
-        chi = np.degrees(np.arctan2(vx, vy)) % 360.0
-        gamma = np.degrees(np.arctan2(vh, np.maximum(v, 1e-3)))
+        for i in range(m):
+            i0, i1 = i, min(i + 1, m - 1)
+            if i == m - 1:
+                i0, i1 = i - 1, i
 
-        traj = [
-            AircraftKinematicsStateCasadi(
-                x=float(x_s[i]), y=float(y_s[i]), h=float(h_s[i]),
-                v=float(v[i]), gamma=float(gamma[i]), chi=float(chi[i]),
-                aircraft_type=dynamics,
+            dt = max(ts[i1] - ts[i0], 1e-3)
+            dx = x_s[i1] - x_s[i0]
+            dy = y_s[i1] - y_s[i0]
+            dh = h_s[i1] - h_s[i0]
+
+            v = math.sqrt(dx ** 2 + dy ** 2) / dt
+            chi = np.degrees(np.arctan2(dx, dy)) % 360.0
+            gamma = np.degrees(np.arctan2(dh, max(np.sqrt(dx ** 2 + dy ** 2), 1e-3)))
+
+            traj.append(
+                AircraftKinematicsStateCasadi(
+                    x=float(x_s[i]), y=float(y_s[i]), h=float(h_s[i]),
+                    v=float(v), gamma=float(gamma), chi=float(chi),
+                    aircraft_type=dynamics,
+                )
             )
-            for i in range(m)
-        ]
+
         return traj, dynamics, list(df["time"])
 
     def _load_bspline_state(
@@ -308,6 +317,7 @@ def reconstruct_and_replay(
 def plot(
     real: np.ndarray,
     sim: np.ndarray,
+    trajectory: list,
     actions: np.ndarray | None = None,
     timestamps: list[Series] | None = None,
 ) -> None:
@@ -315,28 +325,55 @@ def plot(
         [(ts - timestamps[0]).total_seconds() for ts in timestamps[:len(real)]]
     )
 
-    fig, axes = plt.subplots(2, 2, figsize=(16, 10))
+    fig = plt.figure(figsize=(18, 12))
 
-    axes[0, 0].plot(real[:, 0], real[:, 1], "k-", label="Real trajectory")
-    axes[0, 0].plot(sim[:, 0], sim[:, 1], "r--", label="Reconstructed")
-    axes[0, 0].scatter(real[0, 0], real[0, 1], c="green", s=80)
-    axes[0, 0].scatter(real[-1, 0], real[-1, 1], c="red", s=80)
-    axes[0, 0].set_title("Ground track")
-    axes[0, 0].axis("equal")
-    axes[0, 0].grid(True)
-    axes[0, 0].legend()
+    ax1 = fig.add_subplot(221, projection="3d")
 
-    axes[0, 1].plot(t, real[:, 2], "k-", label="Real")
-    axes[0, 1].plot(t, sim[:, 2], "r--", label="Reconstructed")
-    axes[0, 1].set_title("Altitude")
-    axes[0, 1].grid(True)
-    axes[0, 1].legend()
+    traj_np = np.array([[s.x, s.y, s.h] for s in trajectory])
 
-    axes[1, 0].plot(t, real[:, 3], "k-", label="Real")
-    axes[1, 0].plot(t, sim[:, 3], "r--", label="Reconstructed")
-    axes[1, 0].set_title("Velocity")
-    axes[1, 0].grid(True)
-    axes[1, 0].legend()
+    ax1.plot(traj_np[:, 0], traj_np[:, 1], traj_np[:, 2], label="BSpline Trajectory", linewidth=2)
+    ax1.plot(real[:, 0], real[:, 1], real[:, 2], "k--", label="Real")
+    ax1.plot(sim[:, 0], sim[:, 1], sim[:, 2], "r--", label="Sim")
+
+    ax1.set_title("3D Trajectory")
+    ax1.set_xlabel("X [m]")
+    ax1.set_ylabel("Y [m]")
+    ax1.set_zlabel("H [m]")
+    ax1.legend()
+    ax1.grid(True)
+
+    ax2 = fig.add_subplot(222)
+
+    ax2.plot(real[:, 0], real[:, 1], "k-", label="Real")
+    ax2.plot(sim[:, 0], sim[:, 1], "r--", label="Sim")
+    ax2.plot(traj_np[:, 0], traj_np[:, 1], "b-", alpha=0.5, label="BSpline")
+
+    ax2.set_title("Ground Track")
+    ax2.axis("equal")
+    ax2.grid(True)
+    ax2.legend()
+
+    ax3 = fig.add_subplot(223)
+
+    ax3.plot(t, real[:, 2], "k-", label="Real")
+    ax3.plot(t, sim[:, 2], "r--", label="Sim")
+
+    ax3.set_title("Altitude")
+    ax3.grid(True)
+    ax3.legend()
+
+    ax4 = fig.add_subplot(224)
+
+    ax4.plot(t, real[:, 3], "k-", label="Real")
+    ax4.plot(t, sim[:, 3], "r--", label="Sim")
+
+    ax4.set_title("Velocity")
+    ax4.grid(True)
+    ax4.legend()
+
+    plt.suptitle("Trajectory Reconstruction + BSpline + Simulation")
+    plt.tight_layout()
+    plt.show()
 
     if actions is not None and len(actions) > 0:
         actions = np.asarray(actions, dtype=np.float64)
@@ -356,25 +393,97 @@ def plot(
         ax2[2].set_xlabel("t [s]")
         ax2[2].grid(True)
 
-        fig2.suptitle("Control actions")
-        fig2.tight_layout()
+        plt.tight_layout()
+        plt.show()
 
-    else:
-        axes[1, 1].axis("off")
+def plot_comparison(
+    raw_traj: list,
+    reconstructed_traj: list,
+    bspline_traj: list,
+):
 
-    fig.suptitle("Trajectory Reconstruction + Controls")
-    fig.tight_layout()
+    raw = np.array([[s.x, s.y, s.h] for s in raw_traj])
+    rec = np.array([[s.x, s.y, s.h] for s in reconstructed_traj])
+    bs = np.array([[s.x, s.y, s.h] for s in bspline_traj])
+
+    fig = plt.figure(figsize=(18, 14))
+
+    # -----------------------------
+    # 3D
+    # -----------------------------
+    ax = fig.add_subplot(221, projection="3d")
+
+    ax.plot(raw[:,0], raw[:,1], raw[:,2],
+            "k.", markersize=2, label="Raw")
+
+    ax.plot(rec[:,0], rec[:,1], rec[:,2],
+            "b-", linewidth=2, label="Reconstructed")
+
+    ax.plot(bs[:,0], bs[:,1], bs[:,2],
+            "r-", linewidth=2, label="BSpline")
+
+    ax.set_title("3D")
+    ax.set_xlabel("X")
+    ax.set_ylabel("Y")
+    ax.set_zlabel("H")
+    ax.legend()
+
+    # -----------------------------
+    # XY
+    # -----------------------------
+    ax = fig.add_subplot(222)
+
+    ax.plot(raw[:,0], raw[:,1],
+            "k.", markersize=2, label="Raw")
+
+    ax.plot(rec[:,0], rec[:,1],
+            "b-", linewidth=2, label="Reconstructed")
+
+    ax.plot(bs[:,0], bs[:,1],
+            "r-", linewidth=2, label="BSpline")
+
+    ax.axis("equal")
+    ax.grid()
+    ax.legend()
+    ax.set_title("Ground Track")
+
+    # -----------------------------
+    # Height
+    # -----------------------------
+    ax = fig.add_subplot(223)
+
+    ax.plot(raw[:,2], "k.", label="Raw")
+    ax.plot(rec[:,2], "b-", label="Reconstructed")
+    ax.plot(bs[:,2], "r-", label="BSpline")
+
+    ax.grid()
+    ax.legend()
+    ax.set_title("Altitude")
+
+    # -----------------------------
+    # Difference
+    # -----------------------------
+    ax = fig.add_subplot(224)
+
+    diff = np.linalg.norm(bs[:,:2]-rec[:,:2], axis=1)
+
+    ax.plot(diff)
+
+    ax.set_title("Difference BSpline - Reconstructed")
+    ax.set_ylabel("meters")
+    ax.grid()
+
+    plt.tight_layout()
     plt.show()
-
 
 if __name__ == "__main__":
 
-    dataset = LazyFlightParquetDataset("../../data/CYVR/20260625_1508")
+    dataset = LazyFlightParquetDataset("../../data/CYVR/20260628_1254")
 
     processor = FlightTrajectoryProcessor(dataset)
 
     # "raw" | "reconstructed" | "bspline_position" | "bspline_state"
-    trajectory, dynamics, timestamps = processor.load(idx=128, mode="bspline_state")
+    trajectory, dynamics, timestamps = processor.load(idx=105, mode="bspline_state")
     # trajectory, dynamics, timestamps = processor.load(idx=128, mode="bspline_position")
     # trajectory, dynamics, timestamps = processor.load(idx=128, mode="raw")
     # trajectory, dynamics, timestamps = processor.load(idx=4, mode="reconstructed")
@@ -385,4 +494,25 @@ if __name__ == "__main__":
         trajectory, dynamics, timestamps, max_dt=5.0
     )
 
-    plot(real, sim, actions, timestamps)
+    plot(real, sim, trajectory, actions, timestamps)
+
+    raw_traj, _, _ = processor.load(
+        idx=128,
+        mode="raw"
+    )
+
+    rec_traj, _, _ = processor.load(
+        idx=128,
+        mode="reconstructed"
+    )
+
+    bspline_traj, _, _ = processor.load(
+        idx=128,
+        mode="bspline_position"
+    )
+
+    plot_comparison(
+        raw_traj,
+        rec_traj,
+        bspline_traj,
+    )

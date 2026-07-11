@@ -6,7 +6,7 @@ from pyproj import Transformer
 
 from ml.utils.data_loader.landing_action_dataset import LandingActionDataset
 from ml.utils.data_loader.lazy_flight_parquet_dataset import LazyFlightParquetDataset
-from ml.utils.models.mlp_model import LandingActionMLP
+from ml.utils.models.resnet_model import LandingActionResNet
 
 from physics.aircraft_environment import AircraftEnvironment
 from physics.aircraft_kinematics_state import AircraftKinematicsState
@@ -25,22 +25,23 @@ from utils_project.geo_transformer import GeoTransformer
 from utils_project.runway_project_mesh import RunwayProjectMesh
 from utils_project.terrain_project_mesh import TerrainProjectMesh
 
-
 ICAO = "CYVR"
 FLIGHT_DATA_PATH = "../data/CYVR/20260628_1254" # 20260628_1254, 20260625_1508
 FLIGHT_IDX = 100
 
-TIME = "2026-07-01_14-10-11"
+TIME = "2026-07-07_21-23-13"
 
-MODEL_PATH = f"../ml/results/landing_action_mlp/{TIME}/best_model.pth"
-NORM_X_PATH = f"../ml/results/landing_action_mlp/{TIME}/normalization_x.csv"
-NORM_Y_PATH = f"../ml/results/landing_action_mlp/{TIME}/normalization_y.csv"
+MODEL_PATH = f"../ml/results/landing_action_resnet/{TIME}/best_model.pth"
+NORM_X_PATH = f"../ml/results/landing_action_resnet/{TIME}/normalization_x.csv"
+NORM_Y_PATH = f"../ml/results/landing_action_resnet/{TIME}/normalization_y.csv"
 
 PHYS_DT = 1.0
+
 
 def load_norm(path: str) -> tuple[np.ndarray, np.ndarray]:
     arr = np.loadtxt(path, delimiter=",", skiprows=1)
     return arr[0].astype(np.float32), arr[1].astype(np.float32)
+
 
 basePath = Path("../data")
 airport = Airport.load_from_folder(basePath, ICAO)
@@ -48,6 +49,10 @@ airport = Airport.load_from_folder(basePath, ICAO)
 crs_to = GeoTransformer.utm_epsg(airport.lat, airport.lon)
 to_utm = Transformer.from_crs("EPSG:4326", crs_to, always_xy=True)
 to_latlon = Transformer.from_crs(crs_to, "EPSG:4326", always_xy=True)
+
+airport_cx, airport_cy = to_utm.transform(airport.lon, airport.lat)
+
+airport_elev = airport.arinc_424_runway[0].runway_altitude * 0.3048
 
 runways: list[ArincRunway] = airport.arinc_424_runway
 
@@ -60,12 +65,8 @@ password = "Copernicus2026!"
 
 provider = CopernicusDEMProvider(email, password)
 grid = provider.get_terrain(
-    lat_min=LAT_MIN,
-    lon_min=LON_MIN,
-    lat_max=LAT_MAX,
-    lon_max=LON_MAX,
-    width=1024,
-    height=1024,
+    lat_min=LAT_MIN, lon_min=LON_MIN, lat_max=LAT_MAX, lon_max=LON_MAX,
+    width=1024, height=1024,
 )
 
 horizontal_scale = 0.01
@@ -82,7 +83,7 @@ terrain_project_mesh = TerrainProjectMesh(
     horizontal_scale=horizontal_scale, vertical_scale=vertical_scale, transformer=to_utm,
 )
 
-engine = Engine(1280, 720, f"MLP-Policy - {ICAO}")
+engine = Engine(1280, 720, f"ResNet-Policy - {ICAO}")
 scene = engine.scene
 
 terrain_project_mesh.spawn(scene=scene, geo=geo)
@@ -129,12 +130,19 @@ dyn_feat = np.array(
     [getattr(aircraft_dynamics, k) for k in LandingActionDataset.DYNAMICS_KEYS],
     dtype=np.float32,
 )
+
+# runway fix in airport-centered UTM frame, elevation RELATIVE to airport_elev (matches training)
+fix_x, fix_y = to_utm.transform(
+    float(runway_row["fix_longitude"]), float(runway_row["fix_latitude"])
+)
 rwy_feat = np.array([
-    runway_row["fix_latitude"], runway_row["fix_longitude"],
-    runway_row["fix_elevation_m"], runway_row["runway_bearing"],
+    fix_x - airport_cx, fix_y - airport_cy,
+    runway_elevation_m - airport_elev, float(runway_row["runway_bearing"]),
 ], dtype=np.float32)
 
-model = LandingActionMLP(input_dim=15, output_dim=3)
+print(runway_row["fix_identifier"])
+
+model = LandingActionResNet(input_dim=15, hidden_dim=256, n_blocks=4, output_dim=3)
 model.load_state_dict(torch.load(MODEL_PATH, map_location="cpu"))
 model.eval()
 
@@ -146,10 +154,11 @@ thrust, load_factor, roll = 0.0, 1.0, 0.0
 
 
 def predict_action() -> tuple[float, float, float]:
-    lon, lat = to_latlon.transform(aircraft_state.x, aircraft_state.y)
-
+    # aircraft_state.x/y are already UTM -> recenter on the airport;
+    # h is relative to airport_elev, matching the training features
     state_feat = np.array(
-        [lat, lon, aircraft_state.h, aircraft_state.v, aircraft_state.gamma, aircraft_state.chi],
+        [float(aircraft_state.x) - airport_cx, float(aircraft_state.y) - airport_cy,
+         aircraft_state.h - airport_elev, aircraft_state.v, aircraft_state.gamma, aircraft_state.chi],
         dtype=np.float32,
     )
     x = np.concatenate([dyn_feat, state_feat, rwy_feat])
@@ -166,8 +175,8 @@ def predict_action() -> tuple[float, float, float]:
 
     return t, n, phi
 
+
 trail_pts: list[Vec3] = []
-MAX_TRAIL_POINTS = 600
 _phys_acc = 0.0
 
 aircraft_go = scene.spawn("Aircraft")
@@ -189,9 +198,10 @@ def on_update(dt: float) -> None:
     global thrust, load_factor, roll, _phys_acc, landed
 
     if not landed:
-        _phys_acc += 1.0 # 1.0 for faster view or dt for real time
+        _phys_acc += 1.0
         while _phys_acc >= PHYS_DT:
             thrust, load_factor, roll = predict_action()
+
             env.apply_action(thrust=thrust, load_factor=load_factor, roll=roll)
             _phys_acc -= PHYS_DT
 
@@ -208,8 +218,6 @@ def on_update(dt: float) -> None:
     cam.target = wp
 
     trail_pts.append(Vec3(wp.x, wp.y, wp.z))
-    # if len(trail_pts) > MAX_TRAIL_POINTS:
-    #     trail_pts.pop(0)
     if len(trail_pts) >= 2:
         trail_lr.set_points_strip(trail_pts)
 
@@ -227,7 +235,7 @@ def on_gui() -> None:
     fps = engine._clock.get_fps() if engine._clock else 0.0
 
     hud.panel(10, 10, 285, 170, border_radius=8)
-    hud.text("MLP policy", 20, 16, size=17, color=(255, 210, 60), shadow=True)
+    hud.text("ResNet policy", 20, 16, size=17, color=(60, 210, 255), shadow=True)
     hud.line(20, 38, 285, 38, color=(80, 80, 100, 180))
 
     v_kts = aircraft_state.v * 1.944
@@ -242,10 +250,10 @@ def on_gui() -> None:
 
     px = hud.width - 295
     hud.panel(px, 10, 285, 140, border_radius=8)
-    hud.text("model output", px + 10, 16, size=17, color=(255, 210, 60), shadow=True)
+    hud.text("model output", px + 10, 16, size=17, color=(60, 210, 255), shadow=True)
     hud.line(px + 10, 38, px + 275, 38, color=(80, 80, 100, 180))
 
-    hud.text(f"Thrust        {thrust/1000:5.1f} kN", px + 10, 44, size=15)
+    hud.text(f"Thrust        {thrust / 1000:5.1f} kN", px + 10, 44, size=15)
     hud.bar(px + 10, 62, 265, 10, value=thrust / max(aircraft_dynamics.max_thrust, 1.0), fg_color=(255, 160, 30, 220))
 
     hud.text(f"Roll          {roll:+5.1f}°", px + 10, 78, size=15)

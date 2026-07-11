@@ -11,6 +11,7 @@ class DirectionalLight:
     color:     Color = field(default_factory=Color.white)
     intensity: float = 1.0
 
+
 @dataclass
 class PointLight:
     position: Vec3 = field(default_factory=Vec3.zero)

@@ -116,8 +116,10 @@ class CopernicusDEMProvider:
             lon_max: float,
             width: int = 1024,
             height: int = 1024,
+            maxCloudCoverage: int = 5,
     ) -> np.ndarray:
         """
+        when maxCloudCoverage is to low, the image is not visible -> black surface !!!
         returns a (H, W, 3) uint8-array with Sentinel-2 true-color-rgb
         """
         payload: dict[str, Any] = {
@@ -129,7 +131,7 @@ class CopernicusDEMProvider:
                     {
                         "type": "sentinel-2-l2a",
                         "dataFilter": {
-                            "maxCloudCoverage": 5  # max. 30 % clouds
+                            "maxCloudCoverage": maxCloudCoverage
                         }
                     }
                 ]
