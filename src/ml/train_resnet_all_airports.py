@@ -29,7 +29,9 @@ if __name__ == "__main__":
     for airport_icao in airport_list_icao:
         airport = Airport.load_from_folder(base_path=Path("../data/"), icao=airport_icao)
 
-        flight_dataset = LazyFlightParquetDataset(f"../data/{airport_icao}/train/20260708_1247")
+        # 20260708_1247 -> old with 2000
+        # 20260802_0920 -> new with 10000
+        flight_dataset = LazyFlightParquetDataset(f"../data/{airport_icao}/train/20260802_0920")
         dataset = LandingActionDataset(
             flight_dataset=flight_dataset,
             mode="bspline_state",

@@ -577,7 +577,7 @@ if __name__ == "__main__":
         "CYYC",
         "CYEG",
     ]
-    target_n_arrivals: int = 500 # 2000, 500
+    target_n_arrivals: int = 10000 # 2000, 500
     radius_km: float = 30.0
     suffix = datetime.now(UTC).strftime("%Y%m%d_%H%M")
 
@@ -589,10 +589,12 @@ if __name__ == "__main__":
         #    suffix=suffix,
         # )
 
+        # 20260708_1247 -> old with 2000
+        # 20260802_0920 -> new with 10000
         load_train(
             arrival_airport=airport,
             target_n_arrivals=target_n_arrivals,
             radius_km=radius_km,
             suffix=suffix,
-            folder_name="test",
+            folder_name="train",
         )

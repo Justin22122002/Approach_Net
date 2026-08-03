@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from pathlib import Path
 
 import numpy as np
@@ -7,6 +5,7 @@ import pandas as pd
 from matplotlib import pyplot as plt
 from pyproj import Transformer
 
+from evaluation.main_data_resnet_modell_constraint_cvxpy import LayerMode
 from evaluation.utils.trajectory_evaluator import TrajectorySuccessEvaluator
 from utils.airport import Airport
 from utils_project.geo_transformer import GeoTransformer
@@ -65,6 +64,44 @@ def plot_sample_trajectories(
     plt.show()
 
 
+def flatten_stats(icao: str, layer_mode: str, stats: dict) -> dict:
+    row: dict = {
+        "icao": icao,
+        "layer_mode": layer_mode,
+        "n_total": stats.get("n_total"),
+        "n_converged": stats.get("n_converged"),
+        "success_rate": stats.get("success_rate"),
+        # von Andreas vorgeschlagene fenstergroessen-unabhaengige AUC-Erfolgsmetrik,
+        # siehe TrajectorySuccessEvaluator._window_auc
+        "window_auc": stats.get("window_auc"),
+    }
+
+    # success_rate(s) an mehreren Fenster-Skalierungen -- zeigt, ob/wann die Kurve
+    # in Richtung "fast alle erfolgreich" saettigt (s=1.0 == success_rate, redundant
+    # aber praktisch fuer den direkten Vergleich in derselben Zeile).
+    for s, rate in (stats.get("success_rate_by_s") or {}).items():
+        row[f"succ_rate_s{s:g}"] = rate
+
+    # Verteilung von s_needed selbst (typische Groessenordnung, um die das Fenster
+    # haette wachsen muessen)
+    s_needed_stats = stats.get("s_needed_stats") or {}
+    for stat_name, stat_value in s_needed_stats.items():
+        row[f"s_needed_{stat_name}"] = stat_value
+
+    for block_name in ("all", "success_only"):
+        block = stats.get(block_name)
+        if not block:
+            continue
+        row[f"{block_name}_n"] = block.get("n")
+        for metric_name, metric_stats in block.items():
+            if metric_name == "n" or not isinstance(metric_stats, dict):
+                continue
+            for stat_name, stat_value in metric_stats.items():
+                row[f"{block_name}_{metric_name}_{stat_name}"] = stat_value
+
+    return row
+
+
 def evaluate_dir(
     evaluator: TrajectorySuccessEvaluator,
     dataset: LazyFlightParquetDataset,
@@ -73,8 +110,10 @@ def evaluate_dir(
     traj_filename: str,
     status_filename: str,
     label: str,
+    icao: str,
+    layer_mode: str,
     n_samples: int = 6,
-) -> None:
+) -> dict:
     print(f"\n {label} ({output_dir})")
 
     eval_df = evaluator.evaluate_batch(
@@ -98,77 +137,20 @@ def evaluate_dir(
         label=label,
     )
 
+    return flatten_stats(icao, layer_mode, stats)
+
 
 if __name__ == "__main__":
-    icao = "CYVR"
-    base_path = f"../data/{icao}/20260625_1508"
-    dataset = LazyFlightParquetDataset(base_path)
-
-    airport: Airport = Airport.load_from_folder(base_path=Path("../data/"), icao=icao)
-    crs_to = GeoTransformer.utm_epsg(airport.lat, airport.lon)
-    transformer = Transformer.from_crs("EPSG:4326", crs_to, always_xy=True)
-
     evaluator = TrajectorySuccessEvaluator(
         lateral_tol_m=15.0,
         vertical_tol_up_m=20.0,
         angle_tol_deg=10.0,
+        gamma_tol_deg=3.0,
+        velocity_tol_pct=0.50,
     )
 
-    evaluate_dir(
-        evaluator, dataset, transformer,
-        output_dir=Path("../data/CYVR/rnav_optimized"),
-        traj_filename="rnav_trajectories.parquet",
-        status_filename="rnav_status.jsonl",
-        label="RNAV",
-        n_samples=6,
-    )
+    LAYER_MODES: list[LayerMode] = ["envelope", "funnel", "combined"]
 
-    evaluate_dir(
-        evaluator, dataset, transformer,
-        output_dir=Path("../data/CYVR/mlp_rollout"),
-        traj_filename="mlp_trajectories.parquet",
-        status_filename="mlp_status.jsonl",
-        label="MLP",
-        n_samples=6,
-    )
-
-    evaluate_dir(
-        evaluator, dataset, transformer,
-        output_dir=Path("../data/CYVR/resnet_rollout"),
-        traj_filename="resnet_rollout_status.parquet",
-        status_filename="resnet_rollout_status.jsonl",
-        label="RESNET",
-        n_samples=6,
-    )
-
-    evaluate_dir(
-        evaluator, dataset, transformer,
-        output_dir=Path("../data/CYVR/resnet_guided_rollout"),
-        traj_filename="resnet_guided_rollout.parquet",
-        status_filename="resnet_guided_rollout_status.jsonl",
-        label="RESNET_CONSTRAINT",
-        n_samples=6,
-    )
-
-    evaluate_dir(
-        evaluator, dataset, transformer,
-        output_dir=Path("../data/CYVR/resnet_qp_rollout"),
-        traj_filename="resnet_qp_rollout.parquet",
-        status_filename="resnet_qp_rollout_status.jsonl",
-        label="RESNET_CONSTRAINT_QP",
-        n_samples=6,
-    )
-
-    evaluate_dir(
-        evaluator, dataset, transformer,
-        output_dir=Path("../data/CYVR/multiple_airports_resnet_qp_rollout"),
-        traj_filename="resnet_qp_rollout.parquet",
-        status_filename="resnet_qp_rollout_status.jsonl",
-        label="RESNET_CONSTRAINT_QP",
-        n_samples=6,
-    )
-
-    # multiple airport section
     airport_list_icao: list[str] = [
         "CYVR",
         "CYUL",
@@ -176,6 +158,8 @@ if __name__ == "__main__":
         # "CYYC", data problem
         # "CYEG", data problem
     ]
+
+    summary_rows: list[dict] = []
 
     for airport_icao in airport_list_icao:
         test_base_path = f"../data/{airport_icao}/test/20260709_1207"
@@ -185,11 +169,123 @@ if __name__ == "__main__":
         crs_to = GeoTransformer.utm_epsg(airport_obj.lat, airport_obj.lon)
         airport_transformer = Transformer.from_crs("EPSG:4326", crs_to, always_xy=True)
 
-        evaluate_dir(
+        # --- ResNet ---
+        baseline_row = evaluate_dir(
             evaluator, airport_dataset, airport_transformer,
-            output_dir=Path(f"../data/{airport_icao}/multiple_airports_resnet_qp_rollout"),
-            traj_filename="resnet_qp_rollout.parquet",
-            status_filename="resnet_qp_rollout_status.jsonl",
-            label="RESNET_CONSTRAINT_QP",
+            output_dir=Path(f"../data/{airport_icao}/resnet_rollout"),
+            traj_filename="resnet_rollout_status.parquet",
+            status_filename="resnet_rollout_status.jsonl",
+            label="RESNET_BASELINE",
+            icao=airport_icao,
+            layer_mode="resnet_baseline",
             n_samples=6,
         )
+        summary_rows.append(baseline_row)
+
+        for layer_mode in LAYER_MODES:
+            row = evaluate_dir(
+                evaluator, airport_dataset, airport_transformer,
+                output_dir=Path(f"../data/{airport_icao}/multiple_airports_resnet_qp_rollout"),
+                traj_filename=f"{layer_mode}_qp_rollout.parquet",
+                status_filename=f"{layer_mode}_qp_rollout_status.jsonl",
+                label=f"RESNET_CONSTRAINT_QP_{layer_mode.upper()}",
+                icao=airport_icao,
+                layer_mode=f"resnet_{layer_mode}",
+                n_samples=6,
+            )
+            summary_rows.append(row)
+
+        # --- iTransformer ---
+        itransformer_baseline_row = evaluate_dir(
+            evaluator, airport_dataset, airport_transformer,
+            output_dir=Path(f"../data/{airport_icao}/itransformer_rollout"),
+            traj_filename="itransformer_rollout.parquet",
+            status_filename="itransformer_rollout_status.jsonl",
+            label="ITRANSFORMER_BASELINE",
+            icao=airport_icao,
+            layer_mode="itransformer_baseline",
+            n_samples=6,
+        )
+        summary_rows.append(itransformer_baseline_row)
+
+        for layer_mode in LAYER_MODES:
+            row = evaluate_dir(
+                evaluator, airport_dataset, airport_transformer,
+                output_dir=Path(f"../data/{airport_icao}/multiple_airports_itransformer_qp_rollout"),
+                traj_filename=f"{layer_mode}_qp_rollout.parquet",
+                status_filename=f"{layer_mode}_qp_rollout_status.jsonl",
+                label=f"ITRANSFORMER_CONSTRAINT_QP_{layer_mode.upper()}",
+                icao=airport_icao,
+                layer_mode=f"itransformer_{layer_mode}",
+                n_samples=6,
+            )
+            summary_rows.append(row)
+
+            # --- ResNet Next-State ---
+            resnet_next_state_row = evaluate_dir(
+                evaluator, airport_dataset, airport_transformer,
+                output_dir=Path(f"../data/{airport_icao}/resnet_next_state_rollout"),
+                traj_filename="resnet_next_state_rollout.parquet",
+                status_filename="resnet_next_state_rollout_status.jsonl",
+                label="RESNET_NEXT_STATE_BASELINE",
+                icao=airport_icao,
+                layer_mode="resnet_next_state_baseline",
+                n_samples=6,
+            )
+            summary_rows.append(resnet_next_state_row)
+
+            resnet_next_state_funnel_row = evaluate_dir(
+                evaluator, airport_dataset, airport_transformer,
+                output_dir=Path(f"../data/{airport_icao}/resnet_next_state_ils_funnel_rollout"),
+                traj_filename="ils_funnel_next_state_rollout.parquet",
+                status_filename="ils_funnel_next_state_rollout_status.jsonl",
+                label="RESNET_NEXT_STATE_ILS_FUNNEL",
+                icao=airport_icao,
+                layer_mode="resnet_next_state_ils_funnel",
+                n_samples=6,
+            )
+            summary_rows.append(resnet_next_state_funnel_row)
+
+            # --- iTransformer Next-State ---
+            itransformer_next_state_row = evaluate_dir(
+                evaluator, airport_dataset, airport_transformer,
+                output_dir=Path(f"../data/{airport_icao}/itransformer_next_state_rollout"),
+                traj_filename="itransformer_next_state_rollout.parquet",
+                status_filename="itransformer_next_state_rollout_status.jsonl",
+                label="ITRANSFORMER_NEXT_STATE_BASELINE",
+                icao=airport_icao,
+                layer_mode="itransformer_next_state_baseline",
+                n_samples=6,
+            )
+            summary_rows.append(itransformer_next_state_row)
+
+            itransformer_next_state_funnel_row = evaluate_dir(
+                evaluator, airport_dataset, airport_transformer,
+                output_dir=Path(f"../data/{airport_icao}/itransformer_next_state_ils_funnel_rollout"),
+                traj_filename="ils_funnel_next_state_rollout.parquet",
+                status_filename="ils_funnel_next_state_rollout_status.jsonl",
+                label="ITRANSFORMER_NEXT_STATE_ILS_FUNNEL",
+                icao=airport_icao,
+                layer_mode="itransformer_next_state_ils_funnel",
+                n_samples=6,
+            )
+            summary_rows.append(itransformer_next_state_funnel_row)
+
+            # --- RNAV Optimizer (reference/upper bound) ---
+            rnav_optimizer_row = evaluate_dir(
+                evaluator, airport_dataset, airport_transformer,
+                output_dir=Path(f"../data/{airport_icao}/rnav_optimized"),
+                traj_filename="rnav_trajectories.parquet",
+                status_filename="rnav_status.jsonl",
+                label="RNAV_OPTIMIZER",
+                icao=airport_icao,
+                layer_mode="rnav_optimizer",
+                n_samples=6,
+            )
+            summary_rows.append(rnav_optimizer_row)
+
+    summary_df = pd.DataFrame(summary_rows)
+    summary_path = Path("../data/qp_layer_mode_summary.csv")
+    summary_df.to_csv(summary_path, index=False)
+    print(f"\n[SUMMARY] {summary_path}")
+    print(summary_df)

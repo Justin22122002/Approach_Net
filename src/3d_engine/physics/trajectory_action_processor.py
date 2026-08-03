@@ -243,10 +243,27 @@ class FlightTrajectoryProcessor:
         spl_h = UnivariateSpline(ts, hs, k=k, s=m * 8.0 ** 2)
         x_s, y_s, h_s = spl_x(ts), spl_y(ts), spl_h(ts)
 
+        arrays_to_check = {
+            "v_s": v_s,
+            "gamma_s": gamma_s,
+            "chi_s": chi_s,
+            "x_s": x_s,
+            "y_s": y_s,
+            "h_s": h_s,
+        }
+        for name, arr in arrays_to_check.items():
+            if not np.isfinite(arr).all():
+                n_bad = (~np.isfinite(arr)).sum()
+                raise ValueError(f"{name} contains {n_bad} NaN/Inf-values after Spline-Fit")
+
         traj = [
             AircraftKinematicsStateCasadi(
-                x=float(x_s[i]), y=float(y_s[i]), h=float(h_s[i]),
-                v=float(v_s[i]), gamma=float(gamma_s[i]), chi=float(chi_s[i]),
+                x=float(x_s[i]),
+                y=float(y_s[i]),
+                h=float(h_s[i]),
+                v=float(v_s[i]),
+                gamma=float(gamma_s[i]),
+                chi=float(chi_s[i]),
                 aircraft_type=dynamics,
             )
             for i in range(m)

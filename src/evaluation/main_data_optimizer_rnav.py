@@ -9,6 +9,7 @@ from physics.aircraft_dynamics import AircraftDynamics
 from physics.aircraft_kinematics_state_casadi import AircraftKinematicsStateCasadi
 from physics.batch_result_store import already_processed, append_trajectory, append_status
 from physics.landing_optimizer_rnav import LandingTrajectoryRnavOptimizer, state_to_casadi
+from utils.airport import Airport
 from utils_project.geo_transformer import GeoTransformer
 from ml.utils.data_loader.lazy_flight_parquet_dataset import LazyFlightParquetDataset
 
@@ -214,15 +215,43 @@ def run_batch_optimization(
 
 
 if __name__ == "__main__":
-    base_path = "../data/CYVR/20260625_1508"
-    dataset = LazyFlightParquetDataset(base_path)
+    # base_path = "../data/CYVR/20260625_1508"
+    # dataset = LazyFlightParquetDataset(base_path)
 
-    run_batch_optimization(
-        dataset=dataset,
-        airport_lat=49.1967,
-        airport_lon=-123.1815,
-        output_dir=Path("../data/CYVR/rnav_optimized"),
-        N=200,
-        T_min=60.0,
-        T_max=1800.0,
-    )
+    # run_batch_optimization(
+    #     dataset=dataset,
+    #     airport_lat=49.1967,
+    #     airport_lon=-123.1815,
+    #     output_dir=Path("../data/CYVR/rnav_optimized"),
+    #     N=200,
+    #     T_min=60.0,
+    #     T_max=1800.0,
+    # )
+
+    airport_list_icao: list[str] = [
+        "CYVR",
+        "CYUL",
+        "CYYZ",
+        # "CYYC", data problem
+        # "CYEG", data problem
+    ]
+
+    for airport_icao in airport_list_icao:
+        icao = airport_icao
+        base_path = f"../data/{icao}/test/20260709_1207"
+        dataset = LazyFlightParquetDataset(base_path)
+
+        airport: Airport = Airport.load_from_folder(base_path=Path("../data/"), icao=icao)
+
+        print(f"start RNAV-optimization for airport: {icao}")
+
+        run_batch_optimization(
+            dataset=dataset,
+            airport_lat=airport.lat,
+            airport_lon=airport.lon,
+            output_dir=Path(f"../data/{icao}/rnav_optimized"),
+            N=200,
+            T_min=60.0,
+            T_max=1800.0,
+            resume=True,
+        )

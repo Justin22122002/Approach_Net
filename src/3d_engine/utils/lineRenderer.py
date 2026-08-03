@@ -21,6 +21,7 @@ from OpenGL.GL import (
     glGenBuffers,
     glGenVertexArrays,
     glGetUniformLocation,
+    glLineWidth,
     glUniformMatrix4fv,
     glUseProgram,
     glVertexAttribPointer,
@@ -43,9 +44,14 @@ class LineRenderer(Component, Renderer):
     """
     Renders a set of line segments in 3D space.
 
-    points  – flat line of Vec3, always 2 for the directly following points = 1 segment
-    color   - one color for all points (ignored when colors are set, see the comment down below)
-    colors  - per vertex-color, needs to be the same length as the points
+    points     – flat line of Vec3, always 2 for the directly following points = 1 segment
+    color      - one color for all points (ignored when colors are set, see the comment down below)
+    colors     - per vertex-color, needs to be the same length as the points
+    line_width - glLineWidth in pixels (default 1.0). Note: many desktop GL Core
+                 Profile drivers (esp. NVIDIA/AMD on Windows) ignore values > 1.0
+                 and always render 1px regardless of this setting -- that's a
+                 driver limitation, not a bug here. Whether it has any visible
+                 effect depends on the GPU/driver in use.
     """
 
     _program: int | None = None  # shared across all instances
@@ -56,11 +62,13 @@ class LineRenderer(Component, Renderer):
         color: Color | None        = None,
         colors: list[Color] | None = None,
         depth_offset: bool         = False,
+        line_width: float          = 1.0,
     ) -> None:
         self.points: list[Vec3]          = points
         self.color:  Color               = color or Color.white()
         self.colors: list[Color] | None  = colors
         self.depth_offset: bool          = depth_offset
+        self.line_width: float           = line_width
 
         self._vao: int | None = None
         self._vbo: int | None = None
@@ -124,9 +132,11 @@ class LineRenderer(Component, Renderer):
         glUniformMatrix4fv(glGetUniformLocation(prog, "uProjection"), 1, GL_TRUE, proj_mat)
         glUniform1i(glGetUniformLocation(prog, "uDepthOffset"), 1 if self.depth_offset else 0)
 
+        glLineWidth(self.line_width)
         glBindVertexArray(self._vao)
         glDrawArrays(GL_LINES, 0, len(self.points))
         glBindVertexArray(0)
+        glLineWidth(1.0)
         glUseProgram(0)
 
     def on_destroy(self) -> None:
@@ -140,6 +150,7 @@ class LineRenderer(Component, Renderer):
         pairs: list[tuple[Vec3, Vec3]],
         color: Color | None = None,
         colors: list[tuple[Color, Color]] | None = None,
+        line_width: float = 1.0,
     ) -> "LineRenderer":
         points: list[Vec3]  = []
         vcols:  list[Color] = []
@@ -148,7 +159,7 @@ class LineRenderer(Component, Renderer):
             if colors:
                 ca, cb = colors[idx]
                 vcols += [ca, cb]
-        return LineRenderer(points, color=color, colors=vcols or None)
+        return LineRenderer(points, color=color, colors=vcols or None, line_width=line_width)
 
     @staticmethod
     def strip(
@@ -156,6 +167,7 @@ class LineRenderer(Component, Renderer):
         color: Color | None = None,
         colors: list[Color] | None = None,
         depth_offset: bool = False,
+        line_width: float = 1.0,
     ) -> "LineRenderer":
         expanded: list[Vec3]  = []
         ecols:    list[Color] = []
@@ -167,7 +179,8 @@ class LineRenderer(Component, Renderer):
             expanded,
             color=color,
             colors=ecols or None,
-            depth_offset=depth_offset
+            depth_offset=depth_offset,
+            line_width=line_width,
         )
 
     @staticmethod
