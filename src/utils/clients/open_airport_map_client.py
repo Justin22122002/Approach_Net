@@ -1,3 +1,4 @@
+import os
 from collections.abc import Callable
 from pathlib import Path
 from pyproj import Geod
@@ -42,7 +43,10 @@ class OpenAirportMapClient:
     def __init__(self, arinc_db_path: Path = Path("FAACIFP18")) -> None:
         self.data: Any | None = None
         self.arinc_client: SQLiteArInC24DatabaseClient = SQLiteArInC24DatabaseClient(arinc_db_path)
-        self.terrain_client: CopernicusDEMProvider = CopernicusDEMProvider("justin.groh@study.thws.de", "Copernicus2026!")
+        self.terrain_client: CopernicusDEMProvider = CopernicusDEMProvider(
+            os.environ["COPERNICUS_USERNAME"],
+            os.environ["COPERNICUS_PASSWORD"],
+        )
 
     def get_airport(self, icao: str) -> Any:
         r = requests.get(f"{self.BASE_URL}/{icao}")

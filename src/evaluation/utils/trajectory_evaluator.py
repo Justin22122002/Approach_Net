@@ -27,10 +27,10 @@ class FlightEvaluation:
     approach_speed_ref_ms: float | None = None
     velocity_dev_pct: float | None = None
     landing_time_s: float | None = None
-    s_needed: float = float("inf")
+    s_needed: float = float("inf")           # strict tolerances -- drives `success` AND succ@1/succ@2/...
+    s_needed_window: float = float("inf")     # wide window tolerances -- drives window_auc ONLY
 
 
-# todo: landing metric landing on the right runway and landing on any runway assigned
 class TrajectorySuccessEvaluator:
     def __init__(
         self,
@@ -41,6 +41,12 @@ class TrajectorySuccessEvaluator:
         gamma_ref_deg: float = -3.0,
         gamma_tol_deg: float = 3.0,
         velocity_tol_pct: float = 0.20,
+        window_lateral_tol_m: float = 2500.0,
+        window_vertical_tol_up_m: float = 1000.0,
+        window_vertical_tol_down_m: float | None = None,
+        window_angle_tol_deg: float = 10.0,
+        window_gamma_tol_deg: float = 3.0,
+        window_velocity_tol_pct: float = 2.5,
     ) -> None:
         self.lateral_tol_m: float = lateral_tol_m
         self.vertical_tol_up_m: float = vertical_tol_up_m
@@ -56,6 +62,15 @@ class TrajectorySuccessEvaluator:
 
         self.APPROACH_SPEED_FACTOR: float = 1.3
         self.STANDARD_GLIDE_PATH_DEG: float = gamma_ref_deg
+
+        self.window_lateral_tol_m: float = window_lateral_tol_m
+        self.window_vertical_tol_up_m: float = window_vertical_tol_up_m
+        self.window_vertical_tol_down_m: float = (
+            window_vertical_tol_down_m if window_vertical_tol_down_m is not None else window_vertical_tol_up_m
+        )
+        self.window_angle_tol_deg: float = window_angle_tol_deg
+        self.window_gamma_tol_deg: float = window_gamma_tol_deg
+        self.window_velocity_tol_pct: float = window_velocity_tol_pct
 
     @staticmethod
     def _project_goal(
@@ -95,6 +110,40 @@ class TrajectorySuccessEvaluator:
             ratios.append(float("inf"))
         else:
             ratios.append(abs(velocity_dev_pct) / self.velocity_tol_pct)
+
+        return float(max(ratios))
+
+    def _compute_s_needed_window(
+        self,
+        lateral_dev_m: float,
+        vertical_dev_m: float,
+        angle_dev_deg: float,
+        gamma_dev_deg: float,
+        velocity_dev_pct: float | None,
+    ) -> float:
+        ratios = []
+
+        ratios.append(
+            abs(lateral_dev_m) / self.window_lateral_tol_m if self.window_lateral_tol_m > 0 else float("inf")
+        )
+
+        if vertical_dev_m >= 0:
+            vt = self.window_vertical_tol_up_m
+        else:
+            vt = self.window_vertical_tol_down_m
+        ratios.append(abs(vertical_dev_m) / vt if vt > 0 else float("inf"))
+
+        ratios.append(
+            abs(angle_dev_deg) / self.window_angle_tol_deg if self.window_angle_tol_deg > 0 else float("inf")
+        )
+        ratios.append(
+            abs(gamma_dev_deg) / self.window_gamma_tol_deg if self.window_gamma_tol_deg > 0 else float("inf")
+        )
+
+        if velocity_dev_pct is None or self.window_velocity_tol_pct <= 0:
+            ratios.append(float("inf"))
+        else:
+            ratios.append(abs(velocity_dev_pct) / self.window_velocity_tol_pct)
 
         return float(max(ratios))
 
@@ -152,8 +201,6 @@ class TrajectorySuccessEvaluator:
         else:
             vertical_ok = abs(vertical_dev_m) <= self.vertical_tol_down_m
 
-        # Velocity IMMER berechnen (nicht erst nach success), damit auch fehlgeschlagene
-        # Fluege einen Wert fuer die "alle Fluege"-Statistik haben.
         dummy_state = AircraftKinematicsStateCasadi(
             x=0.0, y=0.0, h=goal_h, v=0.0, gamma=0.0, chi=0.0,
             aircraft_type=aircraft_dynamics,
@@ -180,6 +227,9 @@ class TrajectorySuccessEvaluator:
         s_needed = self._compute_s_needed(
             lateral_dev_m, vertical_dev_m, angle_dev_deg, gamma_dev_deg, velocity_dev_pct
         )
+        s_needed_window = self._compute_s_needed_window(
+            lateral_dev_m, vertical_dev_m, angle_dev_deg, gamma_dev_deg, velocity_dev_pct
+        )
 
         return FlightEvaluation(
             icao24=icao24,
@@ -196,6 +246,7 @@ class TrajectorySuccessEvaluator:
             velocity_dev_pct=velocity_dev_pct,
             landing_time_s=landing_time_s,
             s_needed=s_needed,
+            s_needed_window=s_needed_window,
         )
 
     def evaluate_batch(
@@ -269,9 +320,10 @@ class TrajectorySuccessEvaluator:
 
     @staticmethod
     def _window_auc(df: DataFrame) -> float | None:
-        if df.empty or "s_needed" not in df or "converged" not in df:
+        """Uses s_needed_window (wide tolerances) -- the ONLY metric that does."""
+        if df.empty or "s_needed_window" not in df or "converged" not in df:
             return None
-        s_needed = df["s_needed"].to_numpy(dtype=float)
+        s_needed = df["s_needed_window"].to_numpy(dtype=float)
         converged = df["converged"].to_numpy(dtype=bool)
         contribution = np.where(converged, np.clip(1.0 - np.minimum(s_needed, 1.0), 0.0, 1.0), 0.0)
         return float(contribution.mean())
@@ -280,6 +332,8 @@ class TrajectorySuccessEvaluator:
 
     @staticmethod
     def _success_rate_at_s(df: DataFrame, s: float) -> float | None:
+        """Uses s_needed (strict tolerances) -- succ@1/succ@2/succ@3/... are
+        UNAFFECTED by window_* tolerances, exactly as before."""
         if df.empty or "s_needed" not in df or "converged" not in df:
             return None
         s_needed = df["s_needed"].to_numpy(dtype=float)
@@ -301,6 +355,7 @@ class TrajectorySuccessEvaluator:
         window_auc = cls._window_auc(eval_df)
         success_rate_by_s = cls._success_rate_by_s(eval_df)
         s_needed_stats = cls._stats(eval_df, "s_needed")
+        s_needed_window_stats = cls._stats(eval_df, "s_needed_window")
 
         success_df = eval_df[eval_df["success"]]
 
@@ -311,6 +366,7 @@ class TrajectorySuccessEvaluator:
             "window_auc": window_auc,
             "success_rate_by_s": success_rate_by_s,
             "s_needed_stats": s_needed_stats,
+            "s_needed_window_stats": s_needed_window_stats,
             "all": cls._metric_block(eval_df),
             "success_only": cls._metric_block(success_df),
         }

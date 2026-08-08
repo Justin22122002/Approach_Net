@@ -1,12 +1,17 @@
+import os
 from pathlib import Path
 
 import numpy as np
 import torch
+from torch import nn
 from pyproj import Transformer
 
+from ml.train_resnet_101_all_aiports import LandingActionResNet101
 from ml.utils.data_loader.landing_action_dataset import LandingActionDataset
 from ml.utils.data_loader.lazy_flight_parquet_dataset import LazyFlightParquetDataset
-from ml.utils.models.resnet_model import LandingActionResNet
+from ml.utils.models.constraint_layer_cvxpy import (
+    AircraftEnvelopeQPLayer, AircraftFunnelQPLayer, AircraftCombinedQPLayer,
+)
 
 from physics.aircraft_environment import AircraftEnvironment
 from physics.aircraft_kinematics_state import AircraftKinematicsState
@@ -24,18 +29,29 @@ from utils.vec3 import Vec3
 from utils_project.geo_transformer import GeoTransformer
 from utils_project.runway_project_mesh import RunwayProjectMesh
 from utils_project.terrain_project_mesh import TerrainProjectMesh
+from dotenv import load_dotenv
+
+load_dotenv()
 
 ICAO = "CYVR"
-FLIGHT_DATA_PATH = "../data/CYVR/20260628_1254" # 20260628_1254, 20260625_1508
-FLIGHT_IDX = 100
+FLIGHT_DATA_PATH = "../data/CYVR/test/20260709_1207"  # "../data/CYVR/test/20260709_1207" "../data/CYVR/train/20260802_0920"
+FLIGHT_IDX = 105
 
-TIME = "2026-07-07_21-23-13"
+TIME = "2026-08-03_15-43-07"  # results/multiple_airports_landing_action_resnet101_torchvision/<TIME>
 
-MODEL_PATH = f"../ml/results/landing_action_resnet/{TIME}/best_model.pth"
-NORM_X_PATH = f"../ml/results/landing_action_resnet/{TIME}/normalization_x.csv"
-NORM_Y_PATH = f"../ml/results/landing_action_resnet/{TIME}/normalization_y.csv"
+MODEL_PATH = f"../ml/results/multiple_airports_landing_action_resnet101_torchvision/{TIME}/best_model.pth"
+NORM_X_PATH = f"../ml/results/multiple_airports_landing_action_resnet101_torchvision/{TIME}/normalization_x.csv"
+NORM_Y_PATH = f"../ml/results/multiple_airports_landing_action_resnet101_torchvision/{TIME}/normalization_y.csv"
 
 PHYS_DT = 1.0
+
+STALL_MARGIN = 1.15
+ALPHA_STALL = 1.0
+
+# "envelope"
+# "funnel"
+# "combined"
+LAYER_MODE = "combined"
 
 
 def load_norm(path: str) -> tuple[np.ndarray, np.ndarray]:
@@ -60,10 +76,11 @@ delta = 0.2
 LAT_MIN, LAT_MAX = airport.lat - delta, airport.lat + delta
 LON_MIN, LON_MAX = airport.lon - delta, airport.lon + delta
 
-email = "justin.groh@study.thws.de"
-password = "Copernicus2026!"
+provider = CopernicusDEMProvider(
+   os.environ["COPERNICUS_USERNAME"],
+   os.environ["COPERNICUS_PASSWORD"],
+)
 
-provider = CopernicusDEMProvider(email, password)
 grid = provider.get_terrain(
     lat_min=LAT_MIN, lon_min=LON_MIN, lat_max=LAT_MAX, lon_max=LON_MAX,
     width=1024, height=1024,
@@ -83,7 +100,7 @@ terrain_project_mesh = TerrainProjectMesh(
     horizontal_scale=horizontal_scale, vertical_scale=vertical_scale, transformer=to_utm,
 )
 
-engine = Engine(1280, 720, f"ResNet-Policy - {ICAO}")
+engine = Engine(1280, 720, f"ResNet101-Policy ({LAYER_MODE}) - {ICAO}")
 scene = engine.scene
 
 terrain_project_mesh.spawn(scene=scene, geo=geo)
@@ -112,6 +129,7 @@ start_point, _ = flight_dataset.get_start_and_end_points(df_flight)
 _, aircraft_dynamics = flight_dataset.get_aircraft(icao24)
 runway_row = flight_dataset.get_runway_assignment(icao24, flight_id)
 runway_elevation_m = float(runway_row["fix_elevation_m"])
+runway_bearing = float(runway_row["runway_bearing"])
 
 x0, y0 = to_utm.transform(float(start_point["lon"]), float(start_point["lat"]))
 v0 = float(start_point["velocity"])
@@ -131,43 +149,78 @@ dyn_feat = np.array(
     dtype=np.float32,
 )
 
-# runway fix in airport-centered UTM frame, elevation RELATIVE to airport_elev (matches training)
+# runway fix in airport-centered UTM frame, elevation RELATIVE (matches training)
 fix_x, fix_y = to_utm.transform(
     float(runway_row["fix_longitude"]), float(runway_row["fix_latitude"])
 )
+fix_x_c = fix_x - airport_cx
+fix_y_c = fix_y - airport_cy
 rwy_feat = np.array([
-    fix_x - airport_cx, fix_y - airport_cy,
-    runway_elevation_m - airport_elev, float(runway_row["runway_bearing"]),
+    fix_x_c, fix_y_c, runway_elevation_m - airport_elev, runway_bearing,
 ], dtype=np.float32)
 
 print(runway_row["fix_identifier"])
 
-model = LandingActionResNet(input_dim=15, hidden_dim=256, n_blocks=4, output_dim=3)
+x_mean, x_std = load_norm(NORM_X_PATH)
+y_mean, y_std = load_norm(NORM_Y_PATH)
+
+model = LandingActionResNet101(input_dim=len(x_mean), output_dim=3)
 model.load_state_dict(torch.load(MODEL_PATH, map_location="cpu"))
 model.eval()
 
-x_mean, x_std = load_norm(NORM_X_PATH)
-y_mean, y_std = load_norm(NORM_Y_PATH)
+_layer_kwargs = dict(base_model=model, y_mean=y_mean, y_std=y_std, debug=False)
+
+if LAYER_MODE == "envelope":
+    guided_model = AircraftEnvelopeQPLayer(
+        **_layer_kwargs, stall_margin=STALL_MARGIN, alpha_stall=ALPHA_STALL,
+    )
+elif LAYER_MODE == "funnel":
+    guided_model = AircraftFunnelQPLayer(
+        **_layer_kwargs, h_thr=runway_elevation_m,
+    )
+elif LAYER_MODE == "combined":
+    guided_model = AircraftCombinedQPLayer(
+        **_layer_kwargs, stall_margin=STALL_MARGIN, alpha_stall=ALPHA_STALL, h_thr=runway_elevation_m,
+    )
+else:
+    raise ValueError(f"unknown LAYER_MODE: {LAYER_MODE!r}")
 
 landed = False
 thrust, load_factor, roll = 0.0, 1.0, 0.0
 
 
 def predict_action() -> tuple[float, float, float]:
-    # aircraft_state.x/y are already UTM -> recenter on the airport;
-    # h is relative to airport_elev, matching the training features
+    x_ac_c = float(aircraft_state.x) - airport_cx
+    y_ac_c = float(aircraft_state.y) - airport_cy
+
     state_feat = np.array(
-        [float(aircraft_state.x) - airport_cx, float(aircraft_state.y) - airport_cy,
-         aircraft_state.h - airport_elev, aircraft_state.v, aircraft_state.gamma, aircraft_state.chi],
+        [x_ac_c, y_ac_c, aircraft_state.h - airport_elev, aircraft_state.v, aircraft_state.gamma, aircraft_state.chi],
         dtype=np.float32,
     )
     x = np.concatenate([dyn_feat, state_feat, rwy_feat])
-    x_norm = (x - x_mean) / x_std
+    assert x.shape[0] == x_mean.shape[0], f"feature dim {x.shape[0]} != normalization dim {x_mean.shape[0]}"
+    x_norm = torch.from_numpy((x - x_mean) / x_std).unsqueeze(0)
 
-    with torch.no_grad():
-        y_norm = model(torch.from_numpy(x_norm).unsqueeze(0)).squeeze(0).numpy()
+    aircraft_state_t = torch.tensor(
+        [[aircraft_state.h, aircraft_state.v, aircraft_state.gamma]], dtype=torch.float32
+    )
+    aircraft_dyn_t = torch.from_numpy(dyn_feat).unsqueeze(0)
+    aircraft_limits_t = torch.tensor([[
+        aircraft_dynamics.max_thrust, aircraft_dynamics.min_load_factor,
+        aircraft_dynamics.max_load_factor, aircraft_dynamics.max_roll_angle,
+    ]], dtype=torch.float32)
 
-    t, n, phi = (y_norm * y_std + y_mean).tolist()
+    if LAYER_MODE == "envelope":
+        out = guided_model(x_norm, aircraft_state_t, aircraft_dyn_t, aircraft_limits_t)
+    else:
+        aircraft_pos_t = torch.tensor([[x_ac_c, y_ac_c, aircraft_state.chi]], dtype=torch.float32)
+        runway_pos_t = torch.tensor([[fix_x_c, fix_y_c, runway_bearing]], dtype=torch.float32)
+        out = guided_model(
+            x_norm, aircraft_state_t, aircraft_dyn_t, aircraft_limits_t,
+            aircraft_pos=aircraft_pos_t, runway_pos=runway_pos_t,
+        )
+
+    t, n, phi = out.squeeze(0).tolist()
 
     t = float(np.clip(t, 0.0, aircraft_dynamics.max_thrust))
     n = float(np.clip(n, aircraft_dynamics.min_load_factor, aircraft_dynamics.max_load_factor))
@@ -192,7 +245,6 @@ vel_go.add_component(vel_lr)
 trail_go = scene.spawn("Trail")
 trail_lr = LineRenderer([Vec3.zero(), Vec3.zero()], color=Color(0.3, 0.75, 1.0))
 trail_go.add_component(trail_lr)
-
 
 def on_update(dt: float) -> None:
     global thrust, load_factor, roll, _phys_acc, landed
@@ -235,7 +287,7 @@ def on_gui() -> None:
     fps = engine._clock.get_fps() if engine._clock else 0.0
 
     hud.panel(10, 10, 285, 170, border_radius=8)
-    hud.text("ResNet policy", 20, 16, size=17, color=(60, 210, 255), shadow=True)
+    hud.text(f"ResNet101 policy + {LAYER_MODE}-QP", 20, 16, size=14, color=(60, 210, 255), shadow=True)
     hud.line(20, 38, 285, 38, color=(80, 80, 100, 180))
 
     v_kts = aircraft_state.v * 1.944

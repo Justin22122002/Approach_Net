@@ -1,4 +1,5 @@
 import math
+import os
 from collections import defaultdict, deque
 from datetime import timedelta
 from pathlib import Path
@@ -6,7 +7,6 @@ from pathlib import Path
 import pandas as pd
 from pyproj import Transformer
 
-from utils import airport
 from utils.aircraft_history_interpolator import AircraftHistoryInterpolator
 from utils.airport import Airport
 from utils.arinc_runway import ArincRunway
@@ -25,6 +25,9 @@ from utils.pointRenderer import PointRenderer
 from utils.lineRenderer import LineRenderer
 
 from OpenGL.GL import glDeleteVertexArrays, glDeleteBuffers
+from dotenv import load_dotenv
+
+load_dotenv()
 
 icao_vancouver = {
     "icao": "CYYC",
@@ -53,16 +56,17 @@ interpolator: AircraftHistoryInterpolator = AircraftHistoryInterpolator(history_
 
 runways: list[ArincRunway] = airport.arinc_424_runway
 
-email = "justin.groh@study.thws.de"
-password = "Copernicus2026!"
-
 delta = 0.2
 LAT_MIN = airport.lat - delta
 LAT_MAX = airport.lat + delta
 LON_MIN = airport.lon - delta
 LON_MAX = airport.lon + delta
 
-provider = CopernicusDEMProvider(email, password)
+provider = CopernicusDEMProvider(
+   os.environ["COPERNICUS_USERNAME"],
+   os.environ["COPERNICUS_PASSWORD"],
+)
+
 grid = provider.get_terrain(
     lat_min=LAT_MIN,
     lon_min=LON_MIN,

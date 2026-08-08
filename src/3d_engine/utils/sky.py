@@ -2,13 +2,16 @@ import math
 
 import numpy as np
 from OpenGL.GL import (
+    GL_ALWAYS,
     GL_DEPTH_TEST,
     GL_CULL_FACE,
     GL_FRAGMENT_SHADER,
+    GL_LESS,
     GL_TRIANGLES,
     GL_TRUE,
     GL_VERTEX_SHADER,
     glBindVertexArray,
+    glDepthFunc,
     glDepthMask,
     glDisable,
     glDrawArrays,
@@ -20,7 +23,6 @@ from OpenGL.GL import (
     glUniform3f,
     glUniformMatrix4fv,
     glUseProgram,
-    GL_FALSE,
 )
 from OpenGL.GL.shaders import compileProgram, compileShader, ShaderProgram
 
@@ -47,6 +49,7 @@ in  vec2 vUV;
 out vec4 FragColor;
 
 uniform mat4  uInvVP;
+uniform mat4  uVP;
 uniform vec3  uSunDir;
 uniform float uTime;
 uniform float uCloudDensity;
@@ -93,6 +96,9 @@ void main() {
 
     float elev = dir.y;
 
+    // No occlusion by default; only a hit cloud layer writes real depth below.
+    gl_FragDepth = 1.0;
+
     vec3 skyColor;
     if (elev >= 0.0) {
         skyColor = mix(uHorizonColor, uZenithColor, pow(elev, 0.55));
@@ -136,6 +142,16 @@ void main() {
 
         skyColor = mix(skyColor, cloudColor,  cloud);
         skyColor = mix(skyColor, cirrusColor, cirrus);
+
+        // Give the cloud layer a real depth-buffer value where it's actually
+        // visible, so objects further away than this point get correctly
+        // hidden behind it by the scene's normal depth test.
+        if (cloud > 0.02) {
+            vec3  hitPoint = vec3(cloudHit.x, uCloudAltitude, cloudHit.y);
+            vec4  clipPos  = uVP * vec4(hitPoint, 1.0);
+            float ndcZ     = clipPos.z / clipPos.w;
+            gl_FragDepth   = clamp(ndcZ * 0.5 + 0.5, 0.0, 1.0);
+        }
     }
 
     float sunDot   = dot(dir, uSunDir);
@@ -213,20 +229,23 @@ class Sky:
         view_rot[0, 3] = 0.0
         view_rot[1, 3] = 0.0
         view_rot[2, 3] = 0.0
-        vp     = proj_mat @ view_rot
-        inv_vp = np.linalg.inv(vp).astype(np.float32)
+        vp      = proj_mat @ view_rot
+        inv_vp  = np.linalg.inv(vp).astype(np.float32)
+        full_vp = (proj_mat @ view_mat).astype(np.float32)
 
         sun    = self._sun_direction()
         cp     = cam_pos or Vec3.zero()
 
-        glDisable(GL_DEPTH_TEST)
+        glEnable(GL_DEPTH_TEST)
+        glDepthFunc(GL_ALWAYS)
         glDisable(GL_CULL_FACE)
-        glDepthMask(GL_FALSE)
+        glDepthMask(GL_TRUE)
 
         prog = self._prog
         glUseProgram(prog)
 
         glUniformMatrix4fv(glGetUniformLocation(prog, "uInvVP"),        1, GL_TRUE, inv_vp)
+        glUniformMatrix4fv(glGetUniformLocation(prog, "uVP"),           1, GL_TRUE, full_vp)
         glUniform3f(       glGetUniformLocation(prog, "uSunDir"),        sun.x, sun.y, sun.z)
         glUniform1f(       glGetUniformLocation(prog, "uTime"),          time)
         glUniform1f(       glGetUniformLocation(prog, "uCloudDensity"),  self.cloud_density)
@@ -242,6 +261,7 @@ class Sky:
         glBindVertexArray(0)
 
         glUseProgram(0)
+        glDepthFunc(GL_LESS)
         glDepthMask(GL_TRUE)
         glEnable(GL_DEPTH_TEST)
         glEnable(GL_CULL_FACE)

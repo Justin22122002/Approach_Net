@@ -1,4 +1,5 @@
 from pathlib import Path
+import copy
 
 import numpy as np
 import torch
@@ -41,11 +42,14 @@ class LandingActionDataset(Dataset):
         airport_center_latlon: tuple[float, float],  # note: (lat, lon)
         airport_elevation_m: float,                  # reference height subtracted from h and fix_elevation
         max_dt: float = 5.0,
+        augment_rotations_deg: list[float] | None = None,
     ) -> None:
         self.flight_dataset: LazyFlightParquetDataset = flight_dataset
         self.processor: FlightTrajectoryProcessor = FlightTrajectoryProcessor(flight_dataset)
         self.max_dt: float = max_dt
         self.mode: TrajectoryMode = mode
+
+        self.augment_rotations_deg: list[float] = list(augment_rotations_deg) if augment_rotations_deg else []
 
         # single fixed airport-centered UTM frame (shared by all flights + runways)
         self.airport_center_latlon: tuple[float, float] = airport_center_latlon
@@ -56,8 +60,9 @@ class LandingActionDataset(Dataset):
         )
         self.airport_cx, self.airport_cy = self._utm.transform(alon, alat)
 
-        self._cache: dict[int, tuple[np.ndarray, np.ndarray]] = {}  # flight_idx -> (X, Y)
-        self.samples: list[tuple[int, int]] = []                    # (flight_idx, step_idx)
+        self._cache: dict[int, tuple[np.ndarray, np.ndarray]] = {}  # cache_idx -> (X, Y)
+        self._source_flight: dict[int, int] = {}                    # cache_idx -> real flight_idx it derives from
+        self.samples: list[tuple[int, int]] = []                    # (cache_idx, step_idx)
         self.flight_id_of_sample: list[int] = []
 
         self._build_index()
@@ -72,25 +77,50 @@ class LandingActionDataset(Dataset):
         x, y = self._utm.transform(float(lon), float(lat))
         return x - self.airport_cx, y - self.airport_cy
 
-    def _runway_features(self, icao24: str, flight_id: int) -> np.ndarray:
+    @staticmethod
+    def _rotate_xy(x: float, y: float, rotation_deg: float) -> tuple[float, float]:
+        theta = np.radians(rotation_deg)
+        cos_t, sin_t = np.cos(theta), np.sin(theta)
+        return x * cos_t + y * sin_t, -x * sin_t + y * cos_t
+
+    def _rotate_trajectory_states(self, traj: list, rotation_deg: float) -> list:
+        rotated = []
+        for state in traj:
+            x_rel, y_rel = self._rotate_xy(
+                state.x - self.airport_cx, state.y - self.airport_cy, rotation_deg
+            )
+            new_state = copy.copy(state)
+            new_state.x = x_rel + self.airport_cx
+            new_state.y = y_rel + self.airport_cy
+            new_state.chi = (state.chi + rotation_deg) % 360.0
+            rotated.append(new_state)
+        return rotated
+
+    def _runway_features(self, icao24: str, flight_id: int, rotation_deg: float = 0.0) -> np.ndarray:
         try:
             row = self.flight_dataset.get_runway_assignment(icao24, flight_id)
         except KeyError:
             return np.zeros(4, dtype=np.float32)
 
         fx, fy = self._to_airport_frame(row["fix_longitude"], row["fix_latitude"])
-        return np.array([
-            fx, fy,
-            float(row["fix_elevation_m"]) - self.airport_elevation_m,
-            row["runway_bearing"],
-        ], dtype=np.float32)
+        bearing = float(row["runway_bearing"])
+        elev_rel = float(row["fix_elevation_m"]) - self.airport_elevation_m
 
-    def _build_flight(self, flight_idx: int) -> tuple[np.ndarray, np.ndarray]:
+        if rotation_deg != 0.0:
+            fx, fy = self._rotate_xy(fx, fy, rotation_deg)
+            bearing = (bearing + rotation_deg) % 360.0
+
+        return np.array([fx, fy, elev_rel, bearing], dtype=np.float32)
+
+    def _build_flight(self, flight_idx: int, rotation_deg: float = 0.0) -> tuple[np.ndarray, np.ndarray]:
         traj, dynamics, timestamps = self.processor.load(flight_idx, mode=self.mode)
         icao24, flight_id = self.flight_dataset.flights[flight_idx]
 
+        if rotation_deg != 0.0:
+            traj = self._rotate_trajectory_states(traj, rotation_deg)
+
         dyn_feat = np.array([getattr(dynamics, k) for k in self.DYNAMICS_KEYS], dtype=np.float32)
-        rwy_feat = self._runway_features(icao24, flight_id)
+        rwy_feat = self._runway_features(icao24, flight_id, rotation_deg=rotation_deg)
 
         xs, ys = [], []
         for i in range(len(traj) - 1):
@@ -112,12 +142,15 @@ class LandingActionDataset(Dataset):
 
         return np.asarray(xs, dtype=np.float32), np.asarray(ys, dtype=np.float32)
 
-    def _build_flight_cap(self, flight_idx: int) -> tuple[np.ndarray, np.ndarray]:
+    def _build_flight_cap(self, flight_idx: int, rotation_deg: float = 0.0) -> tuple[np.ndarray, np.ndarray]:
         traj, dynamics, timestamps = self.processor.load(flight_idx, mode="raw")
         icao24, flight_id = self.flight_dataset.flights[flight_idx]
 
+        if rotation_deg != 0.0:
+            traj = self._rotate_trajectory_states(traj, rotation_deg)
+
         dyn_feat = np.array([getattr(dynamics, k) for k in self.DYNAMICS_KEYS], dtype=np.float32)
-        rwy_feat = self._runway_features(icao24, flight_id)
+        rwy_feat = self._runway_features(icao24, flight_id, rotation_deg=rotation_deg)
 
         xs, ys = [], []
         for i in range(len(traj) - 1):
@@ -146,9 +179,11 @@ class LandingActionDataset(Dataset):
         return np.asarray(xs, dtype=np.float32), np.asarray(ys, dtype=np.float32)
 
     def _build_index(self) -> None:
+        next_aug_idx = len(self.flight_dataset)
+
         for flight_idx in range(len(self.flight_dataset)):
             try:
-                X, Y = self._build_flight(flight_idx)  # _build_flight_cap _build_flight
+                X, Y = self._build_flight(flight_idx)  # rotation_deg=0.0 -> original
             except Exception as e:
                 print(f"[WARN] skipping flight {flight_idx}: {e}")
                 continue
@@ -156,9 +191,28 @@ class LandingActionDataset(Dataset):
                 continue
 
             self._cache[flight_idx] = (X, Y)
+            self._source_flight[flight_idx] = flight_idx
             for step_idx in range(len(X)):
                 self.samples.append((flight_idx, step_idx))
                 self.flight_id_of_sample.append(flight_idx)
+
+            for rotation_deg in self.augment_rotations_deg:
+                try:
+                    Xa, Ya = self._build_flight(flight_idx, rotation_deg=rotation_deg)
+                except Exception as e:
+                    print(f"[WARN] skipping {rotation_deg}deg augmentation of flight {flight_idx}: {e}")
+                    continue
+                if len(Xa) == 0:
+                    continue
+
+                aug_idx = next_aug_idx
+                next_aug_idx += 1
+
+                self._cache[aug_idx] = (Xa, Ya)
+                self._source_flight[aug_idx] = flight_idx
+                for step_idx in range(len(Xa)):
+                    self.samples.append((aug_idx, step_idx))
+                    self.flight_id_of_sample.append(aug_idx)
 
     @property
     def input_dim(self) -> int:
@@ -191,13 +245,17 @@ class LandingActionDataset(Dataset):
         return torch.from_numpy(x.astype(np.float32)), torch.from_numpy(y.astype(np.float32))
 
     def flight_level_split(self, val_frac: float = 0.2, seed: int = 42) -> tuple[Subset, Subset]:
+        # split at the ORIGINAL-flight level so augmented siblings always
+        # follow their source flight into the same split
         rng = np.random.default_rng(seed)
-        flight_indices = np.array(sorted(self._cache.keys()))
-        rng.shuffle(flight_indices)
+        real_flight_indices = np.array(sorted(set(self._source_flight.values())))
+        rng.shuffle(real_flight_indices)
 
-        n_val = max(1, int(len(flight_indices) * val_frac))
-        val_flights = set(flight_indices[:n_val].tolist())
-        train_flights = [f for f in flight_indices if f not in val_flights]
+        n_val = max(1, int(len(real_flight_indices) * val_frac))
+        val_roots = set(real_flight_indices[:n_val].tolist())
+
+        val_flights = {f for f, root in self._source_flight.items() if root in val_roots}
+        train_flights = [f for f in self._cache.keys() if f not in val_flights]
 
         self.fit_normalization_stats(train_flights)
 
@@ -207,11 +265,14 @@ class LandingActionDataset(Dataset):
 
     def split_flights(self, val_frac: float = 0.2, seed: int = 42) -> tuple[list[int], list[int]]:
         rng = np.random.default_rng(seed)
-        flight_indices = np.array(sorted(self._cache.keys()))
-        rng.shuffle(flight_indices)
-        n_val = max(1, int(len(flight_indices) * val_frac))
-        val_flights = flight_indices[:n_val].tolist()
-        train_flights = [f for f in flight_indices if f not in set(val_flights)]
+        real_flight_indices = np.array(sorted(set(self._source_flight.values())))
+        rng.shuffle(real_flight_indices)
+
+        n_val = max(1, int(len(real_flight_indices) * val_frac))
+        val_roots = set(real_flight_indices[:n_val].tolist())
+
+        train_flights = [f for f, root in self._source_flight.items() if root not in val_roots]
+        val_flights = [f for f, root in self._source_flight.items() if root in val_roots]
         return train_flights, val_flights
 
     def indices_for_flights(self, flights: set[int]) -> list[int]:
@@ -225,12 +286,11 @@ class LandingActionDataset(Dataset):
 
 
 if __name__ == "__main__":
-    import random
     import matplotlib.pyplot as plt
 
     icao: str = "CYVR"
 
-    base = LazyFlightParquetDataset(f"../../../{icao}/CYVR/20260625_1508")
+    base = LazyFlightParquetDataset(f"../../../data/{icao}/train/20260708_1247")
 
     airport: Airport = Airport.load_from_folder(base_path=Path("../../../data/"), icao=icao)
 
@@ -245,33 +305,44 @@ if __name__ == "__main__":
     print(f"Airport center UTM: ({dataset.airport_cx:.1f}, {dataset.airport_cy:.1f})")
     print(f"Airport elevation ref: {dataset.airport_elevation_m:.1f} m")
 
-    # sanity: state x/y small; state h now relative (few 100 m on approach, ~0 at touchdown)
     fi = next(iter(dataset._cache))
     X, _ = dataset._cache[fi]
     print("example state x/y/h [m]:", X[0, 5], X[0, 6], X[0, 7])  # 5,6,7 = state x,y,h
 
-    n_plots = min(5, len(dataset._cache))
-    random.seed(42)
-    flight_indices = random.sample(list(dataset._cache.keys()), n_plots)
+    def _heading_vector(chi_deg: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        chi = np.radians(chi_deg)
+        return np.sin(chi), np.cos(chi)
 
-    for flight_idx in flight_indices:
-        df = base[flight_idx].sort_values("time")
-        icao24, flight_id = base.flights[flight_idx]
+    def plot_trajectory_with_headings(ax, X: np.ndarray, title: str, step: int = 10) -> None:
+        xs, ys, chis = X[:, 5], X[:, 6], X[:, 10]
+        fx, fy, bearing = float(X[0, 11]), float(X[0, 12]), float(X[0, 14])
 
-        plt.figure(figsize=(8, 8))
-        scatter = plt.scatter(df["lon"], df["lat"], c=df["geoaltitude"], cmap="viridis", s=8)
-        plt.plot(df["lon"].iloc[0], df["lat"].iloc[0], "go", markersize=10, label="Start")
-        plt.plot(df["lon"].iloc[-1], df["lat"].iloc[-1], "ro", markersize=10, label="End")
+        idx = np.arange(0, len(X), step)
+        ax.scatter(xs[idx], ys[idx], s=15, c="tab:blue", label="trajectory (every 10th)", zorder=3)
 
-        try:
-            rwy = base.get_runway_assignment(icao24, flight_id)
-            plt.plot(rwy["fix_longitude"], rwy["fix_latitude"], "kx",
-                     markersize=12, markeredgewidth=3, label="Runway Fix")
-        except KeyError:
-            pass
+        extent = max(xs.max() - xs.min(), ys.max() - ys.min(), 1.0)
+        arrow_len = 0.04 * extent
 
-        plt.title(f"{icao24}  Flight {flight_id}")
-        plt.xlabel("Longitude"); plt.ylabel("Latitude")
-        plt.grid(True); plt.axis("equal"); plt.legend()
-        cbar = plt.colorbar(scatter); cbar.set_label("Geo Altitude [m]")
-        plt.show()
+        dx, dy = _heading_vector(chis[idx])
+        ax.quiver(xs[idx], ys[idx], dx, dy, angles="xy", scale_units="xy",
+                  scale=1 / arrow_len, color="tab:blue", width=0.004, label="heading (chi)")
+
+        ax.plot(fx, fy, "kx", markersize=14, markeredgewidth=3, label="runway fix", zorder=4)
+        rdx, rdy = _heading_vector(np.array([bearing]))
+        ax.quiver([fx], [fy], rdx, rdy, angles="xy", scale_units="xy",
+                  scale=1 / (2 * arrow_len), color="tab:red", width=0.006, label="runway bearing")
+
+        ax.set_title(title)
+        ax.set_xlabel("x [m, airport-centered]"); ax.set_ylabel("y [m, airport-centered]")
+        ax.axis("equal"); ax.grid(True); ax.legend(fontsize=8, loc="best")
+
+    demo_flight_idx = fi
+    X_orig, _ = dataset._cache[demo_flight_idx]
+    X_aug, _ = dataset._build_flight(demo_flight_idx, rotation_deg=180.0)
+
+    fig, axes = plt.subplots(1, 2, figsize=(14, 7))
+    plot_trajectory_with_headings(axes[0], X_orig, "Original")
+    plot_trajectory_with_headings(axes[1], X_aug, "Augmented (180 deg)")
+    fig.suptitle(f"{icao}  flight index {demo_flight_idx}")
+    fig.tight_layout()
+    plt.show()

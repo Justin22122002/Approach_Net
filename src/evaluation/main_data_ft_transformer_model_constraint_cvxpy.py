@@ -4,26 +4,26 @@ from typing import Literal
 import numpy as np
 import pandas as pd
 import torch
+from torch import nn
 from pandas import DataFrame
 from pyproj import Transformer
+from rtdl_revisiting_models import FTTransformer
 
 from evaluation.main_data_optimizer import build_start_state
-from ml.utils.data_loader.landing_state_forecast_dataset import LandingActionWindowDataset
-from ml.utils.models.landing_action_itransformer import LandingActionITransformer
+from ml.utils.models.landing_action_ft_transformer import LandingActionFTTransformer
 from physics.aircraft_dynamics import AircraftDynamics
 from physics.aircraft_environment_casadi import AircraftEnvironmentCasadi
 from physics.batch_result_store import already_processed, append_trajectory, append_status
 from utils.airport import Airport
 from utils_project.geo_transformer import GeoTransformer
 from ml.utils.data_loader.lazy_flight_parquet_dataset import LazyFlightParquetDataset
+from ml.utils.data_loader.landing_action_dataset import LandingActionDataset
 from ml.utils.models.constraint_layer_cvxpy import (
     AircraftEnvelopeQPLayer, AircraftFunnelQPLayer, AircraftCombinedQPLayer,
 )
 
 LayerMode = Literal["envelope", "funnel", "combined"]
 GuidedModel = AircraftEnvelopeQPLayer | AircraftFunnelQPLayer | AircraftCombinedQPLayer
-
-WINDOW_LEN = 16
 
 
 def load_norm(path: str) -> tuple[np.ndarray, np.ndarray]:
@@ -33,7 +33,7 @@ def load_norm(path: str) -> tuple[np.ndarray, np.ndarray]:
 
 def build_guided_model(
     layer_mode: LayerMode,
-    model: LandingActionITransformer,
+    model: LandingActionFTTransformer,
     y_mean: np.ndarray,
     y_std: np.ndarray,
     runway_elevation_m: float,
@@ -54,36 +54,35 @@ def build_guided_model(
         raise ValueError(f"unknown layer_mode: {layer_mode!r}")
 
 
-def predict_action_window(
+def predict_action(
     layer_mode: LayerMode,
     guided_model: GuidedModel,
-    window_states: np.ndarray,     # (window_len, 6) airport-centered dynamic states, h RELATIVE
-    dyn_feat: np.ndarray,          # (5,)
-    rwy_feat: np.ndarray,          # (4,) airport-centered, elevation RELATIVE
-    runway_elevation_m: float,
+    dyn_feat: np.ndarray,
+    rwy_feat: np.ndarray,          # airport-centered, elevation RELATIVE: [fix_x, fix_y, elev_rel, bearing]
+    state_feat: np.ndarray,        # airport-centered, h RELATIVE: [x, y, h_rel, v, gamma, chi]
+    runway_elevation_m: float,     # ABSOLUTE runway elevation, used as h_thr in the QP layer
     aircraft_dynamics: AircraftDynamics,
     x_mean: np.ndarray,
     x_std: np.ndarray,
     airport_elev: float,
 ) -> tuple[float, float, float]:
-    # last (current) state -> used for the QP layer's constraint inputs, same as before
-    x_c, y_c, h_rel, v, gamma, chi = window_states[-1].tolist()
+    x_c, y_c, h_rel, v, gamma, chi = state_feat.tolist()
     fix_x_c, fix_y_c, fix_elev_rel, bearing = rwy_feat.tolist()
 
-    static_tiled = np.tile(np.concatenate([dyn_feat, rwy_feat]), (WINDOW_LEN, 1))  # (T, 9)
-    x = np.concatenate([window_states, static_tiled], axis=1)                       # (T, 15)
+    x = np.concatenate([dyn_feat, state_feat, rwy_feat])
+    assert x.shape[0] == x_mean.shape[0], f"feature dim {x.shape[0]} != normalization dim {x_mean.shape[0]}"
     x_norm = (x - x_mean) / x_std
 
     h_abs = h_rel + airport_elev
 
     aircraft_state_t = torch.tensor([[h_abs, v, gamma]], dtype=torch.float32)
-    aircraft_dyn_t = torch.from_numpy(dyn_feat).unsqueeze(0)
+    aircraft_dyn_t = torch.from_numpy(dyn_feat).unsqueeze(0)  # mass, C_D0, area, cl_max, k
     aircraft_limits_t = torch.tensor([[
         aircraft_dynamics.max_thrust, aircraft_dynamics.min_load_factor,
         aircraft_dynamics.max_load_factor, aircraft_dynamics.max_roll_angle,
     ]], dtype=torch.float32)
 
-    x_norm_t = torch.from_numpy(x_norm.astype(np.float32)).unsqueeze(0)  # (1, T, 15)
+    x_norm_t = torch.from_numpy(x_norm).unsqueeze(0)
 
     if layer_mode == "envelope":
         out = guided_model(x_norm_t, aircraft_state_t, aircraft_dyn_t, aircraft_limits_t)
@@ -130,7 +129,7 @@ def rollout_single_flight(
     env = AircraftEnvironmentCasadi(state=state, goal=None, dt=dt)
 
     dyn_feat = np.array(
-        [getattr(aircraft_dynamics, k) for k in LandingActionWindowDataset.DYNAMICS_KEYS],
+        [getattr(aircraft_dynamics, k) for k in LandingActionDataset.DYNAMICS_KEYS],
         dtype=np.float32,
     )
 
@@ -142,24 +141,18 @@ def rollout_single_flight(
         runway_elevation_m - airport_elev, float(runway_row["runway_bearing"]),
     ], dtype=np.float32)
 
-    def current_state_feat() -> np.ndarray:
-        return np.array(
+    rows: list[dict] = []
+    landed = False
+
+    for step in range(max_steps):
+        state_feat = np.array(
             [float(state.x) - airport_cx, float(state.y) - airport_cy,
              float(state.h) - airport_elev, float(state.v), float(state.gamma), float(state.chi)],
             dtype=np.float32,
         )
 
-    # no real history at rollout start -> pad the window by repeating the start state
-    window_buffer: list[np.ndarray] = [current_state_feat() for _ in range(WINDOW_LEN)]
-
-    rows: list[dict] = []
-    landed = False
-
-    for step in range(max_steps):
-        window_states = np.stack(window_buffer, axis=0)  # (WINDOW_LEN, 6)
-
-        t, n, phi = predict_action_window(
-            layer_mode, guided_model, window_states, dyn_feat, rwy_feat, runway_elevation_m,
+        t, n, phi = predict_action(
+            layer_mode, guided_model, dyn_feat, rwy_feat, state_feat, runway_elevation_m,
             aircraft_dynamics, x_mean, x_std, airport_elev,
         )
 
@@ -180,9 +173,6 @@ def rollout_single_flight(
         })
 
         env.apply_action(t, n, phi)
-
-        window_buffer.pop(0)
-        window_buffer.append(current_state_feat())
 
         # todo: this can be tricky, add if the runway threshold is passed
         if float(state.h) <= runway_elevation_m:
@@ -230,17 +220,12 @@ def run_batch_rollout(
 
     airport_cx, airport_cy = to_utm.transform(alon, alat)
 
-    model = LandingActionITransformer(
-        num_variates=15,
-        lookback_len=WINDOW_LEN,
-        dim=128, depth=2, heads=8, dim_head=32,
-        action_dim=3,
-    )
-    model.load_state_dict(torch.load(model_path, map_location="cpu"))
-    model.eval()
-
     x_mean, x_std = load_norm(norm_x_path)
     y_mean, y_std = load_norm(norm_y_path)
+
+    model = LandingActionFTTransformer(input_dim=len(x_mean), action_dim=3)
+    model.load_state_dict(torch.load(model_path, map_location="cpu"))
+    model.eval()
 
     n_total = len(dataset)
 
@@ -253,7 +238,7 @@ def run_batch_rollout(
     for idx in range(n_total):
         icao24, flight_id = dataset.flights[idx]
 
-        print(f"\n[{idx + 1}/{n_total}] {layer_mode}-QP iTransformer rollout {icao24} / flight_id={flight_id}")
+        print(f"\n[{idx + 1}/{n_total}] {layer_mode}-QP FT-Transformer rollout {icao24} / flight_id={flight_id}")
 
         if resume and already_processed(status_path, icao24, flight_id):
             print("  [SKIP] already processed (resume=True)")
@@ -313,12 +298,12 @@ def run_batch_rollout(
 
 
 if __name__ == "__main__":
-    TIME = "2026-07-27_22-06-07"
-    MODEL_PATH = f"../ml/results/multiple_airports_landing_action_itransformer/{TIME}/best_model.pth"
-    NORM_X_PATH = f"../ml/results/multiple_airports_landing_action_itransformer/{TIME}/normalization_x.csv"
-    NORM_Y_PATH = f"../ml/results/multiple_airports_landing_action_itransformer/{TIME}/normalization_y.csv"
+    TIME = "2026-08-05_21-33-34"  # 2026-08-06_07-08-10,  2026-08-05_21-33-34 -> flip augmentation
+    MODEL_PATH = f"../ml/results/multiple_airports_landing_action_ft_transformer_augmented/{TIME}/best_model.pth"
+    NORM_X_PATH = f"../ml/results/multiple_airports_landing_action_ft_transformer_augmented/{TIME}/normalization_x.csv"
+    NORM_Y_PATH = f"../ml/results/multiple_airports_landing_action_ft_transformer_augmented/{TIME}/normalization_y.csv"
 
-    LAYER_MODES: list[LayerMode] = ["envelope", "funnel", "combined"]
+    LAYER_MODES: list[LayerMode] = ["combined"]  # ["envelope", "funnel", "combined"]
 
     airport_list_icao: list[str] = [
         "CYVR",
@@ -344,7 +329,7 @@ if __name__ == "__main__":
                 model_path=MODEL_PATH,
                 norm_x_path=NORM_X_PATH,
                 norm_y_path=NORM_Y_PATH,
-                output_dir=Path(f"../data/{icao}/multiple_airports_itransformer_qp_rollout"),
+                output_dir=Path(f"../data/{icao}/multiple_airports_ft_transformer_rollout_constraint"),
                 dt=1.0,
                 max_steps=2000,
                 stall_margin=1.15,

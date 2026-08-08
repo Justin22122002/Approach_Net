@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Literal
 
 import numpy as np
 import pandas as pd
@@ -7,6 +8,7 @@ from pandas import DataFrame
 from pyproj import Transformer
 
 from evaluation.main_data_optimizer import build_start_state
+from ml.utils.models.landing_resnet_101 import LandingActionResNet101
 from physics.aircraft_dynamics import AircraftDynamics
 from physics.aircraft_environment_casadi import AircraftEnvironmentCasadi
 from physics.batch_result_store import already_processed, append_trajectory, append_status
@@ -14,8 +16,12 @@ from utils.airport import Airport
 from utils_project.geo_transformer import GeoTransformer
 from ml.utils.data_loader.lazy_flight_parquet_dataset import LazyFlightParquetDataset
 from ml.utils.data_loader.landing_action_dataset import LandingActionDataset
-from ml.utils.models.resnet_model import LandingActionResNet
-from ml.utils.models.constraint_layers import RunwayGuidanceLayer
+from ml.utils.models.constraint_layer_cvxpy import (
+    AircraftEnvelopeQPLayer, AircraftFunnelQPLayer, AircraftCombinedQPLayer,
+)
+
+LayerMode = Literal["envelope", "funnel", "combined"]
+GuidedModel = AircraftEnvelopeQPLayer | AircraftFunnelQPLayer | AircraftCombinedQPLayer
 
 
 def load_norm(path: str) -> tuple[np.ndarray, np.ndarray]:
@@ -23,11 +29,36 @@ def load_norm(path: str) -> tuple[np.ndarray, np.ndarray]:
     return arr[0].astype(np.float32), arr[1].astype(np.float32)
 
 
+def build_guided_model(
+    layer_mode: LayerMode,
+    model: LandingActionResNet101,
+    y_mean: np.ndarray,
+    y_std: np.ndarray,
+    runway_elevation_m: float,
+    stall_margin: float,
+    alpha_stall: float,
+) -> GuidedModel:
+    kwargs = dict(base_model=model, y_mean=y_mean, y_std=y_std, debug=False)
+
+    if layer_mode == "envelope":
+        return AircraftEnvelopeQPLayer(**kwargs, stall_margin=stall_margin, alpha_stall=alpha_stall)
+    elif layer_mode == "funnel":
+        return AircraftFunnelQPLayer(**kwargs, h_thr=runway_elevation_m)
+    elif layer_mode == "combined":
+        return AircraftCombinedQPLayer(
+            **kwargs, stall_margin=stall_margin, alpha_stall=alpha_stall, h_thr=runway_elevation_m,
+        )
+    else:
+        raise ValueError(f"unknown layer_mode: {layer_mode!r}")
+
+
 def predict_action(
-    guided_model: RunwayGuidanceLayer,
+    layer_mode: LayerMode,
+    guided_model: GuidedModel,
     dyn_feat: np.ndarray,
     rwy_feat: np.ndarray,          # airport-centered, elevation RELATIVE: [fix_x, fix_y, elev_rel, bearing]
     state_feat: np.ndarray,        # airport-centered, h RELATIVE: [x, y, h_rel, v, gamma, chi]
+    runway_elevation_m: float,     # ABSOLUTE runway elevation, used as h_thr in the QP layer
     aircraft_dynamics: AircraftDynamics,
     x_mean: np.ndarray,
     x_std: np.ndarray,
@@ -37,23 +68,31 @@ def predict_action(
     fix_x_c, fix_y_c, fix_elev_rel, bearing = rwy_feat.tolist()
 
     x = np.concatenate([dyn_feat, state_feat, rwy_feat])
+    assert x.shape[0] == x_mean.shape[0], f"feature dim {x.shape[0]} != normalization dim {x_mean.shape[0]}"
     x_norm = (x - x_mean) / x_std
 
-    # Guidance-Layer-Physik braucht ABSOLUTE Hoehe (rho(h), e_z gegen absoluten Threshold)
     h_abs = h_rel + airport_elev
-    fix_elev_abs = fix_elev_rel + airport_elev
 
-    aircraft_pos = torch.tensor([[x_c, y_c, h_abs, chi]], dtype=torch.float32)
-    runway_pos = torch.tensor([[fix_x_c, fix_y_c, fix_elev_abs, bearing]], dtype=torch.float32)
-    aircraft_state_dyn = torch.tensor([[
-        v, aircraft_dynamics.mass, aircraft_dynamics.area, aircraft_dynamics.cl_max,
+    aircraft_state_t = torch.tensor([[h_abs, v, gamma]], dtype=torch.float32)
+    aircraft_dyn_t = torch.from_numpy(dyn_feat).unsqueeze(0)  # mass, C_D0, area, cl_max, k
+    aircraft_limits_t = torch.tensor([[
+        aircraft_dynamics.max_thrust, aircraft_dynamics.min_load_factor,
+        aircraft_dynamics.max_load_factor, aircraft_dynamics.max_roll_angle,
     ]], dtype=torch.float32)
-    max_thrust_t = torch.tensor([aircraft_dynamics.max_thrust], dtype=torch.float32)
 
-    t, n, phi = guided_model(
-        torch.from_numpy(x_norm).unsqueeze(0), aircraft_pos, runway_pos,
-        aircraft_state_dyn, max_thrust_t,
-    ).squeeze(0).tolist()
+    x_norm_t = torch.from_numpy(x_norm).unsqueeze(0)
+
+    if layer_mode == "envelope":
+        out = guided_model(x_norm_t, aircraft_state_t, aircraft_dyn_t, aircraft_limits_t)
+    else:
+        aircraft_pos_t = torch.tensor([[x_c, y_c, chi]], dtype=torch.float32)
+        runway_pos_t = torch.tensor([[fix_x_c, fix_y_c, bearing]], dtype=torch.float32)
+        out = guided_model(
+            x_norm_t, aircraft_state_t, aircraft_dyn_t, aircraft_limits_t,
+            aircraft_pos=aircraft_pos_t, runway_pos=runway_pos_t,
+        )
+
+    t, n, phi = out.squeeze(0).tolist()
 
     t = float(np.clip(t, 0.0, aircraft_dynamics.max_thrust))
     n = float(np.clip(n, aircraft_dynamics.min_load_factor, aircraft_dynamics.max_load_factor))
@@ -63,6 +102,7 @@ def predict_action(
 
 
 def rollout_single_flight(
+    layer_mode: LayerMode,
     icao24: str,
     flight_id: int,
     df_flight: DataFrame,
@@ -71,7 +111,7 @@ def rollout_single_flight(
     airport_cx: float,
     airport_cy: float,
     airport_elev: float,
-    guided_model: RunwayGuidanceLayer,
+    guided_model: GuidedModel,
     x_mean: np.ndarray,
     x_std: np.ndarray,
     dt: float = 1.0,
@@ -91,7 +131,6 @@ def rollout_single_flight(
         dtype=np.float32,
     )
 
-    # runway fix in airport-centered UTM frame, elevation RELATIVE (matches training)
     fix_x, fix_y = to_utm.transform(
         float(runway_row["fix_longitude"]), float(runway_row["fix_latitude"])
     )
@@ -104,7 +143,6 @@ def rollout_single_flight(
     landed = False
 
     for step in range(max_steps):
-        # state.x/state.y are already UTM -> recenter; h RELATIVE for the base-model features
         state_feat = np.array(
             [float(state.x) - airport_cx, float(state.y) - airport_cy,
              float(state.h) - airport_elev, float(state.v), float(state.gamma), float(state.chi)],
@@ -112,7 +150,7 @@ def rollout_single_flight(
         )
 
         t, n, phi = predict_action(
-            guided_model, dyn_feat, rwy_feat, state_feat,
+            layer_mode, guided_model, dyn_feat, rwy_feat, state_feat, runway_elevation_m,
             aircraft_dynamics, x_mean, x_std, airport_elev,
         )
 
@@ -134,6 +172,7 @@ def rollout_single_flight(
 
         env.apply_action(t, n, phi)
 
+        # todo: this can be tricky, add if the runway threshold is passed
         if float(state.h) <= runway_elevation_m:
             landed = True
             step += 1
@@ -158,9 +197,10 @@ def rollout_single_flight(
 
 
 def run_batch_rollout(
+    layer_mode: LayerMode,
     dataset: LazyFlightParquetDataset,
-    airport_center_latlon: tuple[float, float],   # (lat, lon), must match training!
-    airport_elevation_m: float,                    # must match training!
+    airport_center_latlon: tuple[float, float],
+    airport_elevation_m: float,
     model_path: str,
     norm_x_path: str,
     norm_y_path: str,
@@ -168,58 +208,35 @@ def run_batch_rollout(
     dt: float = 1.0,
     max_steps: int = 2000,
     resume: bool = True,
-    guidance_activation_distance_m: float = 10000.0,
-    guidance_gain_lateral: float = 0.4,
-    guidance_gain_heading: float = 5.0,
-    guidance_gain_glideslope: float = 0.5,
     stall_margin: float = 1.15,
-    gain_stall_thrust: float = 3.0,
+    alpha_stall: float = 1.0,
 ) -> None:
 
     alat, alon = airport_center_latlon
     crs_to = GeoTransformer.utm_epsg(alat, alon)
     to_utm = Transformer.from_crs("EPSG:4326", crs_to, always_xy=True)
 
-    # airport center in UTM -> origin of the airport-centered frame (matches dataset)
     airport_cx, airport_cy = to_utm.transform(alon, alat)
-
-    model = LandingActionResNet(
-        input_dim=15,  # dynamics(5) + state(6) + runway(4)
-        hidden_dim=256,
-        n_blocks=4,
-        output_dim=3
-    )
-    model.load_state_dict(torch.load(model_path, map_location="cpu"))
-    model.eval()
 
     x_mean, x_std = load_norm(norm_x_path)
     y_mean, y_std = load_norm(norm_y_path)
 
-    guided_model = RunwayGuidanceLayer(
-        base_model=model,
-        y_mean=y_mean,
-        y_std=y_std,
-        activation_distance_m=guidance_activation_distance_m,
-        gain_lateral=guidance_gain_lateral,
-        gain_heading=guidance_gain_heading,
-        gain_glideslope=guidance_gain_glideslope,
-        stall_margin=stall_margin,
-        gain_stall_thrust=gain_stall_thrust,
-        debug=False,
-    )
+    model = LandingActionResNet101(input_dim=len(x_mean), output_dim=3)
+    model.load_state_dict(torch.load(model_path, map_location="cpu"))
+    model.eval()
+
+    n_total = len(dataset)
 
     output_dir.mkdir(parents=True, exist_ok=True)
-
-    trajectories_path = output_dir / "resnet_guided_rollout.parquet"
-    status_path = output_dir / "resnet_guided_rollout_status.jsonl"
+    trajectories_path = output_dir / f"{layer_mode}_qp_rollout.parquet"
+    status_path = output_dir / f"{layer_mode}_qp_rollout_status.jsonl"
 
     n_ok = 0
-    n_total = len(dataset)
 
     for idx in range(n_total):
         icao24, flight_id = dataset.flights[idx]
 
-        print(f"\n[{idx + 1}/{n_total}] guided ResNet rollout {icao24} / flight_id={flight_id}")
+        print(f"\n[{idx + 1}/{n_total}] {layer_mode}-QP ResNet101 rollout {icao24} / flight_id={flight_id}")
 
         if resume and already_processed(status_path, icao24, flight_id):
             print("  [SKIP] already processed (resume=True)")
@@ -231,8 +248,15 @@ def run_batch_rollout(
             if df_flight.empty:
                 raise ValueError("Empty flight data")
 
+            runway_row = dataset.get_runway_assignment(icao24, flight_id)
+            runway_elevation_m = float(runway_row["fix_elevation_m"])
+
+            guided_model = build_guided_model(
+                layer_mode, model, y_mean, y_std, runway_elevation_m, stall_margin, alpha_stall,
+            )
+
             rows, landed = rollout_single_flight(
-                icao24, flight_id, df_flight, dataset,
+                layer_mode, icao24, flight_id, df_flight, dataset,
                 to_utm, airport_cx, airport_cy, airport_elevation_m,
                 guided_model, x_mean, x_std,
                 dt=dt, max_steps=max_steps,
@@ -266,35 +290,46 @@ def run_batch_rollout(
                 "error": str(e),
             })
 
-    print(f"\n[DONE] {n_ok}/{n_total} landed")
+    print(f"\n[DONE] {layer_mode}: {n_ok}/{n_total} landed")
     print(f"  Trajektorien: {trajectories_path}")
     print(f"  Status-Log:   {status_path}")
 
 
 if __name__ == "__main__":
-    icao = "CYVR"
-    base_path = f"../data/{icao}/20260625_1508"
-    dataset = LazyFlightParquetDataset(base_path)
+    TIME = "2026-08-05_14-54-31"
+    MODEL_PATH = f"../ml/results/multiple_airports_landing_action_resnet101_torchvision_augmented/{TIME}/best_model.pth"
+    NORM_X_PATH = f"../ml/results/multiple_airports_landing_action_resnet101_torchvision_augmented/{TIME}/normalization_x.csv"
+    NORM_Y_PATH = f"../ml/results/multiple_airports_landing_action_resnet101_torchvision_augmented/{TIME}/normalization_y.csv"
 
-    airport: Airport = Airport.load_from_folder(base_path=Path("../data/"), icao=icao)
+    LAYER_MODES: list[LayerMode] = ["combined"]  # ["envelope", "funnel", "combined"]
 
-    TIME = "2026-07-07_21-23-13"
-    MODEL_PATH = f"../ml/results/landing_action_resnet/{TIME}/best_model.pth"
-    NORM_X_PATH = f"../ml/results/landing_action_resnet/{TIME}/normalization_x.csv"
-    NORM_Y_PATH = f"../ml/results/landing_action_resnet/{TIME}/normalization_y.csv"
+    airport_list_icao: list[str] = [
+        "CYVR",
+        "CYUL",
+        "CYYZ",
+        # "CYYC", data problem
+        # "CYEG", data problem
+    ]
 
-    run_batch_rollout(
-        dataset=dataset,
-        airport_center_latlon=(airport.lat, airport.lon),
-        airport_elevation_m=airport.arinc_424_runway[0].runway_altitude * 0.3048,
-        model_path=MODEL_PATH,
-        norm_x_path=NORM_X_PATH,
-        norm_y_path=NORM_Y_PATH,
-        output_dir=Path("../data/CYVR/resnet_guided_rollout"),
-        dt=1.0,
-        max_steps=2000,
-        guidance_activation_distance_m=10000.0,
-        guidance_gain_lateral=0.4,
-        guidance_gain_heading=5.0,
-        guidance_gain_glideslope=0.5,
-    )
+    for airport_icao in airport_list_icao:
+        icao = airport_icao
+        base_path = f"../data/{icao}/test/20260709_1207"
+        dataset = LazyFlightParquetDataset(base_path)
+
+        airport: Airport = Airport.load_from_folder(base_path=Path("../data/"), icao=icao)
+
+        for layer_mode in LAYER_MODES:
+            run_batch_rollout(
+                layer_mode=layer_mode,
+                dataset=dataset,
+                airport_center_latlon=(airport.lat, airport.lon),
+                airport_elevation_m=airport.arinc_424_runway[0].runway_altitude * 0.3048,
+                model_path=MODEL_PATH,
+                norm_x_path=NORM_X_PATH,
+                norm_y_path=NORM_Y_PATH,
+                output_dir=Path(f"../data/{icao}/multiple_airports_resnet101_rollout_constraint_2"),
+                dt=1.0,
+                max_steps=2000,
+                stall_margin=1.15,
+                alpha_stall=1.0,
+            )

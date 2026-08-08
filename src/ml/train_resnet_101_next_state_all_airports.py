@@ -1,12 +1,14 @@
 from pathlib import Path
 
 import numpy as np
+import torch
 from torch import nn, optim
 from torch.utils.data import DataLoader, ConcatDataset, Subset
+from torchvision.models import resnet101
 
 from ml.utils.data_loader.landing_next_state_dataset import LandingNextStateDataset
 from ml.utils.data_loader.lazy_flight_parquet_dataset import LazyFlightParquetDataset
-from ml.utils.models.resnet_model import LandingActionResNet
+from ml.utils.models.landing_resnet_101 import LandingActionResNet101
 from ml.utils.trainer.mlp_trainer import LandingActionTrainer
 from utils.airport import Airport
 
@@ -29,7 +31,7 @@ if __name__ == "__main__":
     for airport_icao in airport_list_icao:
         airport = Airport.load_from_folder(base_path=Path("../data/"), icao=airport_icao)
 
-        flight_dataset = LazyFlightParquetDataset(f"../data/{airport_icao}/train/20260708_1247")
+        flight_dataset = LazyFlightParquetDataset(f"../data/{airport_icao}/train/20260802_0920")
         dataset = LandingNextStateDataset(
             flight_dataset=flight_dataset,
             mode="bspline_state",
@@ -70,20 +72,18 @@ if __name__ == "__main__":
 
     device = LandingActionTrainer.get_device()
 
-    model = LandingActionResNet(
+    model = LandingActionResNet101(
         input_dim=all_datasets[0].input_dim,
-        hidden_dim=256,
-        n_blocks=4,
         output_dim=6,   # x, y, h, v, gamma, chi
     )
 
     trainer = LandingActionTrainer(
         model=model,
-        optimizer=optim.Adam(model.parameters(), lr=1e-3),
+        optimizer=optim.Adam(model.parameters(), lr=1e-4),
         loss=nn.MSELoss(),
         device=device,
-        results_path=Path("results/multiple_airports_landing_next_state_resnet"),
-        patience=20,
+        results_path=Path("results/multiple_airports_landing_next_state_resnet101_torchvision"),
+        patience=5,
     )
 
     trainer.train(train_loader, val_loader, epochs=200)

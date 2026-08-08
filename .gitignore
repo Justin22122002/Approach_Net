@@ -5,3 +5,4 @@ src/3d_engine/main_terrain_2.py
 src/3d_engine/main_terrain_3.py
 src/aircraft_kinematics.py
 src/aircraft_kinemeatics_2.py
+.env

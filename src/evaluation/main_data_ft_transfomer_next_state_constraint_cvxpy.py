@@ -7,14 +7,13 @@ from pandas import DataFrame
 from pyproj import Transformer
 
 from evaluation.main_data_optimizer import build_start_state
-from ml.utils.data_loader.landing_next_state_window_dataset import LandingNextStateWindowDataset
-from ml.utils.models.landing_action_itransformer import LandingActionITransformer
+from ml.utils.data_loader.landing_next_state_dataset import LandingNextStateDataset
+from ml.utils.data_loader.lazy_flight_parquet_dataset import LazyFlightParquetDataset
+from ml.utils.models.landing_action_ft_transformer import LandingActionFTTransformer
+from ml.utils.models.ils_funnel_state_layer_cvxpy import ILSFunnelStateLayer
 from physics.batch_result_store import already_processed, append_trajectory, append_status
 from utils.airport import Airport
 from utils_project.geo_transformer import GeoTransformer
-from ml.utils.data_loader.lazy_flight_parquet_dataset import LazyFlightParquetDataset
-
-WINDOW_LEN = 16
 
 
 def load_norm(path: str) -> tuple[np.ndarray, np.ndarray]:
@@ -22,27 +21,22 @@ def load_norm(path: str) -> tuple[np.ndarray, np.ndarray]:
     return arr[0].astype(np.float32), arr[1].astype(np.float32)
 
 
-def predict_next_state_window(
-    model: LandingActionITransformer,
-    window_states: np.ndarray,     # (window_len, 6) airport-centered dynamic states, h RELATIVE
-    dyn_feat: np.ndarray,          # (5,)
-    rwy_feat: np.ndarray,          # (4,) airport-centered, elevation RELATIVE
+def predict_funnel_next_state(
+    guided_model: ILSFunnelStateLayer,
+    state_feat: np.ndarray,
+    dyn_feat: np.ndarray,
+    rwy_feat: np.ndarray,
     x_mean: np.ndarray,
     x_std: np.ndarray,
-    y_mean: np.ndarray,
-    y_std: np.ndarray,
+    runway_pos_t: torch.Tensor,
 ) -> np.ndarray:
-    static_tiled = np.tile(np.concatenate([dyn_feat, rwy_feat]), (WINDOW_LEN, 1))  # (T, 9)
-    x = np.concatenate([window_states, static_tiled], axis=1)                       # (T, 15)
+    x = np.concatenate([dyn_feat, state_feat, rwy_feat])
+    assert x.shape[0] == x_mean.shape[0], f"feature dim {x.shape[0]} != normalization dim {x_mean.shape[0]}"
     x_norm = (x - x_mean) / x_std
+    x_norm_t = torch.from_numpy(x_norm.astype(np.float32)).unsqueeze(0)
 
-    x_norm_t = torch.from_numpy(x_norm.astype(np.float32)).unsqueeze(0)  # (1, T, 15)
-
-    with torch.no_grad():
-        out_norm = model(x_norm_t)
-
-    next_state_feat = out_norm.squeeze(0).numpy() * y_std + y_mean  # (6,)
-    return next_state_feat
+    out = guided_model(x_norm_t, runway_pos_t)
+    return out.squeeze(0).numpy()   # (6,) physical, airport-centered/relative
 
 
 def rollout_single_flight(
@@ -54,11 +48,9 @@ def rollout_single_flight(
     airport_cx: float,
     airport_cy: float,
     airport_elev: float,
-    model: LandingActionITransformer,
+    guided_model: ILSFunnelStateLayer,
     x_mean: np.ndarray,
     x_std: np.ndarray,
-    y_mean: np.ndarray,
-    y_std: np.ndarray,
     dt: float = 1.0,
     max_steps: int = 2000,
 ) -> tuple[list[dict], bool]:
@@ -71,7 +63,7 @@ def rollout_single_flight(
     state = build_start_state(start_point, aircraft_dynamics, to_utm)
 
     dyn_feat = np.array(
-        [getattr(aircraft_dynamics, k) for k in LandingNextStateWindowDataset.DYNAMICS_KEYS],
+        [getattr(aircraft_dynamics, k) for k in LandingNextStateDataset.DYNAMICS_KEYS],
         dtype=np.float32,
     )
 
@@ -82,6 +74,10 @@ def rollout_single_flight(
         fix_x - airport_cx, fix_y - airport_cy,
         runway_elevation_m - airport_elev, float(runway_row["runway_bearing"]),
     ], dtype=np.float32)
+    runway_pos_t = torch.tensor(
+        [[fix_x - airport_cx, fix_y - airport_cy, float(runway_row["runway_bearing"])]],
+        dtype=torch.float32,
+    )
 
     def current_state_feat() -> np.ndarray:
         return np.array(
@@ -90,34 +86,23 @@ def rollout_single_flight(
             dtype=np.float32,
         )
 
-    # no real history at rollout start -> pad the window by repeating the start state
-    window_buffer: list[np.ndarray] = [current_state_feat() for _ in range(WINDOW_LEN)]
-
     rows: list[dict] = []
     landed = False
 
     for step in range(max_steps):
-        window_states = np.stack(window_buffer, axis=0)  # (WINDOW_LEN, 6)
+        state_feat = current_state_feat()
 
-        next_state_feat = predict_next_state_window(
-            model, window_states, dyn_feat, rwy_feat, x_mean, x_std, y_mean, y_std,
+        next_state_feat = predict_funnel_next_state(
+            guided_model, state_feat, dyn_feat, rwy_feat, x_mean, x_std, runway_pos_t,
         )
         nx, ny, nh_rel, nv, ngamma, nchi = next_state_feat.tolist()
 
         rows.append({
-            "icao24": icao24,
-            "flight_id": flight_id,
-            "step": step,
-            "time_s": step * dt,
-            "x": float(state.x),
-            "y": float(state.y),
-            "h": float(state.h),
-            "v": float(state.v),
-            "chi": np.radians(float(state.chi)),
-            "gamma": np.radians(float(state.gamma)),
+            "icao24": icao24, "flight_id": flight_id, "step": step, "time_s": step * dt,
+            "x": float(state.x), "y": float(state.y), "h": float(state.h), "v": float(state.v),
+            "chi": np.radians(float(state.chi)), "gamma": np.radians(float(state.gamma)),
         })
 
-        # take the model's predicted next state as the new state (pure autoregressive rollout, no physics)
         state.x = nx + airport_cx
         state.y = ny + airport_cy
         state.h = nh_rel + airport_elev
@@ -125,23 +110,13 @@ def rollout_single_flight(
         state.gamma = ngamma
         state.chi = nchi
 
-        window_buffer.pop(0)
-        window_buffer.append(current_state_feat())
-
         if float(state.h) <= runway_elevation_m:
             landed = True
             step += 1
             rows.append({
-                "icao24": icao24,
-                "flight_id": flight_id,
-                "step": step,
-                "time_s": step * dt,
-                "x": float(state.x),
-                "y": float(state.y),
-                "h": float(state.h),
-                "v": float(state.v),
-                "chi": np.radians(float(state.chi)),
-                "gamma": np.radians(float(state.gamma)),
+                "icao24": icao24, "flight_id": flight_id, "step": step, "time_s": step * dt,
+                "x": float(state.x), "y": float(state.y), "h": float(state.h), "v": float(state.v),
+                "chi": np.radians(float(state.chi)), "gamma": np.radians(float(state.gamma)),
             })
             break
 
@@ -164,33 +139,27 @@ def run_batch_rollout(
     alat, alon = airport_center_latlon
     crs_to = GeoTransformer.utm_epsg(alat, alon)
     to_utm = Transformer.from_crs("EPSG:4326", crs_to, always_xy=True)
-
     airport_cx, airport_cy = to_utm.transform(alon, alat)
-
-    model = LandingActionITransformer(
-        num_variates=15,
-        lookback_len=WINDOW_LEN,
-        dim=128, depth=2, heads=8, dim_head=32,
-        action_dim=6,   # x, y, h, v, gamma, chi
-    )
-    model.load_state_dict(torch.load(model_path, map_location="cpu"))
-    model.eval()
 
     x_mean, x_std = load_norm(norm_x_path)
     y_mean, y_std = load_norm(norm_y_path)
 
+    model = LandingActionFTTransformer(input_dim=len(x_mean), action_dim=6)
+    model.load_state_dict(torch.load(model_path, map_location="cpu"))
+    model.eval()
+
     n_total = len(dataset)
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    trajectories_path = output_dir / "itransformer_next_state_rollout.parquet"
-    status_path = output_dir / "itransformer_next_state_rollout_status.jsonl"
+    trajectories_path = output_dir / "ils_funnel_next_state_ft_transformer_rollout.parquet"
+    status_path = output_dir / "ils_funnel_next_state_ft_transformer_rollout_status.jsonl"
 
     n_ok = 0
 
     for idx in range(n_total):
         icao24, flight_id = dataset.flights[idx]
 
-        print(f"\n[{idx + 1}/{n_total}] iTransformer next-state rollout {icao24} / flight_id={flight_id}")
+        print(f"\n[{idx + 1}/{n_total}] ILS-funnel FT-Transformer next-state rollout {icao24} / flight_id={flight_id}")
 
         if resume and already_processed(status_path, icao24, flight_id):
             print("  [SKIP] already processed (resume=True)")
@@ -202,23 +171,27 @@ def run_batch_rollout(
             if df_flight.empty:
                 raise ValueError("Empty flight data")
 
+            runway_row = dataset.get_runway_assignment(icao24, flight_id)
+            runway_elevation_m = float(runway_row["fix_elevation_m"])
+
+            guided_model_flight = ILSFunnelStateLayer(
+                base_model=model, y_mean=y_mean, y_std=y_std,
+                h_thr=runway_elevation_m, debug=False,
+            )
+
             rows, landed = rollout_single_flight(
                 icao24, flight_id, df_flight, dataset,
                 to_utm, airport_cx, airport_cy, airport_elevation_m,
-                model, x_mean, x_std, y_mean, y_std,
+                guided_model_flight, x_mean, x_std,
                 dt=dt, max_steps=max_steps,
             )
 
             df_traj = pd.DataFrame(rows)
             append_trajectory(df_traj, trajectories_path)
-
             t_opt = float(df_traj["time_s"].iloc[-1])
 
             append_status(status_path, {
-                "icao24": icao24,
-                "flight_id": flight_id,
-                "success": landed,
-                "T_opt": t_opt,
+                "icao24": icao24, "flight_id": flight_id, "success": landed, "T_opt": t_opt,
                 "error": None if landed else "did not reach runway elevation within max_steps",
             })
             if landed:
@@ -230,37 +203,26 @@ def run_batch_rollout(
         except Exception as e:
             print(f"  [FAIL] {e}")
             append_status(status_path, {
-                "icao24": icao24,
-                "flight_id": flight_id,
-                "success": False,
-                "T_opt": None,
-                "error": str(e),
+                "icao24": icao24, "flight_id": flight_id, "success": False, "T_opt": None, "error": str(e),
             })
 
-    print(f"\n[DONE] iTransformer next-state: {n_ok}/{n_total} landed")
+    print(f"\n[DONE] ILS-funnel FT-Transformer: {n_ok}/{n_total} landed")
     print(f"  Trajektorien: {trajectories_path}")
     print(f"  Status-Log:   {status_path}")
 
 
 if __name__ == "__main__":
-    TIME = "2026-07-29_01-57-41"
-    MODEL_PATH = f"../ml/results/multiple_airports_landing_next_state_itransformer/{TIME}/best_model.pth"
-    NORM_X_PATH = f"../ml/results/multiple_airports_landing_next_state_itransformer/{TIME}/normalization_x.csv"
-    NORM_Y_PATH = f"../ml/results/multiple_airports_landing_next_state_itransformer/{TIME}/normalization_y.csv"
+    TIME = "2026-08-06_13-05-37"
+    MODEL_PATH = f"../ml/results/multiple_airports_landing_next_state_ft_transformer/{TIME}/best_model.pth"
+    NORM_X_PATH = f"../ml/results/multiple_airports_landing_next_state_ft_transformer/{TIME}/normalization_x.csv"
+    NORM_Y_PATH = f"../ml/results/multiple_airports_landing_next_state_ft_transformer/{TIME}/normalization_y.csv"
 
-    airport_list_icao: list[str] = [
-        "CYVR",
-        "CYUL",
-        "CYYZ",
-        # "CYYC", data problem
-        # "CYEG", data problem
-    ]
+    airport_list_icao: list[str] = ["CYVR", "CYUL", "CYYZ"]
 
     for airport_icao in airport_list_icao:
         icao = airport_icao
         base_path = f"../data/{icao}/test/20260709_1207"
         dataset = LazyFlightParquetDataset(base_path)
-
         airport: Airport = Airport.load_from_folder(base_path=Path("../data/"), icao=icao)
 
         run_batch_rollout(
@@ -270,7 +232,7 @@ if __name__ == "__main__":
             model_path=MODEL_PATH,
             norm_x_path=NORM_X_PATH,
             norm_y_path=NORM_Y_PATH,
-            output_dir=Path(f"../data/{icao}/itransformer_next_state_rollout"),
+            output_dir=Path(f"../data/{icao}/multiple_airports_ft_transformer_next_state_rollout_constraint"),
             dt=1.0,
             max_steps=2000,
         )

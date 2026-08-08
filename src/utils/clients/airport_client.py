@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from typing import Callable
 
@@ -26,14 +27,18 @@ def only_r_approaches(r: list[ArincRunway]) -> list[ArincRunway]:
 
 class OpenStreetMapAirportClient:
     OVERPASS_URL: str = "https://overpass-api.de/api/interpreter"
+    OVERPASS_HEADERS = {
+        "User-Agent": "MasterThesisTerrainLoader/1.0 (justin.groh@study.thws.de)",
+        "Accept": "*/*",
+    }
 
     def __init__(self, arinc_db_path: Path = Path("FAACIFP18")) -> None:
         self.arinc_client = SQLiteArInC24DatabaseClient(arinc_db_path)
-        self.terrain_client: CopernicusDEMProvider = CopernicusDEMProvider("justin.groh@study.thws.de", "Copernicus2026!")
+        self.terrain_client: CopernicusDEMProvider = CopernicusDEMProvider(
+            os.environ["COPERNICUS_USERNAME"],
+            os.environ["COPERNICUS_PASSWORD"],
+        )
 
-    """
-    This method will load a new airport with all respected client
-    """
     def load_new_airport(
             self,
             icao: str,
@@ -128,6 +133,56 @@ class OpenStreetMapAirportClient:
         );
         out geom;
         """
+
+    def get_buildings_and_roads(
+            self,
+            lat_min: float,
+            lon_min: float,
+            lat_max: float,
+            lon_max: float,
+    ) -> tuple[list[list[Coordinate]], list[list[Coordinate]]]:
+        query = f"""
+        [out:json][timeout:60];
+        (
+          way["building"]({lat_min},{lon_min},{lat_max},{lon_max});
+          way["highway"]({lat_min},{lon_min},{lat_max},{lon_max});
+        );
+        out body;
+        >;
+        out skel qt;
+        """
+        r = requests.post(
+            self.OVERPASS_URL,
+            data={"data": query},
+            headers=self.OVERPASS_HEADERS,
+        )
+        r.raise_for_status()
+        data = r.json()
+
+        node_map = {el["id"]: el for el in data.get("elements", []) if el["type"] == "node"}
+
+        buildings: list[list[Coordinate]] = []
+        roads: list[list[Coordinate]] = []
+
+        for el in data.get("elements", []):
+            if el.get("type") != "way":
+                continue
+
+            tags = el.get("tags", {})
+            coords = [
+                Coordinate(lat=node_map[nid]["lat"], lon=node_map[nid]["lon"])
+                for nid in el.get("nodes", [])
+                if nid in node_map
+            ]
+            if len(coords) < 2:
+                continue
+
+            if "building" in tags:
+                buildings.append(coords)
+            elif "highway" in tags:
+                roads.append(coords)
+
+        return buildings, roads
 
     def _parse(self, data: dict) -> tuple[list[OpenStreetMapRunway], list[Taxiway], list[AirportTerminal]]:
         elements = data.get("elements", [])

@@ -1,15 +1,16 @@
+import os
 from pathlib import Path
 
 import numpy as np
 import torch
 from pyproj import Transformer
 
+from ml.utils.models.landing_action_ft_transformer import LandingActionFTTransformer
 from ml.utils.data_loader.landing_action_dataset import LandingActionDataset
 from ml.utils.data_loader.lazy_flight_parquet_dataset import LazyFlightParquetDataset
 from ml.utils.models.constraint_layer_cvxpy import (
     AircraftEnvelopeQPLayer, AircraftFunnelQPLayer, AircraftCombinedQPLayer,
 )
-from ml.utils.models.resnet_model import LandingActionResNet
 
 from physics.aircraft_environment import AircraftEnvironment
 from physics.aircraft_kinematics_state import AircraftKinematicsState
@@ -27,25 +28,28 @@ from utils.vec3 import Vec3
 from utils_project.geo_transformer import GeoTransformer
 from utils_project.runway_project_mesh import RunwayProjectMesh
 from utils_project.terrain_project_mesh import TerrainProjectMesh
+from dotenv import load_dotenv
+
+load_dotenv()
 
 ICAO = "CYVR"
-FLIGHT_DATA_PATH = "../data/CYVR/20260628_1254"
-FLIGHT_IDX = 100
+FLIGHT_DATA_PATH = "../data/CYVR/test/20260709_1207"  # "../data/CYVR/test/20260709_1207" "../data/CYVR/train/20260802_0920"
+FLIGHT_IDX = 95
 
-TIME = "2026-07-27_12-01-55"
+TIME = "2026-08-05_21-33-34" # 2026-08-06_07-08-10
 
-MODEL_PATH = f"../ml/results/multiple_airports_landing_action_resnet/{TIME}/best_model.pth"
-NORM_X_PATH = f"../ml/results/multiple_airports_landing_action_resnet/{TIME}/normalization_x.csv"
-NORM_Y_PATH = f"../ml/results/multiple_airports_landing_action_resnet/{TIME}/normalization_y.csv"
+MODEL_PATH = f"../ml/results/multiple_airports_landing_action_ft_transformer_augmented/{TIME}/best_model.pth"
+NORM_X_PATH = f"../ml/results/multiple_airports_landing_action_ft_transformer_augmented/{TIME}/normalization_x.csv"
+NORM_Y_PATH = f"../ml/results/multiple_airports_landing_action_ft_transformer_augmented/{TIME}/normalization_y.csv"
 
 PHYS_DT = 1.0
 
 STALL_MARGIN = 1.15
 ALPHA_STALL = 1.0
 
-# "envelope"  -> nur Dynamics-CBF (Stall-Margin, Thrust/Load-Factor/Roll-Limits)
-# "funnel"    -> nur ILS-Kegel-CBF (Lokalizer + Glideslope)
-# "combined"  -> beide zusammen in einer QP (= altes AircraftDynamicsQPLayer(use_funnel=True))
+# "envelope"
+# "funnel"
+# "combined"
 LAYER_MODE = "combined"
 
 
@@ -71,10 +75,11 @@ delta = 0.2
 LAT_MIN, LAT_MAX = airport.lat - delta, airport.lat + delta
 LON_MIN, LON_MAX = airport.lon - delta, airport.lon + delta
 
-email = "justin.groh@study.thws.de"
-password = "Copernicus2026!"
+provider = CopernicusDEMProvider(
+   os.environ["COPERNICUS_USERNAME"],
+   os.environ["COPERNICUS_PASSWORD"],
+)
 
-provider = CopernicusDEMProvider(email, password)
 grid = provider.get_terrain(
     lat_min=LAT_MIN, lon_min=LON_MIN, lat_max=LAT_MAX, lon_max=LON_MAX,
     width=1024, height=1024,
@@ -94,7 +99,7 @@ terrain_project_mesh = TerrainProjectMesh(
     horizontal_scale=horizontal_scale, vertical_scale=vertical_scale, transformer=to_utm,
 )
 
-engine = Engine(1280, 720, f"ResNet-Policy ({LAYER_MODE}) - {ICAO}")
+engine = Engine(1280, 720, f"FT-Transformer-Policy ({LAYER_MODE}) - {ICAO}")
 scene = engine.scene
 
 terrain_project_mesh.spawn(scene=scene, geo=geo)
@@ -155,12 +160,12 @@ rwy_feat = np.array([
 
 print(runway_row["fix_identifier"])
 
-model = LandingActionResNet(input_dim=15, hidden_dim=256, n_blocks=4, output_dim=3)
-model.load_state_dict(torch.load(MODEL_PATH, map_location="cpu"))
-model.eval()
-
 x_mean, x_std = load_norm(NORM_X_PATH)
 y_mean, y_std = load_norm(NORM_Y_PATH)
+
+model = LandingActionFTTransformer(input_dim=len(x_mean), action_dim=3)
+model.load_state_dict(torch.load(MODEL_PATH, map_location="cpu"))
+model.eval()
 
 _layer_kwargs = dict(base_model=model, y_mean=y_mean, y_std=y_std, debug=False)
 
@@ -184,33 +189,29 @@ thrust, load_factor, roll = 0.0, 1.0, 0.0
 
 
 def predict_action() -> tuple[float, float, float]:
-    # aircraft_state.x/y sind schon UTM -> auf Airport-Center rezentrieren
     x_ac_c = float(aircraft_state.x) - airport_cx
     y_ac_c = float(aircraft_state.y) - airport_cy
 
-    # Base-Model-Features: h RELATIV (matches training)
     state_feat = np.array(
         [x_ac_c, y_ac_c, aircraft_state.h - airport_elev, aircraft_state.v, aircraft_state.gamma, aircraft_state.chi],
         dtype=np.float32,
     )
     x = np.concatenate([dyn_feat, state_feat, rwy_feat])
+    assert x.shape[0] == x_mean.shape[0], f"feature dim {x.shape[0]} != normalization dim {x_mean.shape[0]}"
     x_norm = torch.from_numpy((x - x_mean) / x_std).unsqueeze(0)
 
-    # QP-Layer-Physik: h ABSOLUT (rho(h), v_stall(h), e_z gegen h_thr=runway_elevation_m)
     aircraft_state_t = torch.tensor(
         [[aircraft_state.h, aircraft_state.v, aircraft_state.gamma]], dtype=torch.float32
     )
-    aircraft_dyn_t = torch.from_numpy(dyn_feat).unsqueeze(0)  # mass, C_D0, area, cl_max, k
+    aircraft_dyn_t = torch.from_numpy(dyn_feat).unsqueeze(0)
     aircraft_limits_t = torch.tensor([[
         aircraft_dynamics.max_thrust, aircraft_dynamics.min_load_factor,
         aircraft_dynamics.max_load_factor, aircraft_dynamics.max_roll_angle,
     ]], dtype=torch.float32)
 
     if LAYER_MODE == "envelope":
-        # kein Runway-Bezug noetig
         out = guided_model(x_norm, aircraft_state_t, aircraft_dyn_t, aircraft_limits_t)
     else:
-        # funnel und combined brauchen beide aircraft_pos/runway_pos fuer den ILS-Kegel
         aircraft_pos_t = torch.tensor([[x_ac_c, y_ac_c, aircraft_state.chi]], dtype=torch.float32)
         runway_pos_t = torch.tensor([[fix_x_c, fix_y_c, runway_bearing]], dtype=torch.float32)
         out = guided_model(
@@ -285,7 +286,7 @@ def on_gui() -> None:
     fps = engine._clock.get_fps() if engine._clock else 0.0
 
     hud.panel(10, 10, 285, 170, border_radius=8)
-    hud.text(f"ResNet policy + {LAYER_MODE}-QP", 20, 16, size=14, color=(60, 210, 255), shadow=True)
+    hud.text(f"FT-Transformer policy + {LAYER_MODE}-QP", 20, 16, size=14, color=(60, 210, 255), shadow=True)
     hud.line(20, 38, 285, 38, color=(80, 80, 100, 180))
 
     v_kts = aircraft_state.v * 1.944

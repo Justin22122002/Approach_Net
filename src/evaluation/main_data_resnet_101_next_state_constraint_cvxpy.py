@@ -9,7 +9,7 @@ from pyproj import Transformer
 from evaluation.main_data_optimizer import build_start_state
 from ml.utils.data_loader.landing_next_state_dataset import LandingNextStateDataset
 from ml.utils.data_loader.lazy_flight_parquet_dataset import LazyFlightParquetDataset
-from ml.utils.models.resnet_model import LandingActionResNet
+from ml.utils.models.landing_resnet_101 import LandingActionResNet101
 from ml.utils.models.ils_funnel_state_layer_cvxpy import ILSFunnelStateLayer
 from physics.batch_result_store import already_processed, append_trajectory, append_status
 from utils.airport import Airport
@@ -31,6 +31,7 @@ def predict_funnel_next_state(
     runway_pos_t: torch.Tensor,
 ) -> np.ndarray:
     x = np.concatenate([dyn_feat, state_feat, rwy_feat])
+    assert x.shape[0] == x_mean.shape[0], f"feature dim {x.shape[0]} != normalization dim {x_mean.shape[0]}"
     x_norm = (x - x_mean) / x_std
     x_norm_t = torch.from_numpy(x_norm.astype(np.float32)).unsqueeze(0)
 
@@ -102,8 +103,6 @@ def rollout_single_flight(
             "chi": np.radians(float(state.chi)), "gamma": np.radians(float(state.gamma)),
         })
 
-        # projected prediction becomes the new state directly - pure
-        # autoregressive rollout, only geometrically constrained
         state.x = nx + airport_cx
         state.y = ny + airport_cy
         state.h = nh_rel + airport_elev
@@ -142,27 +141,25 @@ def run_batch_rollout(
     to_utm = Transformer.from_crs("EPSG:4326", crs_to, always_xy=True)
     airport_cx, airport_cy = to_utm.transform(alon, alat)
 
-    model = LandingActionResNet(input_dim=15, hidden_dim=256, n_blocks=4, output_dim=6)
-    model.load_state_dict(torch.load(model_path, map_location="cpu"))
-    model.eval()
-
     x_mean, x_std = load_norm(norm_x_path)
     y_mean, y_std = load_norm(norm_y_path)
 
-    guided_model = ILSFunnelStateLayer(base_model=model, y_mean=y_mean, y_std=y_std, debug=False)
+    model = LandingActionResNet101(input_dim=len(x_mean), output_dim=6)
+    model.load_state_dict(torch.load(model_path, map_location="cpu"))
+    model.eval()
 
     n_total = len(dataset)
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    trajectories_path = output_dir / "ils_funnel_next_state_rollout.parquet"
-    status_path = output_dir / "ils_funnel_next_state_rollout_status.jsonl"
+    trajectories_path = output_dir / "ils_funnel_next_state_resnet101_rollout.parquet"
+    status_path = output_dir / "ils_funnel_next_state_resnet101_rollout_status.jsonl"
 
     n_ok = 0
 
     for idx in range(n_total):
         icao24, flight_id = dataset.flights[idx]
 
-        print(f"\n[{idx + 1}/{n_total}] ILS-funnel ResNet next-state rollout {icao24} / flight_id={flight_id}")
+        print(f"\n[{idx + 1}/{n_total}] ILS-funnel ResNet101 next-state rollout {icao24} / flight_id={flight_id}")
 
         if resume and already_processed(status_path, icao24, flight_id):
             print("  [SKIP] already processed (resume=True)")
@@ -209,16 +206,16 @@ def run_batch_rollout(
                 "icao24": icao24, "flight_id": flight_id, "success": False, "T_opt": None, "error": str(e),
             })
 
-    print(f"\n[DONE] ILS-funnel: {n_ok}/{n_total} landed")
+    print(f"\n[DONE] ILS-funnel ResNet101: {n_ok}/{n_total} landed")
     print(f"  Trajektorien: {trajectories_path}")
     print(f"  Status-Log:   {status_path}")
 
 
 if __name__ == "__main__":
-    TIME = "2026-07-28_17-21-34"
-    MODEL_PATH = f"../ml/results/multiple_airports_landing_next_state_resnet/{TIME}/best_model.pth"
-    NORM_X_PATH = f"../ml/results/multiple_airports_landing_next_state_resnet/{TIME}/normalization_x.csv"
-    NORM_Y_PATH = f"../ml/results/multiple_airports_landing_next_state_resnet/{TIME}/normalization_y.csv"
+    TIME = "2026-08-06_13-05-41"
+    MODEL_PATH = f"../ml/results/multiple_airports_landing_next_state_resnet101_torchvision/{TIME}/best_model.pth"
+    NORM_X_PATH = f"../ml/results/multiple_airports_landing_next_state_resnet101_torchvision/{TIME}/normalization_x.csv"
+    NORM_Y_PATH = f"../ml/results/multiple_airports_landing_next_state_resnet101_torchvision/{TIME}/normalization_y.csv"
 
     airport_list_icao: list[str] = ["CYVR", "CYUL", "CYYZ"]
 
@@ -235,7 +232,7 @@ if __name__ == "__main__":
             model_path=MODEL_PATH,
             norm_x_path=NORM_X_PATH,
             norm_y_path=NORM_Y_PATH,
-            output_dir=Path(f"../data/{icao}/resnet_next_state_ils_funnel_rollout"),
+            output_dir=Path(f"../data/{icao}/multiple_airports_next_state_resnet101_rollout_constraint"),
             dt=1.0,
             max_steps=2000,
         )

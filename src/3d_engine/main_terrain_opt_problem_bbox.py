@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 import numpy as np
 from pyproj import Transformer, Geod
@@ -20,7 +21,9 @@ from utils.vec3 import Vec3
 from utils_project.geo_transformer import GeoTransformer
 from utils_project.runway_project_mesh import RunwayProjectMesh
 from utils_project.terrain_project_mesh import TerrainProjectMesh
+from dotenv import load_dotenv
 
+load_dotenv()
 
 icao_vancouver = {
     "icao": "CYVR",
@@ -44,7 +47,10 @@ bounds = get_bbox_simple(airport.lat, airport.lon, radius_km)
 
 runways: list[ArincRunway] = airport.arinc_424_runway
 
-provider = CopernicusDEMProvider("justin.groh@study.thws.de", "Copernicus2026!")
+provider = CopernicusDEMProvider(
+   os.environ["COPERNICUS_USERNAME"],
+   os.environ["COPERNICUS_PASSWORD"],
+)
 delta    = 0.2
 grid     = provider.get_terrain(
     airport.lat - delta, airport.lon - delta,

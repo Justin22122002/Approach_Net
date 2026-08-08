@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 import pygame
@@ -20,6 +21,9 @@ from utils.vec3 import Vec3
 from utils_project.geo_transformer import GeoTransformer
 from utils_project.runway_project_mesh import RunwayProjectMesh
 from utils_project.terrain_project_mesh import TerrainProjectMesh
+from dotenv import load_dotenv
+
+load_dotenv()
 
 icao_vancouver = {
     "icao": "CYVR",
@@ -47,9 +51,6 @@ transformer: Transformer = Transformer.from_crs(
 # we load the pre saved data from the base path
 runways: list[ArincRunway] = airport.arinc_424_runway
 
-email = "justin.groh@study.thws.de"
-password = "Copernicus2026!"
-
 delta = 0.2
 
 LAT_MIN = airport.lat - delta
@@ -57,7 +58,10 @@ LAT_MAX = airport.lat + delta
 LON_MIN = airport.lon - delta
 LON_MAX = airport.lon + delta
 
-provider = CopernicusDEMProvider(email, password)
+provider = CopernicusDEMProvider(
+   os.environ["COPERNICUS_USERNAME"],
+   os.environ["COPERNICUS_PASSWORD"],
+)
 
 grid = provider.get_terrain(
     lat_min=LAT_MIN,

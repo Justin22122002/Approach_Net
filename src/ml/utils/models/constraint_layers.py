@@ -12,41 +12,6 @@ H_SCALE = 287.05 * 288.15 / G  # (R * T) / g
 
 
 class RunwayGuidanceLayer(nn.Module):
-    """
-    Post-hoc correction of a fully trained model (not part of the training process).
-
-    Operates directly in an airport-centered UTM frame: the aircraft position and
-    runway threshold position are provided as x (Easting), y (Northing), and h
-    (altitude) in meters. Heading (chi) and runway_bearing remain in degrees,
-    measured clockwise from north.
-
-    The model output is denormalized internally (using y_mean/y_std), and all
-    corrections are computed in physical units (degrees, load factor, Newton).
-    The returned control commands are already in physical units and therefore do
-    not require any additional denormalization.
-
-    Activation window (IMPORTANT):
-
-        Guidance is applied ONLY when the aircraft is actually on final approach:
-
-            * s > 0             -> in front of the runway threshold (approach side)
-            * s <= activation   -> within the capture distance
-            * Heading ≈ chi_r   -> approximately aligned with the runway heading (cone)
-
-        If the aircraft is flying opposite to the landing direction (turn-in,
-        downwind, or base leg), or has already passed the threshold, the guidance
-        weight w approaches zero and the corrector becomes completely inactive.
-        In this case, the base model performs the maneuver on its own.
-
-        This fixes the previous bug where flying in the opposite direction caused
-        a steep descent (strongly negative load factor) together with maximum roll
-        commands.
-
-    Stall protection based on thrust is always active (independent of runway
-    distance and runway alignment) and increases the thrust as the aircraft
-    approaches the stall speed v_stall(h).
-    """
-
     def __init__(
         self,
         base_model: nn.Module,

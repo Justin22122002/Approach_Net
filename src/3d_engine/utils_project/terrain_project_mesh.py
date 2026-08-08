@@ -60,6 +60,28 @@ class TerrainProjectMesh(ProjectMesh):
         self.width_m: float = abs(self.x1 - self.x0)
         self.height_m: float = abs(self.y1 - self.y0)
 
+    def sample_height(self, lat: float, lon: float) -> float:
+        rows, cols = self.grid.shape
+
+        j = (self.lat_max - lat) / (self.lat_max - self.lat_min) * (rows - 1)
+        i = (lon - self.lon_min) / (self.lon_max - self.lon_min) * (cols - 1)
+
+        j = max(0.0, min(float(rows - 1), j))
+        i = max(0.0, min(float(cols - 1), i))
+
+        j0, i0 = int(j), int(i)
+        j1, i1 = min(j0 + 1, rows - 1), min(i0 + 1, cols - 1)
+        tj, ti = j - j0, i - i0
+
+        h00 = float(self.grid[j0, i0])
+        h10 = float(self.grid[j0, i1])
+        h01 = float(self.grid[j1, i0])
+        h11 = float(self.grid[j1, i1])
+
+        h0 = h00 * (1.0 - ti) + h10 * ti
+        h1 = h01 * (1.0 - ti) + h11 * ti
+        return h0 * (1.0 - tj) + h1 * tj
+
     @override
     def spawn(self, scene: Scene, geo: GeoTransformer) -> list[GameObject]:
         dx, dz = geo.to_local(self.lat, self.lon)

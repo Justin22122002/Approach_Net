@@ -4,9 +4,9 @@ import numpy as np
 from torch import nn, optim
 from torch.utils.data import DataLoader, ConcatDataset, Subset
 
-from ml.utils.data_loader.landing_action_dataset import LandingActionDataset
+from ml.utils.data_loader.landing_next_state_dataset import LandingNextStateDataset
 from ml.utils.data_loader.lazy_flight_parquet_dataset import LazyFlightParquetDataset
-from ml.utils.models.resnet_model import LandingActionResNet
+from ml.utils.models.landing_action_ft_transformer import LandingActionFTTransformer
 from ml.utils.trainer.mlp_trainer import LandingActionTrainer
 from utils.airport import Airport
 
@@ -29,10 +29,8 @@ if __name__ == "__main__":
     for airport_icao in airport_list_icao:
         airport = Airport.load_from_folder(base_path=Path("../data/"), icao=airport_icao)
 
-        # 20260708_1247 -> old with 2000
-        # 20260802_0920 -> new with 10000
         flight_dataset = LazyFlightParquetDataset(f"../data/{airport_icao}/train/20260802_0920")
-        dataset = LandingActionDataset(
+        dataset = LandingNextStateDataset(
             flight_dataset=flight_dataset,
             mode="bspline_state",
             max_dt=5.0,
@@ -53,7 +51,6 @@ if __name__ == "__main__":
     all_X = np.concatenate(train_X, axis=0)
     all_Y = np.concatenate(train_Y, axis=0)
 
-    # see: fit_normalization_stats in dataset class for reference
     x_mean, x_std = all_X.mean(0), all_X.std(0) + 1e-8
     y_mean, y_std = all_Y.mean(0), all_Y.std(0) + 1e-8
 
@@ -73,20 +70,18 @@ if __name__ == "__main__":
 
     device = LandingActionTrainer.get_device()
 
-    model = LandingActionResNet(
+    model = LandingActionFTTransformer(
         input_dim=all_datasets[0].input_dim,
-        hidden_dim=256,
-        n_blocks=4,
-        output_dim=3,
+        action_dim=6,   # x, y, h, v, gamma, chi (next state)
     )
 
     trainer = LandingActionTrainer(
         model=model,
-        optimizer=optim.Adam(model.parameters(), lr=1e-3),
+        optimizer=optim.Adam(model.parameters(), lr=1e-4),
         loss=nn.MSELoss(),
         device=device,
-        results_path=Path("results/multiple_airports_landing_action_resnet"),
-        patience=20,
+        results_path=Path("results/multiple_airports_landing_next_state_ft_transformer"),
+        patience=5,
     )
 
     trainer.train(train_loader, val_loader, epochs=200)
