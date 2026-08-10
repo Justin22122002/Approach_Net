@@ -1,3 +1,4 @@
+import os
 from typing import Any
 
 import requests
@@ -208,19 +209,22 @@ class CopernicusDEMProvider:
         plt.show()
 
 if __name__ == "__main__":
-    password = "Copernicus2026!"
-    email = "justin.groh@study.thws.de"
+    from dotenv import load_dotenv
 
-    terrain = CopernicusDEMProvider(email, password)
+    load_dotenv()
+    provider = CopernicusDEMProvider(
+        os.environ["COPERNICUS_USERNAME"],
+        os.environ["COPERNICUS_PASSWORD"],
+    )
 
-    grid_terrain = terrain.get_terrain(
+    grid_terrain = provider.get_terrain(
         lat_min=50.0,
         lon_min=8.5,
         lat_max=50.1,
         lon_max=8.6
     )
 
-    terrain.plot_terrain(grid_terrain)
+    provider.plot_terrain(grid_terrain)
 
     print("Grid shape:", grid_terrain.shape)
 
