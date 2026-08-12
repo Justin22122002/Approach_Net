@@ -13,12 +13,14 @@ from utils.airport import Airport
 if __name__ == "__main__":
     LandingActionTrainer.set_seed()
 
+    dataset_name: str = "20260802_0920" # note: arrivals_20260802_0920 -> wrong, 20260802_0920 -> right
+
     airport_list_icao: list[str] = [
         "CYVR",
         "CYUL",
         "CYYZ",
-        # "CYYC", data problem
-        # "CYEG", data problem
+        # "CYYC",
+        # "CYEG",
     ]
 
     all_datasets: list[LandingActionDataset] = []
@@ -28,7 +30,7 @@ if __name__ == "__main__":
     for airport_icao in airport_list_icao:
         airport = Airport.load_from_folder(base_path=Path("../data/"), icao=airport_icao)
 
-        flight_dataset = LazyFlightParquetDataset(f"../data/{airport_icao}/train/20260802_0920")
+        flight_dataset = LazyFlightParquetDataset(f"../data/{airport_icao}/train/{dataset_name}")
         dataset = LandingActionDataset(
             flight_dataset=flight_dataset,
             mode="bspline_state",

@@ -10,6 +10,7 @@ from evaluation.main_data_optimizer import build_start_state
 from ml.utils.data_loader.landing_next_state_dataset import LandingNextStateDataset
 from ml.utils.data_loader.lazy_flight_parquet_dataset import LazyFlightParquetDataset
 from ml.utils.models.landing_action_ft_transformer import LandingActionFTTransformer
+from ml.utils.models.ils_funnel_state_layer_cvxpy import ILSFunnelStateLayer
 from physics.batch_result_store import already_processed, append_trajectory, append_status
 from utils.airport import Airport
 from utils_project.geo_transformer import GeoTransformer
@@ -20,25 +21,22 @@ def load_norm(path: str) -> tuple[np.ndarray, np.ndarray]:
     return arr[0].astype(np.float32), arr[1].astype(np.float32)
 
 
-def predict_next_state(
-    model: LandingActionFTTransformer,
+def predict_funnel_next_state(
+    guided_model: ILSFunnelStateLayer,
     state_feat: np.ndarray,
     dyn_feat: np.ndarray,
     rwy_feat: np.ndarray,
     x_mean: np.ndarray,
     x_std: np.ndarray,
-    y_mean: np.ndarray,
-    y_std: np.ndarray,
+    runway_pos_t: torch.Tensor,
 ) -> np.ndarray:
     x = np.concatenate([dyn_feat, state_feat, rwy_feat])
     assert x.shape[0] == x_mean.shape[0], f"feature dim {x.shape[0]} != normalization dim {x_mean.shape[0]}"
     x_norm = (x - x_mean) / x_std
     x_norm_t = torch.from_numpy(x_norm.astype(np.float32)).unsqueeze(0)
 
-    with torch.no_grad():
-        out_norm = model(x_norm_t)
-
-    return out_norm.squeeze(0).numpy() * y_std + y_mean  # (6,)
+    out = guided_model(x_norm_t, runway_pos_t)
+    return out.squeeze(0).numpy()   # (6,) physical, airport-centered/relative
 
 
 def rollout_single_flight(
@@ -50,11 +48,9 @@ def rollout_single_flight(
     airport_cx: float,
     airport_cy: float,
     airport_elev: float,
-    model: LandingActionFTTransformer,
+    guided_model: ILSFunnelStateLayer,
     x_mean: np.ndarray,
     x_std: np.ndarray,
-    y_mean: np.ndarray,
-    y_std: np.ndarray,
     dt: float = 1.0,
     max_steps: int = 2000,
 ) -> tuple[list[dict], bool]:
@@ -78,6 +74,10 @@ def rollout_single_flight(
         fix_x - airport_cx, fix_y - airport_cy,
         runway_elevation_m - airport_elev, float(runway_row["runway_bearing"]),
     ], dtype=np.float32)
+    runway_pos_t = torch.tensor(
+        [[fix_x - airport_cx, fix_y - airport_cy, float(runway_row["runway_bearing"])]],
+        dtype=torch.float32,
+    )
 
     def current_state_feat() -> np.ndarray:
         return np.array(
@@ -92,8 +92,8 @@ def rollout_single_flight(
     for step in range(max_steps):
         state_feat = current_state_feat()
 
-        next_state_feat = predict_next_state(
-            model, state_feat, dyn_feat, rwy_feat, x_mean, x_std, y_mean, y_std,
+        next_state_feat = predict_funnel_next_state(
+            guided_model, state_feat, dyn_feat, rwy_feat, x_mean, x_std, runway_pos_t,
         )
         nx, ny, nh_rel, nv, ngamma, nchi = next_state_feat.tolist()
 
@@ -151,15 +151,15 @@ def run_batch_rollout(
     n_total = len(dataset)
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    trajectories_path = output_dir / "ft_transformer_next_state_rollout.parquet"
-    status_path = output_dir / "ft_transformer_next_state_rollout_status.jsonl"
+    trajectories_path = output_dir / "ils_funnel_next_state_ft_transformer_rollout.parquet"
+    status_path = output_dir / "ils_funnel_next_state_ft_transformer_rollout_status.jsonl"
 
     n_ok = 0
 
     for idx in range(n_total):
         icao24, flight_id = dataset.flights[idx]
 
-        print(f"\n[{idx + 1}/{n_total}] FT-Transformer next-state rollout {icao24} / flight_id={flight_id}")
+        print(f"\n[{idx + 1}/{n_total}] ILS-funnel FT-Transformer next-state rollout {icao24} / flight_id={flight_id}")
 
         if resume and already_processed(status_path, icao24, flight_id):
             print("  [SKIP] already processed (resume=True)")
@@ -171,10 +171,18 @@ def run_batch_rollout(
             if df_flight.empty:
                 raise ValueError("Empty flight data")
 
+            runway_row = dataset.get_runway_assignment(icao24, flight_id)
+            runway_elevation_m = float(runway_row["fix_elevation_m"])
+
+            guided_model_flight = ILSFunnelStateLayer(
+                base_model=model, y_mean=y_mean, y_std=y_std,
+                h_thr=runway_elevation_m, debug=False,
+            )
+
             rows, landed = rollout_single_flight(
                 icao24, flight_id, df_flight, dataset,
                 to_utm, airport_cx, airport_cy, airport_elevation_m,
-                model, x_mean, x_std, y_mean, y_std,
+                guided_model_flight, x_mean, x_std,
                 dt=dt, max_steps=max_steps,
             )
 
@@ -198,7 +206,7 @@ def run_batch_rollout(
                 "icao24": icao24, "flight_id": flight_id, "success": False, "T_opt": None, "error": str(e),
             })
 
-    print(f"\n[DONE] FT-Transformer next-state: {n_ok}/{n_total} landed")
+    print(f"\n[DONE] ILS-funnel FT-Transformer: {n_ok}/{n_total} landed")
     print(f"  Trajektorien: {trajectories_path}")
     print(f"  Status-Log:   {status_path}")
 
@@ -209,11 +217,19 @@ if __name__ == "__main__":
     NORM_X_PATH = f"../ml/results/multiple_airports_landing_next_state_ft_transformer/{TIME}/normalization_x.csv"
     NORM_Y_PATH = f"../ml/results/multiple_airports_landing_next_state_ft_transformer/{TIME}/normalization_y.csv"
 
-    airport_list_icao: list[str] = ["CYVR", "CYUL", "CYYZ"]
+    airport_list_icao: list[str] = [
+        "CYVR",
+        "CYUL",
+        "CYYZ",
+        # "CYYC",
+        # "CYEG",
+    ]
+
+    dataset_name: str = "20260709_1207" # note: arrivals_20260802_0920 -> wrong, 20260802_0920 -> right
 
     for airport_icao in airport_list_icao:
         icao = airport_icao
-        base_path = f"../data/{icao}/test/20260709_1207"
+        base_path = f"../data/{icao}/test/{dataset_name}"
         dataset = LazyFlightParquetDataset(base_path)
         airport: Airport = Airport.load_from_folder(base_path=Path("../data/"), icao=icao)
 
@@ -224,7 +240,7 @@ if __name__ == "__main__":
             model_path=MODEL_PATH,
             norm_x_path=NORM_X_PATH,
             norm_y_path=NORM_Y_PATH,
-            output_dir=Path(f"../data/{icao}/multiple_airports_ft_transformer_next_state_rollout"),
+            output_dir=Path(f"../data/{icao}/multiple_airports_ft_transformer_next_state_rollout_constraint"),
             dt=1.0,
             max_steps=2000,
         )

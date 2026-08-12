@@ -81,22 +81,34 @@ provider = CopernicusDEMProvider(
 )
 
 grid = provider.get_terrain(
-    lat_min=LAT_MIN, lon_min=LON_MIN, lat_max=LAT_MAX, lon_max=LON_MAX,
-    width=1024, height=1024,
+    lat_min=LAT_MIN,
+    lon_min=LON_MIN,
+    lat_max=LAT_MAX,
+    lon_max=LON_MAX,
+    width=1024,
+    height=1024,
 )
 
 horizontal_scale = 0.01
 vertical_scale = 0.01
 
 geo = GeoTransformer(
-    lat=airport.lat, lon=airport.lon,
-    horizontal_scale=horizontal_scale, vertical_scale=vertical_scale,
+    lat=airport.lat,
+    lon=airport.lon,
+    horizontal_scale=horizontal_scale,
+    vertical_scale=vertical_scale,
     transformer=to_utm,
 )
 
 terrain_project_mesh = TerrainProjectMesh(
-    grid=grid, lat_min=LAT_MIN, lon_min=LON_MIN, lat_max=LAT_MAX, lon_max=LON_MAX,
-    horizontal_scale=horizontal_scale, vertical_scale=vertical_scale, transformer=to_utm,
+    grid=grid,
+    lat_min=LAT_MIN,
+    lon_min=LON_MIN,
+    lat_max=LAT_MAX,
+    lon_max=LON_MAX,
+    horizontal_scale=horizontal_scale,
+    vertical_scale=vertical_scale,
+    transformer=to_utm,
 )
 
 engine = Engine(1280, 720, f"FT-Transformer-Policy ({LAYER_MODE}) - {ICAO}")
@@ -106,14 +118,18 @@ terrain_project_mesh.spawn(scene=scene, geo=geo)
 
 for runway in runways:
     runway_mesh_builder = RunwayProjectMesh(
-        runway=runway, horizontal_scale=horizontal_scale,
-        vertical_scale=vertical_scale, transformer=to_utm,
+        runway=runway,
+        horizontal_scale=horizontal_scale,
+        vertical_scale=vertical_scale,
+        transformer=to_utm,
     )
     runway_mesh_builder.spawn(scene, geo)
 
 scene.ambient_light = Color(0.25, 0.25, 0.3)
 scene.directional_light = DirectionalLight(
-    direction=Vec3(-1, -2, -1), color=Color(1.0, 0.95, 0.85), intensity=1.0,
+    direction=Vec3(-1, -2, -1),
+    color=Color(1.0, 0.95, 0.85),
+    intensity=1.0,
 )
 
 cam = OrbitCamera(distance=5.0)
@@ -138,10 +154,19 @@ vertrate0 = float(start_point["vertrate"]) if not np.isnan(start_point["vertrate
 gamma0 = float(np.degrees(np.arctan2(vertrate0, max(v0, 1e-3))))
 
 aircraft_state = AircraftKinematicsState(
-    x=x0, y=y0, h=h0, v=v0, gamma=gamma0, chi=heading0,
+    x=x0,
+    y=y0,
+    h=h0,
+    v=v0,
+    gamma=gamma0,
+    chi=heading0,
     aircraft_type=aircraft_dynamics,
 )
-env = AircraftEnvironment(state=aircraft_state, goal=None, dt=PHYS_DT)
+env = AircraftEnvironment(
+    state=aircraft_state,
+    goal=None,
+    dt=PHYS_DT
+)
 
 dyn_feat = np.array(
     [getattr(aircraft_dynamics, k) for k in LandingActionDataset.DYNAMICS_KEYS],

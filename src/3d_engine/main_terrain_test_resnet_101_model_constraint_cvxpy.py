@@ -6,7 +6,7 @@ import torch
 from torch import nn
 from pyproj import Transformer
 
-from ml.train_resnet_101_all_aiports import LandingActionResNet101
+from ml.train_resnet_101_all_airports import LandingActionResNet101
 from ml.utils.data_loader.landing_action_dataset import LandingActionDataset
 from ml.utils.data_loader.lazy_flight_parquet_dataset import LazyFlightParquetDataset
 from ml.utils.models.constraint_layer_cvxpy import (
@@ -82,22 +82,34 @@ provider = CopernicusDEMProvider(
 )
 
 grid = provider.get_terrain(
-    lat_min=LAT_MIN, lon_min=LON_MIN, lat_max=LAT_MAX, lon_max=LON_MAX,
-    width=1024, height=1024,
+    lat_min=LAT_MIN,
+    lon_min=LON_MIN,
+    lat_max=LAT_MAX,
+    lon_max=LON_MAX,
+    width=1024,
+    height=1024,
 )
 
 horizontal_scale = 0.01
 vertical_scale = 0.01
 
 geo = GeoTransformer(
-    lat=airport.lat, lon=airport.lon,
-    horizontal_scale=horizontal_scale, vertical_scale=vertical_scale,
+    lat=airport.lat,
+    lon=airport.lon,
+    horizontal_scale=horizontal_scale,
+    vertical_scale=vertical_scale,
     transformer=to_utm,
 )
 
 terrain_project_mesh = TerrainProjectMesh(
-    grid=grid, lat_min=LAT_MIN, lon_min=LON_MIN, lat_max=LAT_MAX, lon_max=LON_MAX,
-    horizontal_scale=horizontal_scale, vertical_scale=vertical_scale, transformer=to_utm,
+    grid=grid,
+    lat_min=LAT_MIN,
+    lon_min=LON_MIN,
+    lat_max=LAT_MAX,
+    lon_max=LON_MAX,
+    horizontal_scale=horizontal_scale,
+    vertical_scale=vertical_scale,
+    transformer=to_utm,
 )
 
 engine = Engine(1280, 720, f"ResNet101-Policy ({LAYER_MODE}) - {ICAO}")
@@ -107,14 +119,18 @@ terrain_project_mesh.spawn(scene=scene, geo=geo)
 
 for runway in runways:
     runway_mesh_builder = RunwayProjectMesh(
-        runway=runway, horizontal_scale=horizontal_scale,
-        vertical_scale=vertical_scale, transformer=to_utm,
+        runway=runway,
+        horizontal_scale=horizontal_scale,
+        vertical_scale=vertical_scale,
+        transformer=to_utm,
     )
     runway_mesh_builder.spawn(scene, geo)
 
 scene.ambient_light = Color(0.25, 0.25, 0.3)
 scene.directional_light = DirectionalLight(
-    direction=Vec3(-1, -2, -1), color=Color(1.0, 0.95, 0.85), intensity=1.0,
+    direction=Vec3(-1, -2, -1),
+    color=Color(1.0, 0.95, 0.85),
+    intensity=1.0,
 )
 
 cam = OrbitCamera(distance=5.0)
@@ -149,7 +165,6 @@ dyn_feat = np.array(
     dtype=np.float32,
 )
 
-# runway fix in airport-centered UTM frame, elevation RELATIVE (matches training)
 fix_x, fix_y = to_utm.transform(
     float(runway_row["fix_longitude"]), float(runway_row["fix_latitude"])
 )

@@ -231,20 +231,20 @@ if __name__ == "__main__":
     client = OpenAirportMapClient()
     client.get_airport("EDDF")
 
-    print("--- JSON Struktur ---")
+    print("JSON structure")
     client.print_json_structure()
 
-    print("\n--- Runways ---")
+    print("\nRunways")
     runways = client.get_runways()
     for rwy in runways:
         print(rwy.ref, len(rwy.centerline_coordinates))
 
-    print("\n--- Taxiways ---")
+    print("\nTaxiways")
     taxiways = client.get_taxiways()
     for twy in taxiways:
         print(twy.open_street_map_id, len(twy.coordinates))
 
-    print("\n--- Terminals ---")
+    print("\nTerminals")
     terminals = client.get_terminals()
     for term in terminals:
         print(term.name, len(term.coordinates))

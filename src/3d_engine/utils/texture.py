@@ -36,7 +36,9 @@ class Texture:
     def _upload(self) -> None:
         if self._id is not None:
             return
-        img  = Image.open(self._path).transpose(Image.Transpose.FLIP_TOP_BOTTOM).convert("RGBA")
+
+        # img  = Image.open(self._path).transpose(Image.Transpose.FLIP_TOP_BOTTOM).convert("RGBA")
+        img  = Image.open(self._path).convert("RGBA")
         data = img.tobytes()
         self._id = glGenTextures(1)
         glBindTexture(GL_TEXTURE_2D, self._id)

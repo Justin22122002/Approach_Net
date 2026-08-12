@@ -35,7 +35,7 @@ icao_frankfurt = {
 
 icao = icao_vancouver
 
-# --- load airport data section ---
+# load airport data section
 basePath: Path = Path("../data")
 airport = Airport.load_from_folder(basePath, icao["icao"])
 
@@ -66,9 +66,12 @@ engine = Engine(1280, 720, "CasADi Landing")
 scene  = engine.scene
 TerrainProjectMesh(
     grid=grid,
-    lat_min=airport.lat - delta, lon_min=airport.lon - delta,
-    lat_max=airport.lat + delta, lon_max=airport.lon + delta,
-    horizontal_scale=horizontal_scale, vertical_scale=vertical_scale,
+    lat_min=airport.lat - delta,
+    lon_min=airport.lon - delta,
+    lat_max=airport.lat + delta,
+    lon_max=airport.lon + delta,
+    horizontal_scale=horizontal_scale,
+    vertical_scale=vertical_scale,
     transformer=transformer,
 ).spawn(scene, geo)
 
@@ -158,8 +161,6 @@ print(f"Optimisation done.  T = {T_opt:.1f} s  dt = {dt_casadi:.3f} s")
 print(f"  pos  ({X_opt[0,-1]:.0f}, {X_opt[1,-1]:.0f}, {X_opt[2,-1]:.1f}) m")
 print(f"  v    {float(X_opt[3,-1]):.1f} m/s")
 
-# Re-use AircraftEnvironmentCasadi to replay the optimized trajectory.
-# float() on state fields: after apply_action the attributes become CasADi DM.
 env = AircraftEnvironmentCasadi(
     state       = state,
     goal        = None,

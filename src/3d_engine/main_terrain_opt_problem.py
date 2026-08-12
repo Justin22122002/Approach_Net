@@ -62,9 +62,12 @@ engine = Engine(1280, 720, "CasADi Landing")
 scene  = engine.scene
 TerrainProjectMesh(
     grid=grid,
-    lat_min=airport.lat - delta, lon_min=airport.lon - delta,
-    lat_max=airport.lat + delta, lon_max=airport.lon + delta,
-    horizontal_scale=horizontal_scale, vertical_scale=vertical_scale,
+    lat_min=airport.lat - delta,
+    lon_min=airport.lon - delta,
+    lat_max=airport.lat + delta,
+    lon_max=airport.lon + delta,
+    horizontal_scale=horizontal_scale,
+    vertical_scale=vertical_scale,
     transformer=transformer,
 ).spawn(scene, geo)
 
@@ -144,8 +147,6 @@ print(f"Optimisation done.  T = {T_opt:.1f} s  dt = {dt_casadi:.3f} s")
 print(f"  pos  ({X_opt[0,-1]:.0f}, {X_opt[1,-1]:.0f}, {X_opt[2,-1]:.1f}) m")
 print(f"  v    {float(X_opt[3,-1]):.1f} m/s")
 
-# Re-use AircraftEnvironmentCasadi to replay the optimized trajectory.
-# float() on state fields: after apply_action the attributes become CasADi DM.
 env = AircraftEnvironmentCasadi(
     state       = state,
     goal        = None,
@@ -192,7 +193,6 @@ def on_update(dt_frame: float) -> None:
             _step_idx += 1
         _phys_acc -= dt_casadi
 
-    # float() extracts scalar from CasADi DM after apply_action mutates state fields
     lx, lz = geo.to_local_in_m(float(state.x), float(state.y))
     ly      = geo.altitude_to_local(float(state.h))
     wp      = Vec3(lx, ly, lz)
@@ -212,7 +212,6 @@ def on_gui() -> None:
     fps  = engine._clock.get_fps() if engine._clock else 0.0
     prog = min(_step_idx / max(N_casadi, 1), 1.0)
 
-    # float() extracts scalar from CasADi DM for arithmetic / string formatting
     sx = float(state.x);  sy = float(state.y)
     sv = float(state.v);  sh = float(state.h)
     schi = float(state.chi); sgamma = float(state.gamma)

@@ -457,7 +457,14 @@ class OpenSkyTrinoClient:
         return pd.DataFrame(results)
 
 
-def load_train(arrival_airport: str, target_n_arrivals: int, radius_km: float, suffix: str, folder_name: str) -> None:
+def load_data(
+    arrival_airport: str,
+    target_n_arrivals: int,
+    radius_km: float,
+    suffix: str,
+    folder_name: str,
+    end_offset: timedelta = timedelta(0),
+) -> None:
     path: Path = Path("../../pyproj")
     datadir.append_data_dir(path)
 
@@ -472,11 +479,15 @@ def load_train(arrival_airport: str, target_n_arrivals: int, radius_km: float, s
         radius_km=radius_km,
     )
 
-    df = client.load_n_arrivals(target_n=target_n_arrivals, batch=timedelta(days=1))
+    trino_lag = timedelta(days=2)
+    end = datetime.now(UTC) - trino_lag - end_offset
+
+    df = client.load_n_arrivals(target_n=target_n_arrivals, batch=timedelta(days=1), end=end)
 
     print(df.head())
     print(f"Arriving unique aircraft: {df['icao24'].nunique()}")
     print(f"Total state vectors: {len(df)}")
+    print(f"[load_data:{folder_name}] window end={end} (offset={end_offset})")
 
     history_file_path = basePath / arrival_airport / folder_name / f"arrivals_raw_{suffix}.parquet"
     df.to_parquet(history_file_path)
@@ -512,62 +523,7 @@ def load_train(arrival_airport: str, target_n_arrivals: int, radius_km: float, s
     client.save_dataframe(df_interpolated, basePath / arrival_airport / folder_name / f"arrivals_{suffix}", formats=["csv", "parquet"])
     client.save_dataframe(df_aircraft, basePath / arrival_airport / folder_name / f"aircraft_{suffix}", formats=["csv", "parquet"])
     client.save_dataframe(df_runways, basePath / arrival_airport / folder_name / f"runway_assignments_{suffix}", formats=["csv", "parquet"])
-    print("\n[INFO] Pipeline finished successfully!")
-
-
-def load_test_data(arrival_airport: str, target_n_arrivals: int, radius_km: float, suffix: str)  -> None:
-    path: Path = Path("../../pyproj")
-    datadir.append_data_dir(path)
-
-    basePath: Path = Path("../../data/")
-    airport = Airport.load_from_folder(basePath, arrival_airport)
-
-    client = OpenSkyTrinoClient(
-        airport=airport,
-        radius_km=radius_km,
-    )
-
-    df = client.load_n_arrivals(target_n=target_n_arrivals, batch=timedelta(days=1))
-
-    print(df.head())
-    print(f"Arriving unique aircraft: {df['icao24'].nunique()}")
-    print(f"Total state vectors: {len(df)}")
-
-    history_file_path = basePath / arrival_airport / f"arrivals_raw_{suffix}.parquet"
-    df.to_parquet(history_file_path)
-
-    print("\nStart interpolating with AircraftHistoryInterpolator...")
-    interpolator = AircraftHistoryInterpolator(
-        history_file_path, airport_height=airport.arinc_424_runway[0].runway_altitude
-    )
-    interpolator.clean_dataframe()
-    interpolator.interpolate()
-    interpolator.remove_onground()
-
-    df_interpolated = interpolator.dataframe
-
-    print("\nStart Runway-assignment...")
-    df_runways = client.assign_runway(
-        df_interpolated,
-        airport,
-    )
-
-    df_interpolated = df_interpolated.merge(
-        df_runways[["icao24", "flight_id"]],
-        on=["icao24", "flight_id"],
-        how="inner",
-    )
-
-    print(df_runways.head())
-
-    print("\nLoad aircraft details")
-    df_aircraft = client.extract_aircraft_table(df_interpolated)
-    print(df_aircraft.head())
-
-    client.save_dataframe(df_interpolated, basePath / arrival_airport / f"arrivals_{suffix}", formats=["csv", "parquet"])
-    client.save_dataframe(df_aircraft, basePath / arrival_airport / f"aircraft_{suffix}", formats=["csv", "parquet"])
-    client.save_dataframe(df_runways, basePath / arrival_airport / f"runway_assignments_{suffix}", formats=["csv", "parquet"])
-    print("\n[INFO] Pipeline finished successfully!")
+    print("\nPipeline finished successfully!")
 
 if __name__ == "__main__":
     airport_list: list[str] = [
@@ -577,24 +533,28 @@ if __name__ == "__main__":
         "CYYC",
         "CYEG",
     ]
-    target_n_arrivals: int = 10000 # 2000, 500
+    target_n_arrivals_test: int = 500 # 2000, 500
+    target_n_arrivals_train: int = 10000 # 2000, 500
+    test_offset: timedelta = timedelta(days=90)
     radius_km: float = 30.0
     suffix = datetime.now(UTC).strftime("%Y%m%d_%H%M")
 
     for airport in airport_list:
-        # load_test_data(
-        #    arrival_airport=airport,
-        #    target_n_arrivals=target_n_arrivals,
-        #    radius_km=radius_km,
-        #    suffix=suffix,
-        # )
-
         # 20260708_1247 -> old with 2000
         # 20260802_0920 -> new with 10000
-        load_train(
+        load_data(
             arrival_airport=airport,
-            target_n_arrivals=target_n_arrivals,
+            target_n_arrivals=target_n_arrivals_train,
             radius_km=radius_km,
             suffix=suffix,
             folder_name="train",
+        )
+
+        load_data(
+            arrival_airport=airport,
+            target_n_arrivals=target_n_arrivals_test,
+            radius_km=radius_km,
+            suffix=suffix,
+            folder_name="test",
+            end_offset=test_offset,
         )

@@ -62,9 +62,12 @@ engine = Engine(1280, 720, "CasADi Landing")
 scene  = engine.scene
 TerrainProjectMesh(
     grid=grid,
-    lat_min=airport.lat - delta, lon_min=airport.lon - delta,
-    lat_max=airport.lat + delta, lon_max=airport.lon + delta,
-    horizontal_scale=horizontal_scale, vertical_scale=vertical_scale,
+    lat_min=airport.lat - delta,
+    lon_min=airport.lon - delta,
+    lat_max=airport.lat + delta,
+    lon_max=airport.lon + delta,
+    horizontal_scale=horizontal_scale,
+    vertical_scale=vertical_scale,
     transformer=transformer,
 ).spawn(scene, geo)
 

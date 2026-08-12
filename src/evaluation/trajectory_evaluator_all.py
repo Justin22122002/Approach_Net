@@ -218,14 +218,16 @@ if __name__ == "__main__":
         "CYVR",
         "CYUL",
         "CYYZ",
-        # "CYYC", data problem
-        # "CYEG", data problem
+        # "CYYC",
+        # "CYEG",
     ]
+
+    dataset_name: str = "20260709_1207" # note: arrivals_20260802_0920 -> wrong, 20260802_0920 -> right
 
     summary_rows: list[dict] = []
 
     for airport_icao in airport_list_icao:
-        test_base_path = f"../data/{airport_icao}/test/20260709_1207"
+        test_base_path = f"../data/{airport_icao}/test/{dataset_name}"
         airport_dataset = LazyFlightParquetDataset(test_base_path)
 
         airport_obj: Airport = Airport.load_from_folder(base_path=Path("../data/"), icao=airport_icao)
@@ -249,7 +251,7 @@ if __name__ == "__main__":
                 print(f"[WARN] skipping {exp['label']} @ {airport_icao}: {e}")
 
     summary_df = pd.DataFrame(summary_rows)
-    summary_path = Path("../data/qp_layer_mode_summary_8experiments.csv")
+    summary_path = Path("../data/summary_experiments.csv")
     summary_df.to_csv(summary_path, index=False)
     print(f"\n[SUMMARY] {summary_path}")
     print(summary_df)

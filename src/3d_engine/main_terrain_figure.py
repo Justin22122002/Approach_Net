@@ -2,6 +2,7 @@ from pathlib import Path
 import re
 import numpy as np
 import pandas as pd
+from PIL import Image
 from pyproj import Transformer
 from OpenGL.GL import (
     GL_COLOR_BUFFER_BIT,
@@ -18,11 +19,13 @@ from ml.utils.data_loader.lazy_flight_parquet_dataset import LazyFlightParquetDa
 from utils.airport import Airport
 from utils.arinc_runway import ArincRunway
 from utils.clients.airport_client import OpenStreetMapAirportClient
+from utils.clients.osm_water_client import OpenStreetMapWaterClient
 from utils.engine import Engine
 from utils.lineRenderer import LineRenderer
 from utils.color import Color
 from utils.camera import FlyCamera, OrbitCamera
 from utils.sky import Sky
+from utils.texture import Texture
 from utils.vec3 import Vec3
 from utils_project.approach_project_mesh import ApproachProjectMesh
 from utils_project.building_project_mesh import BuildingProjectMesh
@@ -32,6 +35,8 @@ from utils_project.taxiway_project_mesh import TaxiwayProjectMesh
 from utils_project.terrain_project_mesh import TerrainProjectMesh
 from utils_project.road_project_mesh import RoadProjectMesh
 from dotenv import load_dotenv
+
+from utils_project.water_texture_renderer import WaterTextureRenderer
 
 load_dotenv()
 
@@ -54,6 +59,9 @@ TRAJECTORY_LINE_WIDTH = 3.0
 WINDOW_COLOR = Color.blue()
 
 SCREENSHOT_DIR = Path("")
+
+USE_SATELLITE_TEXTURE = False
+TERRAIN_TEX_SIZE = 8192
 
 CASES = [
     # (label, color, traj_path, status_path)
@@ -113,7 +121,8 @@ horizontal_scale = LOCAL_SCALE
 vertical_scale = LOCAL_SCALE
 
 geo = GeoTransformer(
-    lat=airport.lat, lon=airport.lon,
+    lat=airport.lat,
+    lon=airport.lon,
     horizontal_scale=horizontal_scale,
     vertical_scale=vertical_scale,
     transformer=to_utm,
@@ -152,8 +161,10 @@ runways_one_per_direction: list[ArincRunway] = [
 runway_row = None
 for runway in runways_one_per_direction:
     runway_mesh_builder = RunwayProjectMesh(
-        runway=runway, horizontal_scale=horizontal_scale,
-        vertical_scale=vertical_scale, transformer=to_utm,
+        runway=runway,
+        horizontal_scale=horizontal_scale,
+        vertical_scale=vertical_scale,
+        transformer=to_utm,
     )
     runway_mesh_builder.spawn(scene, geo)
 
@@ -174,6 +185,46 @@ for taxiway in airport.taxiways:
 
 map_client = OpenStreetMapAirportClient()
 
+water_tex_path = basePath / ICAO / ("terrain_water_sat.png" if USE_SATELLITE_TEXTURE else "terrain_water.png")
+
+if water_tex_path.exists():
+    print(f"[TERRAIN] using cached water texture: {water_tex_path}")
+else:
+    print("[TERRAIN] fetching OSM water features + rendering texture ...")
+    water_features = OpenStreetMapWaterClient().get_water_features(
+        lat_min=airport.terrain.lat_min,
+        lon_min=airport.terrain.lon_min,
+        lat_max=airport.terrain.lat_max,
+        lon_max=airport.terrain.lon_max,
+    )
+    print(f"[TERRAIN] {water_features}")
+
+    water_renderer = WaterTextureRenderer(
+        lat_min=airport.terrain.lat_min,
+        lon_min=airport.terrain.lon_min,
+        lat_max=airport.terrain.lat_max,
+        lon_max=airport.terrain.lon_max,
+        width=TERRAIN_TEX_SIZE,
+        height=TERRAIN_TEX_SIZE,
+    )
+
+    base_rgb: np.ndarray | None = None
+    if USE_SATELLITE_TEXTURE:
+        base_rgb = map_client.terrain_client.get_satellite_image(
+            lat_min=airport.terrain.lat_min,
+            lon_min=airport.terrain.lon_min,
+            lat_max=airport.terrain.lat_max,
+            lon_max=airport.terrain.lon_max,
+            width=TERRAIN_TEX_SIZE,
+            height=TERRAIN_TEX_SIZE,
+        )
+
+    water_rgb = water_renderer.composite(water_features, base_rgb=base_rgb, land_color=(102, 140, 77))
+    Image.fromarray(water_rgb).save(water_tex_path)
+    print(f"[TERRAIN] saved {water_tex_path}")
+
+terrain_texture = Texture(str(water_tex_path))
+
 terrain_project_mesh = TerrainProjectMesh(
     grid=airport.terrain.elevation_grid,
     lat_min=airport.terrain.lat_min,
@@ -183,6 +234,7 @@ terrain_project_mesh = TerrainProjectMesh(
     horizontal_scale=horizontal_scale,
     vertical_scale=vertical_scale,
     transformer=to_utm,
+    texture=terrain_texture,
 )
 
 terrain_project_mesh.spawn(scene=scene, geo=geo)

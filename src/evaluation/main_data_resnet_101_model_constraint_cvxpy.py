@@ -307,13 +307,15 @@ if __name__ == "__main__":
         "CYVR",
         "CYUL",
         "CYYZ",
-        # "CYYC", data problem
-        # "CYEG", data problem
+        # "CYYC",
+        # "CYEG",
     ]
+
+    dataset_name: str = "20260709_1207" # note: arrivals_20260802_0920 -> wrong, 20260802_0920 -> right
 
     for airport_icao in airport_list_icao:
         icao = airport_icao
-        base_path = f"../data/{icao}/test/20260709_1207"
+        base_path = f"../data/{icao}/test/{dataset_name}"
         dataset = LazyFlightParquetDataset(base_path)
 
         airport: Airport = Airport.load_from_folder(base_path=Path("../data/"), icao=icao)

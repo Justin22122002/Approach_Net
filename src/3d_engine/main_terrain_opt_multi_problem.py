@@ -250,7 +250,6 @@ def on_update(dt_frame: float) -> None:
 
     flying = [ac for ac in aircraft_list if not ac.landed]
     if flying:
-        # float() needed: state fields are CasADi DM after first simulation step
         cx = np.mean([geo.to_local_in_m(float(states_list[ac.idx].x), float(states_list[ac.idx].y))[0] for ac in flying])
         cz = np.mean([geo.to_local_in_m(float(states_list[ac.idx].x), float(states_list[ac.idx].y))[1] for ac in flying])
         cy = np.mean([geo.altitude_to_local(float(states_list[ac.idx].h)) for ac in flying])

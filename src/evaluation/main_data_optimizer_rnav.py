@@ -215,30 +215,19 @@ def run_batch_optimization(
 
 
 if __name__ == "__main__":
-    # base_path = "../data/CYVR/20260625_1508"
-    # dataset = LazyFlightParquetDataset(base_path)
-
-    # run_batch_optimization(
-    #     dataset=dataset,
-    #     airport_lat=49.1967,
-    #     airport_lon=-123.1815,
-    #     output_dir=Path("../data/CYVR/rnav_optimized"),
-    #     N=200,
-    #     T_min=60.0,
-    #     T_max=1800.0,
-    # )
-
     airport_list_icao: list[str] = [
         "CYVR",
         "CYUL",
         "CYYZ",
-        # "CYYC", data problem
-        # "CYEG", data problem
+        # "CYYC",
+        # "CYEG",
     ]
+
+    dataset_name: str = "20260709_1207" # note: arrivals_20260802_0920 -> wrong, 20260802_0920 -> right
 
     for airport_icao in airport_list_icao:
         icao = airport_icao
-        base_path = f"../data/{icao}/test/20260709_1207"
+        base_path = f"../data/{icao}/test/{dataset_name}"
         dataset = LazyFlightParquetDataset(base_path)
 
         airport: Airport = Airport.load_from_folder(base_path=Path("../data/"), icao=icao)

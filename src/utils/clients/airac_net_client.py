@@ -34,6 +34,7 @@ class AiracNetClient:
 
     def get_all_procedures(self, icao: str, proc_type: str = "APP") -> Any:
         all_procedures = []
+        seen_identifiers: set[str] = set()
         page = 1
         per_page = 100
 
@@ -56,13 +57,18 @@ class AiracNetClient:
             if not procedures:
                 break
 
-            all_procedures.extend(procedures)
+            for proc in procedures:
+                identifier = proc["identifier"]
+                # filter out multiple procedures with the same identifier
+                if identifier in seen_identifiers:
+                    continue
+                seen_identifiers.add(identifier)
+                all_procedures.append(proc)
 
             page += 1
 
         return all_procedures
 
-    # filter out duplicated procedures
     def get_procedure_detail(self, icao: str, identifier: str) -> Approach:
         params = {}
 
@@ -174,18 +180,18 @@ class AiracNetClient:
                         fix.longitude = lon1
 
             new_runway = ArincRunway(
-                    runway_identifier=ident,
-                    latitude=lat1,
-                    longitude=lon1,
-                    length=length,
-                    bearing=bearing,
-                    width=width,
-                    stopway=overrunLength,
-                    displaced_threshold=thresholdOffset,
-                    magnetic_variation=magnetic_variation,
-                    runway_altitude=airport_elevation,
-                    approaches=rw_approaches,
-                )
+                runway_identifier=ident,
+                latitude=lat1,
+                longitude=lon1,
+                length=length,
+                bearing=bearing,
+                width=width,
+                stopway=overrunLength,
+                displaced_threshold=thresholdOffset,
+                magnetic_variation=magnetic_variation,
+                runway_altitude=airport_elevation,
+                approaches=rw_approaches,
+            )
             new_runway.centerline_coordinates = (
                 Coordinate(lat=lat1, lon=lon1),
                 Coordinate(lat=lat2, lon=lon2),
