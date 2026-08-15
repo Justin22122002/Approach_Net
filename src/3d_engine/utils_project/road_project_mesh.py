@@ -10,6 +10,7 @@ from utils.simplematerial import SimpleMaterial
 from utils.mesh import Mesh
 from utils.meshRenderer import MeshRenderer
 from utils.scene import Scene
+from utils.vec3 import Vec3
 from utils_project.geo_transformer import GeoTransformer
 from utils_project.project_mesh import ProjectMesh
 from utils_project.terrain_project_mesh import TerrainProjectMesh
@@ -38,12 +39,34 @@ class RoadProjectMesh(ProjectMesh):
             vertical_scale=vertical_scale,
             lat=terrain.lat_min,
             lon=terrain.lon_min,
-            altitude=0.0,
+            altitude=terrain.altitude,
             transformer=transformer,
         )
 
+        self.origin_x, self.origin_y = self.transformer.transform(self.lon, self.lat)
+
+    def _local_xz(self, lat: float, lon: float) -> tuple[float, float]:
+        x, y = self.transformer.transform(lon, lat)
+        dx = (x - self.origin_x) * self.horizontal_scale
+        dz = (self.origin_y - y) * self.horizontal_scale
+        return dx, dz
+
     @override
     def spawn(self, scene: Scene, geo: GeoTransformer) -> list[GameObject]:
+        mesh = self.generate_mesh()
+        if mesh.vertices.size == 0:
+            return []
+
+        cx, cz = geo.to_local(self.lat, self.lon)
+        cy = geo.altitude_to_local(self.altitude)
+
+        go = scene.spawn("Roads")
+        go.transform.position = Vec3(cx, cy, cz)
+        go.add_component(MeshRenderer(mesh, SimpleMaterial(color=self.color)))
+        return [go]
+
+    @override
+    def generate_mesh(self) -> Mesh:
         half_w = (self.road_width_m * self.horizontal_scale) / 2.0
 
         verts: list[float] = []
@@ -55,9 +78,9 @@ class RoadProjectMesh(ProjectMesh):
 
             local_pts = []
             for c in line:
-                dx, dz = geo.to_local(c.lat, c.lon)
+                dx, dz = self._local_xz(c.lat, c.lon)
                 h_m = self.terrain.sample_height(c.lat, c.lon)
-                dy = geo.altitude_to_local(h_m) + self.height_offset_m * self.vertical_scale
+                dy = (h_m - self.altitude + self.height_offset_m) * self.vertical_scale
                 local_pts.append((dx, dy, dz))
 
             for p0, p1 in zip(local_pts, local_pts[1:]):
@@ -84,14 +107,6 @@ class RoadProjectMesh(ProjectMesh):
                 idx += [base, base + 2, base + 1, base, base + 3, base + 2]
 
         if not idx:
-            return []
+            return Mesh(np.empty(0, dtype=np.float32), np.empty(0, dtype=np.uint32))
 
-        mesh = Mesh(np.array(verts, dtype=np.float32), np.array(idx, dtype=np.uint32))
-
-        go = scene.spawn("Roads")
-        go.add_component(MeshRenderer(mesh, SimpleMaterial(color=self.color)))
-        return [go]
-
-    @override
-    def generate_mesh(self) -> Mesh:
-        pass
+        return Mesh(np.array(verts, dtype=np.float32), np.array(idx, dtype=np.uint32))

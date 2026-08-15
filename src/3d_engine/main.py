@@ -64,7 +64,7 @@ scene.directional_light = DirectionalLight(
 )
 
 # Camera
-engine.camera = FlyCamera(speed=5.0)
+engine.camera = FlyCamera(speed=100.0) # 5.0, 100.0
 
 engine.sky = Sky(
     sun_elevation=30.0,

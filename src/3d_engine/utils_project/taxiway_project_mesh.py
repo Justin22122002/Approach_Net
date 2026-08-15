@@ -42,37 +42,42 @@ class TaxiwayProjectMesh(ProjectMesh):
             lat=airport_lat,
             lon=airport_lon,
             altitude=airport_altitude_ft * self.FT_TO_M,
-            transformer=transformer
+            transformer=transformer,
         )
+
+        self.origin_x, self.origin_y = self.transformer.transform(self.lon, self.lat)
+
+    def _local_xz(self, lat: float, lon: float) -> tuple[float, float]:
+        x, y = self.transformer.transform(lon, lat)
+        dx = (x - self.origin_x) * self.horizontal_scale
+        dz = (self.origin_y - y) * self.horizontal_scale
+        return dx, dz
+
+    def _local_points(self) -> list[Vec3]:
+        return [Vec3(dx, 0.0, dz) for dx, dz in (self._local_xz(c.lat, c.lon) for c in self.coordinates)]
 
     @override
     def spawn(self, scene: Scene, geo: GeoTransformer) -> list[GameObject]:
+        cx, cz = geo.to_local(self.lat, self.lon)
+        cy = geo.altitude_to_local(self.altitude)
+
+        go = scene.spawn("Taxiway")
+        go.transform.position = Vec3(cx, cy, cz)
+
         if self.use_mesh:
-            return self._spawn_mesh(scene, geo)
-        return self._spawn_line(scene, geo)
+            mesh = self.generate_mesh()
+            if mesh.vertices.size == 0:
+                return []
+            go.add_component(MeshRenderer(mesh, SimpleMaterial(color=self.color)))
+        else:
+            go.add_component(LineRenderer.strip(self._local_points(), color=self.color, depth_offset=True))
 
-    def _spawn_line(self, scene: Scene, geo: GeoTransformer) -> list[GameObject]:
-        dy: float = geo.altitude_to_local(self.altitude)
-
-        points: list[Vec3] = [
-            Vec3(dx, dy, dz)
-            for c in self.coordinates
-            for dx, dz in (geo.to_local(c.lat, c.lon),)
-        ]
-
-        go = scene.spawn(f"Taxiway")
-        go.add_component(LineRenderer.strip(points, color=self.color, depth_offset=True))
         return [go]
 
-    def _spawn_mesh(self, scene: Scene, geo: GeoTransformer) -> list[GameObject]:
-        dy: float = geo.altitude_to_local(self.altitude)
+    @override
+    def generate_mesh(self) -> Mesh:
         half_w = (self.taxiway_width_m * self.horizontal_scale) / 2.0
-
-        local_pts = [
-            (dx, dy, dz)
-            for c in self.coordinates
-            for dx, dz in (geo.to_local(c.lat, c.lon),)
-        ]
+        local_pts = [(p.x, p.y, p.z) for p in self._local_points()]
 
         verts: list[float] = []
         idx: list[int] = []
@@ -96,24 +101,11 @@ class TaxiwayProjectMesh(ProjectMesh):
 
             base = len(verts) // 8
             for (x, y, z), (u, v) in ((l0, (0, 0)), (r0, (1, 0)), (r1, (1, 1)), (l1, (0, 1))):
-                # flat up-normal, consistent with RoadProjectMesh
                 verts += [x, y, z, 0.0, 1.0, 0.0, u, v]
 
-            # CCW as seen from +Y so the front face points up
             idx += [base, base + 2, base + 1, base, base + 3, base + 2]
 
         if not idx:
-            return []
+            return Mesh(np.empty(0, dtype=np.float32), np.empty(0, dtype=np.uint32))
 
-        mesh = Mesh(np.array(verts, dtype=np.float32), np.array(idx, dtype=np.uint32))
-
-        go = scene.spawn(f"Taxiway")
-        go.add_component(MeshRenderer(mesh, SimpleMaterial(color=self.color)))
-        return [go]
-
-    @override
-    def generate_mesh(self) -> Mesh:
-        """
-        cause the aircraft is represented as a point, no mesh is generated
-        """
-        pass
+        return Mesh(np.array(verts, dtype=np.float32), np.array(idx, dtype=np.uint32))

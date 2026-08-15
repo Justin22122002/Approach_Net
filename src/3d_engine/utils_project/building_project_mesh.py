@@ -10,6 +10,7 @@ from utils.simplematerial import SimpleMaterial
 from utils.mesh import Mesh
 from utils.meshRenderer import MeshRenderer
 from utils.scene import Scene
+from utils.vec3 import Vec3
 from utils_project.geo_transformer import GeoTransformer
 from utils_project.project_mesh import ProjectMesh
 from utils_project.terrain_project_mesh import TerrainProjectMesh
@@ -99,12 +100,34 @@ class BuildingProjectMesh(ProjectMesh):
             vertical_scale=vertical_scale,
             lat=terrain.lat_min,
             lon=terrain.lon_min,
-            altitude=0.0,
+            altitude=terrain.altitude,
             transformer=transformer,
         )
 
+        self.origin_x, self.origin_y = self.transformer.transform(self.lon, self.lat)
+
+    def _local_xz(self, lat: float, lon: float) -> tuple[float, float]:
+        x, y = self.transformer.transform(lon, lat)
+        dx = (x - self.origin_x) * self.horizontal_scale
+        dz = (self.origin_y - y) * self.horizontal_scale
+        return dx, dz
+
     @override
     def spawn(self, scene: Scene, geo: GeoTransformer) -> list[GameObject]:
+        mesh = self.generate_mesh()
+        if mesh.vertices.size == 0:
+            return []
+
+        cx, cz = geo.to_local(self.lat, self.lon)
+        cy = geo.altitude_to_local(self.altitude)
+
+        go = scene.spawn("Buildings")
+        go.transform.position = Vec3(cx, cy, cz)
+        go.add_component(MeshRenderer(mesh, SimpleMaterial(color=self.color)))
+        return [go]
+
+    @override
+    def generate_mesh(self) -> Mesh:
         verts: list[float] = []
         idx: list[int] = []
 
@@ -112,11 +135,14 @@ class BuildingProjectMesh(ProjectMesh):
             if len(ring) < 3:
                 continue
 
-            pts_xz = [geo.to_local(c.lat, c.lon) for c in ring]
+            pts_xz = [self._local_xz(c.lat, c.lon) for c in ring]
             if len(pts_xz) > 1 and pts_xz[0] == pts_xz[-1]:
                 pts_xz = pts_xz[:-1]
             if len(pts_xz) < 3:
                 continue
+
+            if _signed_area_xz(pts_xz) < 0:
+                pts_xz = list(reversed(pts_xz))
 
             xs = [p[0] for p in pts_xz]
             zs = [p[1] for p in pts_xz]
@@ -125,11 +151,8 @@ class BuildingProjectMesh(ProjectMesh):
             if width_m < self.min_footprint_m or depth_m < self.min_footprint_m:
                 continue
 
-            cx = sum(xs) / len(xs)
-            cz = sum(zs) / len(zs)
-
             base_h_m = max(self.terrain.sample_height(c.lat, c.lon) for c in ring)
-            y0 = geo.altitude_to_local(base_h_m) + self.height_offset_m * self.vertical_scale
+            y0 = (base_h_m - self.altitude + self.height_offset_m) * self.vertical_scale
             y1 = y0 + self.building_height_m * self.vertical_scale
 
             n = len(pts_xz)
@@ -137,64 +160,36 @@ class BuildingProjectMesh(ProjectMesh):
             for i in range(n):
                 x0, z0 = pts_xz[i]
                 x1, z1 = pts_xz[(i + 1) % n]
-                if (x0 - x1) ** 2 + (z0 - z1) ** 2 < 1e-12:
+
+                dx = x1 - x0
+                dz = z1 - z0
+                elen = (dx * dx + dz * dz) ** 0.5
+                if elen < 1e-9:
                     continue
 
-                v0 = (x0, y0, z0)
-                v1 = (x1, y0, z1)
-                v2 = (x1, y1, z1)
-                v3 = (x0, y1, z0)
-
-                mx, mz = (x0 + x1) / 2.0, (z0 + z1) / 2.0
-                outward = (mx - cx, mz - cz)
+                nx = dz / elen
+                nz = -dx / elen
 
                 base = len(verts) // 8
-                for (vx, vy, vz), (u, v) in zip((v0, v1, v2, v3), ((0, 0), (1, 0), (1, 1), (0, 1))):
-                    verts += [vx, vy, vz, 0.0, 0.0, 0.0, u, v]  # normal patched below
+                for (vx, vy, vz), (u, v) in (
+                    ((x0, y0, z0), (0, 0)),
+                    ((x1, y0, z1), (1, 0)),
+                    ((x1, y1, z1), (1, 1)),
+                    ((x0, y1, z0), (0, 1)),
+                ):
+                    verts += [vx, vy, vz, nx, 0.0, nz, u, v]
 
-                ax, ay, az = v1[0] - v0[0], v1[1] - v0[1], v1[2] - v0[2]
-                bx, by, bz = v2[0] - v0[0], v2[1] - v0[1], v2[2] - v0[2]
-                nx = ay * bz - az * by
-                nz = ax * by - ay * bx
-                nlen = (nx * nx + nz * nz) ** 0.5 or 1.0
-                nx, nz = nx / nlen, nz / nlen
-                for k in range(4):
-                    verts[(base + k) * 8 + 3] = nx
-                    verts[(base + k) * 8 + 5] = nz
+                idx += [base, base + 2, base + 1, base, base + 3, base + 2]
 
-                if nx * outward[0] + nz * outward[1] >= 0:
-                    idx += [base, base + 1, base + 2, base, base + 2, base + 3]
-                else:
-                    idx += [base, base + 2, base + 1, base, base + 3, base + 2]
-
-            roof_pts = pts_xz if _signed_area_xz(pts_xz) > 0 else list(reversed(pts_xz))
-            tris = _ear_clip(roof_pts)
+            tris = _ear_clip(pts_xz)
             if tris:
                 roof_base = len(verts) // 8
-                for x, z in roof_pts:
+                for x, z in pts_xz:
                     verts += [x, y1, z, 0.0, 1.0, 0.0, 0.0, 0.0]
-
-                a0, b0, c0 = tris[0]
-                ax_, az_ = roof_pts[b0][0] - roof_pts[a0][0], roof_pts[b0][1] - roof_pts[a0][1]
-                bx_, bz_ = roof_pts[c0][0] - roof_pts[a0][0], roof_pts[c0][1] - roof_pts[a0][1]
-                ny = az_ * bx_ - ax_ * bz_
-                flip = ny < 0
-
                 for a, b, c in tris:
-                    if flip:
-                        idx += [roof_base + a, roof_base + c, roof_base + b]
-                    else:
-                        idx += [roof_base + a, roof_base + b, roof_base + c]
+                    idx += [roof_base + a, roof_base + c, roof_base + b]
 
         if not idx:
-            return []
+            return Mesh(np.empty(0, dtype=np.float32), np.empty(0, dtype=np.uint32))
 
-        mesh = Mesh(np.array(verts, dtype=np.float32), np.array(idx, dtype=np.uint32))
-
-        go = scene.spawn("Buildings")
-        go.add_component(MeshRenderer(mesh, SimpleMaterial(color=self.color)))
-        return [go]
-
-    @override
-    def generate_mesh(self) -> Mesh:
-        pass
+        return Mesh(np.array(verts, dtype=np.float32), np.array(idx, dtype=np.uint32))

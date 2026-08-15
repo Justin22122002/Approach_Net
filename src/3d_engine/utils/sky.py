@@ -96,7 +96,6 @@ void main() {
 
     float elev = dir.y;
 
-    // No occlusion by default; only a hit cloud layer writes real depth below.
     gl_FragDepth = 1.0;
 
     vec3 skyColor;
@@ -143,9 +142,6 @@ void main() {
         skyColor = mix(skyColor, cloudColor,  cloud);
         skyColor = mix(skyColor, cirrusColor, cirrus);
 
-        // Give the cloud layer a real depth-buffer value where it's actually
-        // visible, so objects further away than this point get correctly
-        // hidden behind it by the scene's normal depth test.
         if (cloud > 0.02) {
             vec3  hitPoint = vec3(cloudHit.x, uCloudAltitude, cloudHit.y);
             vec4  clipPos  = uVP * vec4(hitPoint, 1.0);

@@ -178,11 +178,21 @@ class OpenStreetMapAirportClient:
                 continue
 
             if "building" in tags:
+                if self._is_terminal(tags):
+                    continue
                 buildings.append(coords)
             elif "highway" in tags:
                 roads.append(coords)
 
         return buildings, roads
+
+    @staticmethod
+    def _is_terminal(tags: dict) -> bool:
+        return (
+                tags.get("aeroway") == "terminal"
+                or "terminal" in tags.get("name", "")
+                or tags.get("aeroway") == "construction"
+        )
 
     def _parse(self, data: dict) -> tuple[list[OpenStreetMapRunway], list[Taxiway], list[AirportTerminal]]:
         elements = data.get("elements", [])
@@ -244,8 +254,7 @@ class OpenStreetMapAirportClient:
             if not coords:
                 continue
             tags = el.get("tags", {})
-            aeroway = tags.get("aeroway")
-            if aeroway == "terminal" or tags.get("building") == "terminal" or "terminal" in tags.get("name","").lower():
+            if self._is_terminal(tags):
                 terminals.append(
                     AirportTerminal(open_street_map_id=el["id"], coordinates=coords, name=tags.get("name")))
         return terminals

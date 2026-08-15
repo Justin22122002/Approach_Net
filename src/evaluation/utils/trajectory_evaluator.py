@@ -320,7 +320,6 @@ class TrajectorySuccessEvaluator:
 
     @staticmethod
     def _window_auc(df: DataFrame) -> float | None:
-        """Uses s_needed_window (wide tolerances) -- the ONLY metric that does."""
         if df.empty or "s_needed_window" not in df or "converged" not in df:
             return None
         s_needed = df["s_needed_window"].to_numpy(dtype=float)
@@ -332,8 +331,6 @@ class TrajectorySuccessEvaluator:
 
     @staticmethod
     def _success_rate_at_s(df: DataFrame, s: float) -> float | None:
-        """Uses s_needed (strict tolerances) -- succ@1/succ@2/succ@3/... are
-        UNAFFECTED by window_* tolerances, exactly as before."""
         if df.empty or "s_needed" not in df or "converged" not in df:
             return None
         s_needed = df["s_needed"].to_numpy(dtype=float)

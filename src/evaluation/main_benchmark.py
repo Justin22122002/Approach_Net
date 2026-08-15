@@ -1,37 +1,3 @@
-"""
-Vergleicht alle 9 Landing-Methoden auf denselben 10 CYVR-Testflügen:
-
-  1. RNAV-Optimizer (CasADi/IPOPT)
-  2. FT-Transformer  Action              (unconstrained)
-  3. FT-Transformer  Action              + Combined-QP-Layer
-  4. FT-Transformer  Next-State          (unconstrained)
-  5. FT-Transformer  Next-State          + ILS-Funnel-Layer
-  6. ResNet101       Action              (unconstrained)
-  7. ResNet101       Action              + Combined-QP-Layer
-  8. ResNet101       Next-State          (unconstrained)
-  9. ResNet101       Next-State          + ILS-Funnel-Layer
-
-Für jede Methode wird pro Flug gemessen:
-  - T_opt        : Landezeit des Rollouts/der Optimierung [s]
-  - solve_time_s : Wall-clock-Zeit bis Ergebnis fertig ist [s]
-
-Abbruchbedingung bei den ML-Rollouts (identisch zur bisherigen Evaluierung):
-  max_steps = 2000  ODER  Flughöhe <= Runway-Höhe.
-
-ALLE Ergebnisse (ob gelandet/konvergiert oder nicht) gehen in
-avg_landing_time_s UND avg_solving_time_s ein -- nur eine echte
-Exception schließt einen Lauf aus.
-
-Die 10 Testflüge werden aus dem CYVR-Testdatensatz gewählt: Dauer >= 200s
-(Punkte sind 1s auseinander), sortiert aufsteigend nach Dauer -> die 10
-mit der kürzesten "Landezeit" (=Trajektorien-Dauer) werden genommen.
-
-Output:
-  - PNG-Plot der 10 ausgewählten Flüge
-  - CSV mit gemittelten Werten pro Methode
-  - Rohdaten-CSV mit jedem einzelnen Flug/Methode-Ergebnis
-"""
-
 import time
 from dataclasses import dataclass
 from pathlib import Path

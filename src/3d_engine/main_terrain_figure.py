@@ -32,6 +32,7 @@ from utils_project.building_project_mesh import BuildingProjectMesh
 from utils_project.geo_transformer import GeoTransformer
 from utils_project.runway_project_mesh import RunwayProjectMesh
 from utils_project.taxiway_project_mesh import TaxiwayProjectMesh
+from utils_project.terminal_project_mesh import TerminalProjectMesh
 from utils_project.terrain_project_mesh import TerrainProjectMesh
 from utils_project.road_project_mesh import RoadProjectMesh
 from dotenv import load_dotenv
@@ -238,6 +239,14 @@ terrain_project_mesh = TerrainProjectMesh(
 )
 
 terrain_project_mesh.spawn(scene=scene, geo=geo)
+
+TerminalProjectMesh(
+    terminals=airport.terminals,
+    terrain=terrain_project_mesh,
+    horizontal_scale=horizontal_scale,
+    vertical_scale=vertical_scale,
+    transformer=to_utm,
+).spawn(scene, geo)
 
 buildings, roads = map_client.get_buildings_and_roads(
     lat_min=airport.terrain.lat_min, lon_min=airport.terrain.lon_min,

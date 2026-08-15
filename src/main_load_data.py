@@ -3,12 +3,15 @@ from pathlib import Path
 from src.utils.airport import Airport
 from src.utils.clients.open_airport_map_client import OpenAirportMapClient, only_r_approaches
 from src.utils.clients.airport_client import OpenStreetMapAirportClient
+from dotenv import load_dotenv
+
+load_dotenv()
 
 def test_airports() -> None:
     client = OpenStreetMapAirportClient()
     client2 = OpenAirportMapClient()
 
-    radius_km: float = 25.0
+    radius_km: float = 30.0
 
     frankfurt: Airport = client2.load_new_airport(
         icao="EDDF",
