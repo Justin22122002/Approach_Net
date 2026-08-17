@@ -45,7 +45,10 @@ class LandingActionDataset(Dataset):
         augment_rotations_deg: list[float] | None = None,
     ) -> None:
         self.flight_dataset: LazyFlightParquetDataset = flight_dataset
-        self.processor: FlightTrajectoryProcessor = FlightTrajectoryProcessor(flight_dataset)
+        self.processor: FlightTrajectoryProcessor = FlightTrajectoryProcessor(
+            dataset=flight_dataset,
+            target_epsg=GeoTransformer.utm_epsg(*airport_center_latlon)
+        )
         self.max_dt: float = max_dt
         self.mode: TrajectoryMode = mode
 

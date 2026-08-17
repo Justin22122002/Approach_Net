@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -12,16 +14,22 @@ from scipy.interpolate import UnivariateSpline, splprep, splev
 from physics.aircraft_dynamics import AircraftDynamics
 from physics.aircraft_kinematics_state_casadi import AircraftKinematicsStateCasadi
 from physics.aircraft_environment_casadi import AircraftEnvironmentCasadi
-from utils_project.geo_transformer import GeoTransformer
 from ml.utils.data_loader.lazy_flight_parquet_dataset import LazyFlightParquetDataset
+from utils.airport import Airport
+from utils_project.geo_transformer import GeoTransformer
 
 TrajectoryMode: type[str] = Literal["raw", "reconstructed", "bspline_position", "bspline_state"]
 
 
 class FlightTrajectoryProcessor:
 
-    def __init__(self, dataset: LazyFlightParquetDataset):
+    def __init__(
+        self,
+        dataset: LazyFlightParquetDataset,
+        target_epsg: str
+    ) -> None:
         self.dataset: LazyFlightParquetDataset = dataset
+        self.target_epsg: str = target_epsg
 
     def load(
             self,
@@ -30,17 +38,11 @@ class FlightTrajectoryProcessor:
             smoothing_factor: float | dict[str, float] | None = None,
             spline_degree: int = 5,
     ) -> tuple[list[AircraftKinematicsStateCasadi], AircraftDynamics, list[Series]]:
-
         df = self.dataset[idx].sort_values("time").reset_index(drop=True)
         icao24, _ = self.dataset.flights[idx]
         _, dynamics = self.dataset.get_aircraft(icao24)
 
-        lat0, lon0 = float(df["lat"].iloc[0]), float(df["lon"].iloc[0])
-
-        # problem, when using different utm zones
-        transformer = Transformer.from_crs(
-            "EPSG:4326", GeoTransformer.utm_epsg(lat0, lon0), always_xy=True
-        )
+        transformer = Transformer.from_crs("EPSG:4326", self.target_epsg, always_xy=True)
 
         if mode in ("raw", "reconstructed"):
             return self._load_legacy(df, transformer, dynamics, mode)
@@ -418,16 +420,13 @@ def plot_comparison(
     reconstructed_traj: list,
     bspline_traj: list,
 ):
-
     raw = np.array([[s.x, s.y, s.h] for s in raw_traj])
     rec = np.array([[s.x, s.y, s.h] for s in reconstructed_traj])
     bs = np.array([[s.x, s.y, s.h] for s in bspline_traj])
 
     fig = plt.figure(figsize=(18, 14))
 
-    # -----------------------------
     # 3D
-    # -----------------------------
     ax = fig.add_subplot(221, projection="3d")
 
     ax.plot(raw[:,0], raw[:,1], raw[:,2],
@@ -445,9 +444,7 @@ def plot_comparison(
     ax.set_zlabel("H")
     ax.legend()
 
-    # -----------------------------
     # XY
-    # -----------------------------
     ax = fig.add_subplot(222)
 
     ax.plot(raw[:,0], raw[:,1],
@@ -464,9 +461,7 @@ def plot_comparison(
     ax.legend()
     ax.set_title("Ground Track")
 
-    # -----------------------------
     # Height
-    # -----------------------------
     ax = fig.add_subplot(223)
 
     ax.plot(raw[:,2], "k.", label="Raw")
@@ -477,9 +472,7 @@ def plot_comparison(
     ax.legend()
     ax.set_title("Altitude")
 
-    # -----------------------------
     # Difference
-    # -----------------------------
     ax = fig.add_subplot(224)
 
     diff = np.linalg.norm(bs[:,:2]-rec[:,:2], axis=1)
@@ -495,9 +488,12 @@ def plot_comparison(
 
 if __name__ == "__main__":
 
-    dataset = LazyFlightParquetDataset("../../data/CYVR/20260628_1254")
-
-    processor = FlightTrajectoryProcessor(dataset)
+    dataset = LazyFlightParquetDataset("../../data/CYVR/train/20260802_0920")
+    airport = Airport.load_from_folder(base_path=Path("../../data/"), icao="CYVR")
+    processor = FlightTrajectoryProcessor(
+        dataset,
+        target_epsg=GeoTransformer.utm_epsg(airport.lat, airport.lon),
+    )
 
     # "raw" | "reconstructed" | "bspline_position" | "bspline_state"
     trajectory, dynamics, timestamps = processor.load(idx=105, mode="bspline_state")
