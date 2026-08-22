@@ -242,6 +242,53 @@ where:
 - $C_{L_0}$: $C_L$ value for $\alpha = 0$
 - $C_{L_\alpha}$: slope of the $C_L$ curve
 
+## 4.1 Saturation of the Lift Coefficient ($C_L$ Capping)
+
+Since the required lift coefficient scales with the requested load factor, an arbitrarily high
+load factor command would require an arbitrarily large $C_L$. Physically this is impossible: the
+wing stalls above $C_{L_{max}}$. The commanded lift coefficient is therefore capped at the
+aircraft's maximum lift coefficient:
+
+$$
+C_{L}^{req} = \frac{2 \, n \, m \, g}{\rho \, v^2 \, S}
+$$
+
+$$
+C_{L}^{act} = \min\!\left(C_{L}^{req},\; C_{L,max}\right)
+$$
+
+where $C_{L,max}$ is a fixed aircraft-type parameter (see `AircraftDynamics.cl_max`).
+
+**Consequence — actual vs. commanded load factor:**
+
+Because lift (and therefore the achievable load factor) is computed from $C_L^{act}$, not from
+the commanded load factor $n$ directly, the aircraft cannot always realize the commanded
+maneuver once $C_L^{req} > C_{L,max}$. The load factor actually achieved is:
+
+$$
+n^{act} = \frac{C_{L}^{act} \, \rho \, v^2 \, S}{2 \, m \, g}
+$$
+
+so whenever the requested lift coefficient exceeds $C_{L,max}$:
+
+$$
+n^{act} = \frac{C_{L,max} \, \rho \, v^2 \, S}{2 \, m \, g} < n^{req}
+$$
+
+i.e. the pilot/controller commands $n^{req}$, but the airframe only delivers $n^{act} \le
+n^{req}$. This saturation acts as an implicit stall-protection: it prevents the model from
+generating lift (and hence turn rate / climb rate) beyond what the wing can physically produce
+at the current speed and altitude, at the cost of the closed-loop dynamics becoming nonlinear
+(the effective load-factor response flattens out once $C_{L,max}$ is reached).
+
+Note that drag is computed from the *saturated* coefficient $C_L^{act}$ as well:
+
+$$
+C_D = C_{D_0} + k \cdot \left(C_{L}^{act}\right)^2
+$$
+
+so drag is also implicitly capped together with lift.
+
 ## 5. ready point mass flight model as a discrete model:
 
 $
