@@ -1,5 +1,5 @@
 import numpy as np
-from OpenGL.GL import glUseProgram
+from OpenGL.GL import GL_FALSE, GL_TRUE, glDepthMask, glUseProgram
 from numpy.typing import NDArray
 from typing_extensions import override
 
@@ -26,9 +26,14 @@ class MeshRenderer(Component, Renderer):
         scene: "Scene"
     ) -> None:
         model = self.owner.transform.matrix()
+        transparent = self.material.is_transparent
+        if transparent:
+            glDepthMask(GL_FALSE)
         self.material.bind(model, view_mat, proj_mat, scene)
         self.mesh.draw()
         glUseProgram(0)
+        if transparent:
+            glDepthMask(GL_TRUE)
 
     def on_destroy(self) -> None:
         self.mesh.destroy()

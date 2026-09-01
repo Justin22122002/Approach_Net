@@ -1,6 +1,7 @@
 from typing import Callable, Optional
 
 from utils.component import Component
+from utils.gameObject import GameObject
 
 
 class Interactable(Component):

@@ -46,6 +46,16 @@ cube2.add_component(Interactable(
     on_click=on_cube2_click,
 ))
 
+behind_cube = scene.spawn("BehindCube")
+behind_cube.transform.position = Vec3(3, 0, -8)
+behind_material = SimpleMaterial(color=Color.red())
+behind_cube.add_component(MeshRenderer(Mesh.cube(), material=behind_material))
+
+glass_cube = scene.spawn("GlassCube")
+glass_cube.transform.position = Vec3(3, 0, -5)
+glass_material = SimpleMaterial(color=Color(0.2, 0.6, 1.0), opacity=0.35)
+glass_cube.add_component(MeshRenderer(Mesh.cube(), material=glass_material))
+
 label = scene.spawn("Label")
 label.transform.position = Vec3(2, 1.5, 0)
 label.add_component(TextRenderer(
@@ -64,7 +74,7 @@ scene.directional_light = DirectionalLight(
 )
 
 # Camera
-engine.camera = FlyCamera(speed=100.0) # 5.0, 100.0
+engine.camera = FlyCamera(speed=5.0) # 5.0, 100.0
 
 engine.sky = Sky(
     sun_elevation=30.0,

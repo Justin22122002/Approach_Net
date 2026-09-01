@@ -4,6 +4,7 @@ from numpy.typing import NDArray
 from utils.color import Color
 from utils.gameObject import GameObject
 from utils.directionalLight import DirectionalLight, PointLight, SpotLight
+from utils.meshRenderer import MeshRenderer
 from utils.vec3 import Vec3
 from utils.boxCollider import BoxCollider
 
@@ -62,5 +63,18 @@ class Scene:
         view_mat: NDArray[np.float32],
         proj_mat: NDArray[np.float32]
     ) -> None:
-        for o in self._objects:
-            o._draw(view_mat, proj_mat, self)
+        opaque, transparent = [], []
+        for go in self._objects:
+            if not go.active:
+                continue
+            mr = go.get_component(MeshRenderer)
+            (transparent if mr and mr.material.is_transparent else opaque).append(go)
+
+        for go in opaque:
+            go._draw(view_mat, proj_mat, self)
+
+        if transparent:
+            cam_pos = np.linalg.inv(view_mat)[:3, 3]
+            transparent.sort(key=lambda go: -np.linalg.norm(go.transform.position.to_np() - cam_pos))
+            for go in transparent:
+                go._draw(view_mat, proj_mat, self)

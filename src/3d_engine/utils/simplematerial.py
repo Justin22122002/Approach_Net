@@ -1,4 +1,5 @@
 from abc import ABCMeta
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -31,7 +32,11 @@ _VERT_SRC = load_shader_source(Path("utils/shaders/default.vert"))
 _FRAG_SRC = load_shader_source(Path("utils/shaders/default.frag"))
 
 class Material(metaclass=ABCMeta):
-    pass
+    @property
+    def is_transparent(self) -> bool:
+        """True once color.a < 1 -> tells MeshRenderer/Scene to use the transparent draw pass."""
+        c = getattr(self, "color", None)
+        return c is not None and c.a < 1.0
 
 class ComplexMaterial(Material):
     _shared_program: ShaderProgram | None = None
@@ -42,9 +47,11 @@ class ComplexMaterial(Material):
             color: Color | None      = None,
             specular_strength: float = 0.5,
             shininess: float         = 16.0,
+            opacity: float           = 1.0,
     ) -> None:
         self.texture: Texture           = texture or Texture.solid_color(1, 1, 1)
-        self.color: Color               = color   or Color.white()
+        base_color: Color               = color or Color.white()
+        self.color: Color               = replace(base_color, a=base_color.a * opacity)
         self.specular_strength: float   = specular_strength
         self.shininess:         float   = shininess
 
@@ -139,10 +146,12 @@ class SimpleMaterial(Material):
     def __init__(
             self,
             texture: Texture | None = None,
-            color: Color | None = None
+            color: Color | None = None,
+            opacity: float = 1.0,
     ) -> None:
         self.texture: Texture = texture or Texture.solid_color(1,1,1)
-        self.color: Color     = color   or Color.white()
+        base_color: Color     = color or Color.white()
+        self.color: Color     = replace(base_color, a=base_color.a * opacity)
 
     @classmethod
     def _get_program(cls) -> ShaderProgram | int:
@@ -193,4 +202,3 @@ class SimpleMaterial(Material):
         # texture
         self.texture.bind(0)
         glUniform1i(glGetUniformLocation(prog, "uTexture"), 0)
-
