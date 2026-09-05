@@ -149,26 +149,28 @@ class Mesh:
     def sphere(radius=0.5, rings=16, sectors=16):
         """UV sphere."""
         verts = []
-        idx   = []
-        for r in range(rings+1):
-            lat = math.pi/2 - r * math.pi / rings
-            y   = radius * math.sin(lat)
-            xz  = radius * math.cos(lat)
-            for s in range(sectors+1):
-                lon = s * 2*math.pi / sectors
-                x   = xz * math.cos(lon)
-                z   = xz * math.sin(lon)
-                nx, ny, nz = x/radius, y/radius, z/radius
+        idx = []
+        for r in range(rings + 1):
+            lat = math.pi / 2 - r * math.pi / rings
+            y = radius * math.sin(lat)
+            xz = radius * math.cos(lat)
+            for s in range(sectors + 1):
+                lon = s * 2 * math.pi / sectors
+                x = xz * math.cos(lon)
+                z = xz * math.sin(lon)
+                nx, ny, nz = x / radius, y / radius, z / radius
                 u = s / sectors
                 v = r / rings
-                verts += [x, y, z,  nx, ny, nz,  u, v]
+                verts += [x, y, z, nx, ny, nz, u, v]
+
         for r in range(rings):
             for s in range(sectors):
-                cur  = r*(sectors+1)+s
-                nxt  = cur + sectors+1
-                idx += [cur, nxt, cur+1, cur+1, nxt, nxt+1]
+                cur = r * (sectors + 1) + s
+                nxt = cur + sectors + 1
+                idx += [cur, cur + 1, nxt, cur + 1, nxt + 1, nxt]
+
         return Mesh(np.array(verts, dtype=np.float32),
-                    np.array(idx,   dtype=np.uint32))
+                    np.array(idx, dtype=np.uint32))
 
     @staticmethod
     def from_obj(path: str) -> "Mesh":
@@ -228,24 +230,67 @@ class Mesh:
             verts += [x1, 0, z1, nx1, 0, nz1, 1, 0]
             verts += [x1, height, z1, nx1, 0, nz1, 1, 1]
             verts += [x0, height, z0, nx0, 0, nz0, 0, 1]
-            idx += [base, base + 1, base + 2, base, base + 2, base + 3]
+            idx += [base, base + 2, base + 1, base, base + 3, base + 2]
+
+        top_center = len(verts) // 8
+        verts += [0, height, 0, 0, 1, 0, 0.5, 0.5]
+        for i in range(segments):
+            a = 2 * math.pi * i / segments
+            x, z = radius * math.cos(a), radius * math.sin(a)
+            verts += [x, height, z, 0, 1, 0, 0.5 + 0.5 * math.cos(a), 0.5 + 0.5 * math.sin(a)]
+
+        for i in range(segments):
+            next_i = (i + 1) % segments
+            idx += [top_center, top_center + 1 + next_i, top_center + 1 + i]
+
+        bot_center = len(verts) // 8
+        verts += [0, 0, 0, 0, -1, 0, 0.5, 0.5]
+        for i in range(segments):
+            a = 2 * math.pi * i / segments
+            x, z = radius * math.cos(a), radius * math.sin(a)
+            verts += [x, 0, z, 0, -1, 0, 0.5 + 0.5 * math.cos(a), 0.5 - 0.5 * math.sin(a)]
+
+        for i in range(segments):
+            next_i = (i + 1) % segments
+            idx += [bot_center, bot_center + 1 + i, bot_center + 1 + next_i]
+
         return Mesh(np.array(verts, dtype=np.float32), np.array(idx, dtype=np.uint32))
 
     @staticmethod
     def cone(radius=0.09, height=0.25, segments=10):
         verts, idx = [], []
+
+        slant_height = math.sqrt(radius ** 2 + height ** 2)
+        ny_norm = radius / slant_height
+        n_xz_factor = height / slant_height
+
         for i in range(segments):
             a0 = 2 * math.pi * i / segments
             a1 = 2 * math.pi * (i + 1) / segments
             x0, z0 = radius * math.cos(a0), radius * math.sin(a0)
             x1, z1 = radius * math.cos(a1), radius * math.sin(a1)
-            nx0, nz0 = math.cos(a0), math.sin(a0)
-            nx1, nz1 = math.cos(a1), math.sin(a1)
+
+            nx0, nz0 = math.cos(a0) * n_xz_factor, math.sin(a0) * n_xz_factor
+            nx1, nz1 = math.cos(a1) * n_xz_factor, math.sin(a1) * n_xz_factor
+
             base = len(verts) // 8
-            verts += [x0, 0, z0, nx0, 0.3, nz0, 0, 0]
-            verts += [x1, 0, z1, nx1, 0.3, nz1, 1, 0]
+            verts += [x0, 0, z0, nx0, ny_norm, nz0, 0, 0]
+            verts += [x1, 0, z1, nx1, ny_norm, nz1, 1, 0]
             verts += [0, height, 0, 0, 1, 0, 0.5, 1]
-            idx += [base, base + 1, base + 2]
+
+            idx += [base, base + 2, base + 1]
+
+        bot_center = len(verts) // 8
+        verts += [0, 0, 0, 0, -1, 0, 0.5, 0.5]
+        for i in range(segments):
+            a = 2 * math.pi * i / segments
+            x, z = radius * math.cos(a), radius * math.sin(a)
+            verts += [x, 0, z, 0, -1, 0, 0.5 + 0.5 * math.cos(a), 0.5 - 0.5 * math.sin(a)]
+
+        for i in range(segments):
+            next_i = (i + 1) % segments
+            idx += [bot_center, bot_center + 1 + i, bot_center + 1 + next_i]
+
         return Mesh(np.array(verts, dtype=np.float32), np.array(idx, dtype=np.uint32))
 
     @staticmethod

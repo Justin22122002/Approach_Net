@@ -4,11 +4,11 @@ from utils.sky import Sky
 from utils.text_renderer import TextRenderer
 from utils.vec3 import Vec3
 from utils.color import Color
-from utils.directionalLight import DirectionalLight
+from utils.directionalLight import DirectionalLight, SpotLight, PointLight
 from utils.camera import FlyCamera
 from utils.mesh import Mesh
 from utils.texture import Texture
-from utils.simplematerial import SimpleMaterial
+from utils.simplematerial import SimpleMaterial, ComplexMaterial
 from utils.interactable import Interactable
 from utils.boxCollider import BoxCollider
 
@@ -28,7 +28,7 @@ cube2_default_color = Color(0.6, 0.6, 0.6, 1.0)
 cube2_hover_color    = Color(1.0, 0.8, 0.2, 1.0)
 cube2_material = SimpleMaterial(color=cube2_default_color)
 
-cube2.add_component(MeshRenderer(Mesh.cube(), material=cube2_material))
+cube2.add_component(MeshRenderer(Mesh.cylinder(radius=0.5), material=cube2_material))
 cube2.add_component(BoxCollider(half_extents=Vec3(0.5, 0.5, 0.5)))
 
 def on_cube2_hover_enter(go):
@@ -49,12 +49,32 @@ cube2.add_component(Interactable(
 behind_cube = scene.spawn("BehindCube")
 behind_cube.transform.position = Vec3(3, 0, -8)
 behind_material = SimpleMaterial(color=Color.red())
-behind_cube.add_component(MeshRenderer(Mesh.cube(), material=behind_material))
+behind_cube.add_component(MeshRenderer(Mesh.sphere(), material=behind_material))
 
 glass_cube = scene.spawn("GlassCube")
 glass_cube.transform.position = Vec3(3, 0, -5)
 glass_material = SimpleMaterial(color=Color(0.2, 0.6, 1.0), opacity=0.35)
 glass_cube.add_component(MeshRenderer(Mesh.cube(), material=glass_material))
+
+cone = scene.spawn("Cone")
+cone.transform.position = Vec3(3, 0, -10)
+cone_material = SimpleMaterial(color=Color(0.2, 0.6, 1.0))
+cone.add_component(MeshRenderer(Mesh.cone(radius=0.5, height=0.5), material=cone_material))
+
+plane = scene.spawn("Plane")
+plane.transform.position = Vec3(0, -1, -7)
+plane_material = ComplexMaterial(color=Color.gray())
+plane.add_component(MeshRenderer(Mesh.plane(size=10), material=plane_material))
+
+spotlight = SpotLight()
+spotlight.color = Color.red()
+spotlight.position = Vec3(0, 1, -3)
+scene.spot_lights.append(spotlight)
+
+pointlight = PointLight()
+pointlight.color = Color.green()
+pointlight.position = Vec3(0, 1, 1)
+scene.point_lights.append(pointlight)
 
 label = scene.spawn("Label")
 label.transform.position = Vec3(2, 1.5, 0)

@@ -46,6 +46,16 @@ def _mat4_perspective(fov_deg: float, aspect: float, near: float, far: float) ->
     m[3,2] = -1.0
     return m
 
+def _mat4_ortho(left: float, right: float, bottom: float, top: float, near: float, far: float) -> NDArray[np.float32]:
+    m = _mat4_identity()
+    m[0,0] = 2.0 / (right - left)
+    m[1,1] = 2.0 / (top - bottom)
+    m[2,2] = -2.0 / (far - near)
+    m[0,3] = -(right + left) / (right - left)
+    m[1,3] = -(top + bottom) / (top - bottom)
+    m[2,3] = -(far + near)   / (far - near)
+    return m
+
 def _mat4_look_at(eye: Vec3, center: Vec3, up: Vec3) -> NDArray[np.float32]:
     f = (center - eye).normalized()
     r = f.cross(up).normalized()

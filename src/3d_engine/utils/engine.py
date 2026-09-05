@@ -190,6 +190,9 @@ class Engine:
             if self.on_update:
                 self.on_update(dt)
 
+            # shadow pass - renders the directional-light depth map, centred on the camera
+            self.scene._render_shadow_pass(self.camera.position)
+
             # render
             glViewport(0, 0, self.width, self.height)
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)

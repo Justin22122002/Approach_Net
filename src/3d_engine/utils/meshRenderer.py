@@ -13,10 +13,12 @@ class MeshRenderer(Component, Renderer):
     def __init__(
         self,
         mesh: Mesh,
-        material: Material | None = None
+        material: Material | None = None,
+        cast_shadow: bool = True,
     ) -> None:
         self.mesh: Mesh = mesh
         self.material: Material = material or SimpleMaterial()
+        self.cast_shadow: bool = cast_shadow
 
     @override
     def draw(

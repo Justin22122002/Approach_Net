@@ -3,7 +3,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
-from pyproj import Transformer
+from pyproj import Transformer, transformer
 
 from ml.utils.models.landing_action_ft_transformer import LandingActionFTTransformer
 from ml.utils.data_loader.landing_action_dataset import LandingActionDataset
@@ -26,6 +26,7 @@ from utils.pointRenderer import PointRenderer
 from utils.clients.terrain_client import CopernicusDEMProvider
 from utils.vec3 import Vec3
 from utils_project.geo_transformer import GeoTransformer
+from utils_project.rnav_lpv_funnel_project_mesh import RnavLpvFunnelProjectMesh
 from utils_project.runway_project_mesh import RunwayProjectMesh
 from utils_project.terrain_project_mesh import TerrainProjectMesh
 from dotenv import load_dotenv
@@ -34,7 +35,7 @@ load_dotenv()
 
 ICAO = "CYVR"
 FLIGHT_DATA_PATH = "../data/CYVR/test/20260709_1207"  # "../data/CYVR/test/20260709_1207" "../data/CYVR/train/20260802_0920"
-FLIGHT_IDX = 95
+FLIGHT_IDX = 105
 
 TIME = "2026-08-05_21-33-34" # 2026-08-06_07-08-10
 
@@ -116,14 +117,26 @@ scene = engine.scene
 
 terrain_project_mesh.spawn(scene=scene, geo=geo)
 
+rw = None
+spawned_separation = False
 for runway in runways:
     runway_mesh_builder = RunwayProjectMesh(
         runway=runway,
         horizontal_scale=horizontal_scale,
         vertical_scale=vertical_scale,
-        transformer=to_utm,
+        transformer=to_utm
     )
-    runway_mesh_builder.spawn(scene, geo)
+    objects = runway_mesh_builder.spawn(scene, geo)
+    rw = objects[0].transform.position
+
+    for approach in runway.approaches:
+        funnel_mesh = RnavLpvFunnelProjectMesh(
+            approach=approach,
+            transformer=to_utm,
+            horizontal_scale=horizontal_scale,
+            vertical_scale=vertical_scale,
+        )
+        funnel_mesh.spawn(scene, geo)
 
 scene.ambient_light = Color(0.25, 0.25, 0.3)
 scene.directional_light = DirectionalLight(

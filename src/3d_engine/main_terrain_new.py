@@ -11,7 +11,10 @@ from utils.camera import FlyCamera
 from utils.vec3 import Vec3
 from utils_project.approach_project_mesh import ApproachProjectMesh
 from utils_project.geo_transformer import GeoTransformer
+from utils_project.rnav_lpv_funnel_project_mesh import RnavLpvFunnelProjectMesh
 from utils_project.runway_project_mesh import RunwayProjectMesh
+from utils_project.separation_geometry import SeparationGeometry
+from utils_project.separation_project_mesh import SeparationProjectMesh
 from utils_project.taxiway_project_mesh import TaxiwayProjectMesh
 from utils_project.terrain_project_mesh import TerrainProjectMesh
 
@@ -74,6 +77,7 @@ scene = engine.scene
 terrain_project_mesh.spawn(scene=scene, geo=geo)
 
 rw = None
+spawned_separation = False
 for runway in runways:
     runway_mesh_builder = RunwayProjectMesh(
         runway=runway,
@@ -93,6 +97,27 @@ for runway in runways:
         )
 
         builder.spawn(scene, geo)
+
+        funnel_mesh = RnavLpvFunnelProjectMesh(
+            approach=approach,
+            transformer=transformer,
+            horizontal_scale=horizontal_scale,
+            vertical_scale=vertical_scale,
+        )
+        funnel_mesh.spawn(scene, geo)
+
+        _e, faf_fix, _rw = approach.get_final_approach_fixes()
+        if faf_fix is not None and not spawned_separation:
+            faf_x, faf_y = transformer.transform(faf_fix.longitude, faf_fix.latitude)
+            SeparationProjectMesh(
+                center_xy=(faf_x, faf_y),
+                center_h=faf_fix.altitude * 0.3048,
+                transformer=transformer,
+                horizontal_scale=horizontal_scale,
+                vertical_scale=vertical_scale,
+                separation=SeparationGeometry(),
+            ).spawn(scene, geo)
+            spawned_separation = True
 
 for taxiway in airport.taxiways:
     if len(taxiway.coordinates) < 2:

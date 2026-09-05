@@ -38,6 +38,22 @@ class Material(metaclass=ABCMeta):
         c = getattr(self, "color", None)
         return c is not None and c.a < 1.0
 
+    @staticmethod
+    def _bind_shadow_uniforms(prog, scene: "Scene") -> None:
+        """Shared by SimpleMaterial and ComplexMaterial: uploads the shadow map +
+        light-space matrix + bias uniforms that both fragment shaders expect."""
+        sm = scene.shadow_map
+        enabled = 1 if (scene.shadow_enabled and scene.directional_light is not None) else 0
+
+        glUniformMatrix4fv(glGetUniformLocation(prog, "uLightSpaceMatrix"), 1, GL_TRUE, sm.light_space_matrix)
+        glUniform1i(glGetUniformLocation(prog, "uShadowsEnabled"), enabled)
+        glUniform1f(glGetUniformLocation(prog, "uDepthBiasMin"), sm.depth_bias_min)
+        glUniform1f(glGetUniformLocation(prog, "uDepthBiasMax"), sm.depth_bias_max)
+        glUniform1f(glGetUniformLocation(prog, "uNormalBias"), sm.normal_bias)
+
+        sm.bind_for_sampling(unit=1)
+        glUniform1i(glGetUniformLocation(prog, "uShadowMap"), 1)
+
 class ComplexMaterial(Material):
     _shared_program: ShaderProgram | None = None
 
@@ -128,6 +144,9 @@ class ComplexMaterial(Material):
         glUniform1f(glGetUniformLocation(prog, "uSpecularStrength"), self.specular_strength)
         glUniform1f(glGetUniformLocation(prog, "uShininess"),        self.shininess)
 
+        # shadows
+        self._bind_shadow_uniforms(prog, scene)
+
         # colour tint
         c = self.color
         glUniform4f(glGetUniformLocation(prog, "uColor"), c.r, c.g, c.b, c.a)
@@ -194,6 +213,9 @@ class SimpleMaterial(Material):
             glUniform3f(glGetUniformLocation(prog, "uLightDir"), 0,-1,0)
             glUniform3f(glGetUniformLocation(prog, "uLightColor"), 0,0,0)
             glUniform1f(glGetUniformLocation(prog, "uLightIntensity"), 0)
+
+        # shadows
+        self._bind_shadow_uniforms(prog, scene)
 
         # colour tint
         c = self.color
