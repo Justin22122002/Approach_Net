@@ -488,6 +488,10 @@ $
 T = m \left( \dot{\vec{v}} \cdot \vec{t} \right) + D
 $
 
+$
+T = m \left( (\dot{\vec{v}} - \vec{g}) \cdot \vec{t} \right) + D
+$
+
 Load factor
 $
 n = \frac{(\dot{\vec{v}} - \vec{g}) \cdot \vec{n}}{g}

@@ -36,8 +36,8 @@ the `requirements.txt` file in the root folder of this project.
     Linux/macOS: ```source venv/bin/activate```
 2. install the required packages:
     ```pip install -r requirements.txt```
-
-All scripts should be run from the root folder of this project.
+3. Always run scripts from the ```src``` folder or 
+   run all scripts from the root folder of this project in Pycharms or vscode.
 
 ### Login / Account requirements
 

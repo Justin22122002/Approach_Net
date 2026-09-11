@@ -7,7 +7,7 @@ from pandas import DataFrame
 from pyopensky.trino import Trino
 from pyproj import Transformer, datadir
 
-from src.utils.clients.open_airport_map_client import get_bbox_simple
+from utils.clients.open_airport_map_client import get_bbox_simple
 from utils.aircraft_history_interpolator import AircraftHistoryInterpolator
 from utils.airport import Airport
 from utils.clients.aircraft_type_client import AircraftTypeClient

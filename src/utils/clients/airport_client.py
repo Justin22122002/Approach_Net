@@ -6,15 +6,15 @@ import numpy as np
 import requests
 from pyproj import Geod
 
-from src.utils.airport import Airport, AirportTerminal
+from utils.airport import Airport, AirportTerminal
 from utils.terrain import Terrain
-from src.utils.open_street_map_runway import Coordinate, OpenStreetMapRunway
+from utils.open_street_map_runway import Coordinate, OpenStreetMapRunway
 from utils.taxiway import Taxiway
-from src.utils.clients.sqlite_airinc24_database_client import SQLiteArInC24DatabaseClient
-from src.utils.clients.airac_net_client import AiracNetClient
-from src.utils.arinc_runway import ArincRunway
-from src.utils.clients.open_airport_map_client import get_bbox_simple
-from src.utils.clients.terrain_client import CopernicusDEMProvider
+from utils.clients.sqlite_airinc24_database_client import SQLiteArInC24DatabaseClient
+from utils.clients.airac_net_client import AiracNetClient
+from utils.arinc_runway import ArincRunway
+from utils.clients.open_airport_map_client import get_bbox_simple
+from utils.clients.terrain_client import CopernicusDEMProvider
 
 def only_r_approaches(r: list[ArincRunway]) -> list[ArincRunway]:
     for runway in r:

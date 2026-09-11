@@ -2,10 +2,10 @@ from typing import override
 
 from pyproj import Geod
 
-from src.rendering.renderable import JsonSerializable
-from src.utils.approch import Approach
-from src.utils.fix_identifier import FixIdentifier
-from src.utils.open_street_map_runway import Coordinate
+from rendering.renderable import JsonSerializable
+from utils.approch import Approach
+from utils.fix_identifier import FixIdentifier
+from utils.open_street_map_runway import Coordinate
 
 geod = Geod(ellps="WGS84")
 

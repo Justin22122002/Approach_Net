@@ -7,14 +7,14 @@ from typing import Any
 import numpy as np
 import requests
 
-from src.utils.airport import AirportTerminal, Airport
-from src.utils.terrain import Terrain
-from src.utils.arinc_runway import ArincRunway
-from src.utils.open_street_map_runway import Coordinate, OpenStreetMapRunway
-from src.utils.taxiway import Taxiway
-from src.utils.clients.sqlite_airinc24_database_client import SQLiteArInC24DatabaseClient
-from src.utils.clients.terrain_client import CopernicusDEMProvider
-from src.utils.clients.airac_net_client import AiracNetClient
+from utils.airport import AirportTerminal, Airport
+from utils.terrain import Terrain
+from utils.arinc_runway import ArincRunway
+from utils.open_street_map_runway import Coordinate, OpenStreetMapRunway
+from utils.taxiway import Taxiway
+from utils.clients.sqlite_airinc24_database_client import SQLiteArInC24DatabaseClient
+from utils.clients.terrain_client import CopernicusDEMProvider
+from utils.clients.airac_net_client import AiracNetClient
 
 
 # todo: move both methods into helper files

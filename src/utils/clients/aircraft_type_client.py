@@ -1,7 +1,7 @@
 import openap
 import requests
 
-from physics.aircraft_dynamics import AircraftDynamics
+from engine.physics.aircraft_dynamics import AircraftDynamics
 from utils.aircraft import Aircraft, AircraftType
 
 # use https://www.eurocontrol.int/model/bada

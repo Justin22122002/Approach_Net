@@ -1,8 +1,8 @@
 from pathlib import Path
 
-from src.utils.airport import Airport
-from src.utils.clients.open_airport_map_client import OpenAirportMapClient, only_r_approaches
-from src.utils.clients.airport_client import OpenStreetMapAirportClient
+from utils.airport import Airport
+from utils.clients.open_airport_map_client import OpenAirportMapClient, only_r_approaches
+from utils.clients.airport_client import OpenStreetMapAirportClient
 from dotenv import load_dotenv
 
 load_dotenv()

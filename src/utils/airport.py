@@ -4,12 +4,12 @@ from typing import override
 
 import numpy as np
 
-from src.rendering.renderable import JsonSerializable
-from src.utils.arinc_runway import ArincRunway
-from src.utils.open_street_map_runway import OpenStreetMapRunway
-from src.utils.taxiway import Taxiway
-from src.utils.airport_terminal import AirportTerminal
-from src.utils.terrain import Terrain
+from rendering.renderable import JsonSerializable
+from utils.arinc_runway import ArincRunway
+from utils.open_street_map_runway import OpenStreetMapRunway
+from utils.taxiway import Taxiway
+from utils.airport_terminal import AirportTerminal
+from utils.terrain import Terrain
 
 
 class Airport(JsonSerializable):

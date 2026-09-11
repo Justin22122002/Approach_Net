@@ -2,9 +2,9 @@ from typing import override
 
 from pyproj import Geod
 
-from src.rendering.renderable import JsonSerializable
-from src.utils.arinc_runway import Approach
-from src.utils.geo_types import Coordinate
+from rendering.renderable import JsonSerializable
+from utils.arinc_runway import Approach
+from utils.geo_types import Coordinate
 
 geod = Geod(ellps="WGS84")
 

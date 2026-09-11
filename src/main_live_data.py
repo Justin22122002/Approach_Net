@@ -4,13 +4,13 @@ from pathlib import Path
 import pygame
 from pyproj import Transformer
 
-from src.rendering.visualizer import Visualizer
-from src.utils.aircraft import Aircraft
-from src.utils.renderer.aircraft_2d_renderer import Aircraft2dRenderer
+from rendering.visualizer import Visualizer
+from utils.aircraft import Aircraft
+from utils.simple_renderer.aircraft_2d_renderer import Aircraft2dRenderer
 
-from src.utils.airport import Airport
-from src.utils.renderer.airport_2d_renderer import Airport2dRenderer
-from src.utils.clients.open_sky_rest_client import OpenSkyRestClient
+from utils.airport import Airport
+from utils.simple_renderer.airport_2d_renderer import Airport2dRenderer
+from utils.clients.open_sky_rest_client import OpenSkyRestClient
 
 transformer = Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)
 

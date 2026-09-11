@@ -25,8 +25,8 @@ if __name__ == "__main__":
         "CYVR",
         "CYUL",
         "CYYZ",
-        # "CYYC",
-        # "CYEG",
+        "CYYC",
+        "CYEG",
     ]
 
     results_path = Path("results/airport_normalizations")

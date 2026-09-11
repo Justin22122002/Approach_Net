@@ -5,13 +5,13 @@ import pandas as pd
 import pygame
 from pyproj import Transformer
 
-from src.rendering.visualizer import Visualizer
-from src.utils.aircraft import Aircraft
-from src.utils.renderer.aircraft_2d_renderer import Aircraft2dRenderer
-from src.utils.aircraft_history_interpolator import AircraftHistoryInterpolator, plot_aircraft_trajectory
+from rendering.visualizer import Visualizer
+from utils.aircraft import Aircraft
+from utils.aircraft_history_interpolator import AircraftHistoryInterpolator, plot_aircraft_trajectory
 
-from src.utils.airport import Airport
-from src.utils.renderer.airport_2d_renderer import Airport2dRenderer
+from utils.airport import Airport
+from utils.simple_renderer.aircraft_2d_renderer import Aircraft2dRenderer
+from utils.simple_renderer.airport_2d_renderer import Airport2dRenderer
 
 transformer = Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)
 
@@ -22,9 +22,9 @@ def main():
     toronto = Airport.load_from_folder(basePath, "CYYZ")
     jfk = Airport.load_from_folder(basePath, "KJFK")
 
-    airport = frankfurt
+    airport = toronto
 
-    history_file_path: Path = basePath / Path("arrivals_frankfurt_20260528_1900_1930.parquet")
+    history_file_path: Path = basePath / Path(f"{airport.icao}/test/arrivals_raw_20260709_1207.parquet")
     interpolator: AircraftHistoryInterpolator = AircraftHistoryInterpolator(history_file_path, airport_height=airport.arinc_424_runway[0].runway_altitude)
     interpolator.clean_dataframe()
     interpolator.interpolate()

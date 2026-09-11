@@ -1,0 +1,298 @@
+import os
+from pathlib import Path
+
+import pygame
+from pyproj import Transformer
+
+from engine.physics.aircraft_environment import AircraftEnvironment
+from engine.physics.aircraft_goal import AircraftGoal
+from engine.physics.aircraft_dynamics import AircraftDynamics
+from engine.physics.aircraft_kinematics_state import AircraftKinematicsState
+
+from utils.airport import Airport
+from utils.arinc_runway import ArincRunway
+from utils.clients.terrain_client import CopernicusDEMProvider
+
+from engine.utils.engine import Engine
+from engine.utils.lineRenderer import LineRenderer
+from engine.utils.color import Color
+from engine.utils.directionalLight import DirectionalLight
+from engine.utils.camera import OrbitCamera
+from engine.utils.pointRenderer import PointRenderer
+from engine.utils.vec3 import Vec3
+from engine.utils_project.geo_transformer import GeoTransformer
+from engine.utils_project.runway_project_mesh import RunwayProjectMesh
+from engine.utils_project.terrain_project_mesh import TerrainProjectMesh
+
+from dotenv import load_dotenv
+
+load_dotenv()
+
+icao_vancouver = {
+    "icao": "CYVR",
+}
+
+icao_frankfurt = {
+    "icao": "EDDF",
+}
+
+icao = icao_vancouver
+
+# --- load airport data section ---
+basePath: Path = Path("../data")
+airport = Airport.load_from_folder(basePath, icao["icao"])
+
+crs_to: str = GeoTransformer.utm_epsg(airport.lat, airport.lon)
+
+transformer: Transformer = Transformer.from_crs(
+    crs_from="EPSG:4326",
+    crs_to=crs_to,
+    always_xy=True
+)
+
+# instead of loading the runway data from the client via: AiracNetClient().get_airport_full(icao["icao"])
+# we load the pre saved data from the base path
+runways: list[ArincRunway] = airport.arinc_424_runway
+
+delta = 0.2
+
+LAT_MIN = airport.lat - delta
+LAT_MAX = airport.lat + delta
+LON_MIN = airport.lon - delta
+LON_MAX = airport.lon + delta
+
+provider = CopernicusDEMProvider(
+   os.environ["COPERNICUS_USERNAME"],
+   os.environ["COPERNICUS_PASSWORD"],
+)
+
+grid = provider.get_terrain(
+    lat_min=LAT_MIN,
+    lon_min=LON_MIN,
+    lat_max=LAT_MAX,
+    lon_max=LON_MAX,
+    width=1024,
+    height=1024
+)
+
+horizontal_scale = 0.01
+vertical_scale = 0.01
+
+geo = GeoTransformer(
+    lat=airport.lat,
+    lon=airport.lon,
+    horizontal_scale=horizontal_scale,
+    vertical_scale=vertical_scale,
+    transformer=transformer
+)
+
+terrain_project_mesh = TerrainProjectMesh(
+    grid=grid,
+    lat_min=LAT_MIN,
+    lon_min=LON_MIN,
+    lat_max=LAT_MAX,
+    lon_max=LON_MAX,
+    horizontal_scale=horizontal_scale,
+    vertical_scale=vertical_scale,
+    transformer=transformer
+)
+
+engine = Engine(
+    1280,
+    720,
+    f"Terrain - {icao['icao']}"
+)
+
+scene = engine.scene
+
+terrain_project_mesh.spawn(scene=scene, geo=geo)
+
+rw = None
+for runway in runways:
+    runway_mesh_builder = RunwayProjectMesh(
+        runway=runway,
+        horizontal_scale=horizontal_scale,
+        vertical_scale=vertical_scale,
+        transformer=transformer
+    )
+    objects = runway_mesh_builder.spawn(scene, geo)
+    rw = objects[0].transform.position
+
+scene.ambient_light = Color(0.25, 0.25, 0.3)
+
+scene.directional_light = DirectionalLight(
+    direction=Vec3(-1, -2, -1),
+    color=Color(1.0, 0.95, 0.85),
+    intensity=1.0
+)
+
+cam = OrbitCamera(distance=5.0)
+cam.pitch = 15.0
+engine.camera = cam
+
+x, y = transformer.transform(airport.lon, airport.lat)
+constraints = AircraftDynamics(
+    cl_max=3.0,
+    mass=65000.0,
+    C_D0=0.028,
+    area=124.6,
+    max_thrust=240000,
+    max_load_factor=2.5,
+    min_load_factor=0.3,
+    max_roll_angle=60,
+)
+
+b737 = AircraftKinematicsState(
+    x=x,
+    y=y,
+    h=airport.arinc_424_runway[0].runway_altitude * 0.3048 + 200,
+    v=220.0,
+    gamma=0.0,
+    chi=0.0,
+    aircraft_type=constraints,
+)
+
+goal = AircraftGoal(x=40000.0, y=25000.0, h=1000.0)
+env  = AircraftEnvironment(state=b737, goal=goal, dt=0.1)
+
+thrust      = 240000.0
+load_factor = 1.0
+roll        = 0.0
+
+THRUST_STEP      = 20000.0
+ROLL_STEP        = 25.0
+LF_STEP          = 0.4
+PHYS_DT          = 0.1
+MAX_TRAIL_POINTS = 600
+MAX_TRAIL        = True
+
+trail_pts: list[Vec3] = []
+_phys_acc: float      = 0.0
+
+aircraft_go = scene.spawn("Aircraft")
+
+x, z = geo.to_local_in_m(
+    b737.x,
+    b737.y,
+)
+y = geo.altitude_to_local(b737.h)
+
+aircraft_go.transform.position = Vec3(x, y, z)
+
+aircraft_go.add_component(PointRenderer(color=Color(1.0, 0.85, 0.0), size=120.0))
+
+vel_go = scene.spawn("VelocityVector")
+vel_lr = LineRenderer([Vec3.zero(), Vec3.zero()], color=Color(0.1, 1.0, 0.3))
+vel_go.add_component(vel_lr)
+
+trail_go = scene.spawn("Trail")
+trail_lr = LineRenderer([Vec3.zero(), Vec3.zero()], color=Color(0.3, 0.75, 1.0))
+trail_go.add_component(trail_lr)
+
+def on_update(dt: float) -> None:
+    global thrust, load_factor, roll, _phys_acc
+
+    inp = engine.input
+
+    if inp.get_key(pygame.K_w):
+        thrust = min(thrust + THRUST_STEP * dt, 500_000.0)
+    if inp.get_key(pygame.K_s):
+        thrust = max(thrust - THRUST_STEP * dt, 0.0)
+
+    if inp.get_key(pygame.K_a):
+        roll = max(roll - ROLL_STEP * dt, -60.0)
+    if inp.get_key(pygame.K_d):
+        roll = min(roll + ROLL_STEP * dt,  60.0)
+
+    if inp.get_key(pygame.K_r):
+        roll = 0.0
+
+    if inp.get_key(pygame.K_q):
+        load_factor = max(load_factor - LF_STEP * dt, 0.0)
+    if inp.get_key(pygame.K_e):
+        load_factor = min(load_factor + LF_STEP * dt, 3.0)
+
+    _phys_acc += dt
+    while _phys_acc >= PHYS_DT:
+        env.apply_action(
+            thrust=thrust,
+            load_factor=load_factor,
+            roll=roll,
+        )
+        _phys_acc -= PHYS_DT
+
+    # world position of the aircraft
+    x, z = geo.to_local_in_m(
+        b737.x,
+        b737.y,
+    )
+    y = geo.altitude_to_local(b737.h)
+
+    wp = Vec3(x, y, z)
+
+    # move aircraft marker
+    aircraft_go.transform.position = wp
+
+    # move cam to target
+    cam.target = wp
+
+    # append trajectory
+    trail_pts.append(Vec3(wp.x, wp.y, wp.z))
+    if len(trail_pts) > MAX_TRAIL_POINTS and MAX_TRAIL:
+        trail_pts.pop(0)
+
+    if len(trail_pts) >= 2:
+        trail_lr.set_points_strip(trail_pts)
+
+    # velocity vector
+    v_raw = b737.velocity_vector()        # [East, North, Up] in m/s
+    vel_tip = Vec3(
+        wp.x + v_raw[0] * horizontal_scale,
+        wp.y + v_raw[2] * vertical_scale,
+        wp.z - v_raw[1] * horizontal_scale
+    )
+    vel_lr.set_points_strip([wp, vel_tip])
+
+def on_gui() -> None:
+    hud = engine.hud
+    fps = engine._clock.get_fps() if engine._clock else 0.0
+
+    hud.panel(10, 10, 285, 170, border_radius=8)
+    hud.text("flight simulation",       20, 16, size=17, color=(255, 210, 60), shadow=True)
+
+    # Separator
+    hud.line(20, 38, 285, 38, color=(80, 80, 100, 180))
+
+    v_kts  = b737.v   * 1.944          # m/s → knots
+    h_ft   = b737.h   * 3.281          # m   → Fuß
+
+
+    hud.text(f"Velocity.  {b737.v:6.1f} m/s  ({v_kts:5.0f} kts)",   20,  44, size=15)
+    hud.text(f"height     {b737.h:6.0f} m    ({h_ft:6.0f} ft)",     20,  64, size=15)
+    hud.text(f"chi        {b737.chi % 360:5.1f}°",                  20,  84, size=15)
+    hud.text(f"gamma      {b737.gamma:+5.1f}°",                     20, 104, size=15)
+    hud.line(20, 145, 285, 145, color=(80, 80, 100, 180))
+    hud.text(f"FPS        {fps:5.0f}",                              20, 150, size=13, color=(160, 160, 180))
+
+    # steering panel
+    px = hud.width - 295
+    hud.panel(px, 10, 285, 140, border_radius=8)
+    hud.text("steering",  px + 10, 16, size=17, color=(255, 210, 60), shadow=True)
+    hud.line(px + 10, 38, px + 275, 38, color=(80, 80, 100, 180))
+
+    # Thrust
+    hud.text(f"Thrust        {thrust/1000:5.1f} kN   W/S", px + 10, 44, size=15)
+    hud.bar(px + 10, 62, 265, 10, value=thrust / 130_000, fg_color=(255, 160, 30, 220))
+
+    # roll
+    hud.text(f"Roll          {roll:+5.1f}°       A/D  (R=level)", px + 10, 78, size=15)
+    hud.bar(px + 10, 96, 265, 10, value=(roll + 60) / 120, fg_color=(80, 180, 255, 220))
+
+    # Load-Factor
+    hud.text(f"n-oad-Factor  {load_factor:4.2f}       Q/E", px + 10, 112, size=15)
+    hud.bar(px + 10, 130, 265, 10, value=load_factor / 3.0, fg_color=(100, 220, 120, 220))
+
+
+engine.on_gui = on_gui
+engine.on_update = on_update
+engine.run()

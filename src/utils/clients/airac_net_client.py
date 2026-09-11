@@ -1,26 +1,34 @@
+import base64
+import csv
+import io
+import zipfile
 from typing import Any
 
 import requests
+from pyproj import Geod
 
-from src.utils.approch import Approach
-from src.utils.clients.sqlite_airinc24_database_client import extract_runway_from_procedure
-from src.utils.fix_identifier import FixIdentifier
-from src.utils.arinc_runway import ArincRunway
-from src.utils.geo_types import Coordinate
+from utils.approch import Approach
+from utils.fix_identifier import FixIdentifier
+from utils.arinc_runway import ArincRunway
+from utils.geo_types import Coordinate
+from utils.clients.sqlite_airinc24_database_client import extract_runway_from_procedure
 
 
 class AiracNetClient:
+    RUNWAYS_CSV_URL = (
+        "https://raw.githubusercontent.com/davidmegginson/"
+        "ourairports-data/main/runways.csv"
+    )
+    GATEWAY_BASE = "https://gateway.x-plane.com/apiv1"
+
+    _geod = Geod(ellps="WGS84")
+
     def __init__(self) -> None:
         self.airac_base: str = "https://airac.net/api/v1"
-        self.nav_base: str = "https://api.flightplandatabase.com/nav/airport" # https://flightplandb-py.readthedocs.io/en/v0.8.0/api/main.html -> python client, interesting -> plan -> from to icao
 
         self.airac_headers: dict[str, str] = {
             "Accept": "application/json",
             "User-Agent": "MyApp/1.0 (myemail@example.com)"
-        }
-
-        self.nav_headers: dict[str, str] = {
-            "Accept": "application/json"
         }
 
     def get_airport(self, icao: str) -> Any:
@@ -59,7 +67,6 @@ class AiracNetClient:
 
             for proc in procedures:
                 identifier = proc["identifier"]
-                # filter out multiple procedures with the same identifier
                 if identifier in seen_identifiers:
                     continue
                 seen_identifiers.add(identifier)
@@ -70,11 +77,8 @@ class AiracNetClient:
         return all_procedures
 
     def get_procedure_detail(self, icao: str, identifier: str) -> Approach:
-        params = {}
-
         r = requests.get(
             f"{self.airac_base}/procedures/{icao}/{identifier}",
-            params=params,
             headers=self.airac_headers
         )
 
@@ -104,9 +108,8 @@ class AiracNetClient:
             fix_identifier = fix.get("fix_identifier", "no fix name")
             path_terminator = fix["path_terminator"]
             sequence = fix["sequence"]
-            altitude = fix.get("altitude_ft", 0) # set default to 0
+            altitude = fix.get("altitude_ft", 0)
 
-            # uncommon properties
             course: float | None = fix.get("course", None)
             speed_kts: float | None = fix.get("speed_kts", None)
             turn_direction: str | None = fix.get("turn_direction", None)
@@ -133,6 +136,101 @@ class AiracNetClient:
             fixes=fixes,
         )
 
+    # ---------- X-Plane Scenery Gateway (runway geometry incl. stopway) ----------
+    def _get_gateway_apt_dat(self, icao: str) -> str:
+        r = requests.get(f"{self.GATEWAY_BASE}/airport/{icao}")
+        r.raise_for_status()
+        airport_data = r.json()["airport"]
+        scenery_id = airport_data.get("recommendedSceneryId")
+
+        if not scenery_id:
+            raise ValueError(
+                f"No recommended scenery pack for {icao} on the X-Plane Gateway "
+                f"(recommendedSceneryId={scenery_id})."
+            )
+
+        r = requests.get(f"{self.GATEWAY_BASE}/scenery/{scenery_id}")
+        r.raise_for_status()
+        scenery_data = r.json()["scenery"]
+
+        zip_bytes = base64.b64decode(scenery_data["masterZipBlob"])
+
+        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+            names = zf.namelist()
+
+            # Gateway master zip layout: "{ICAO}.dat" (the raw apt.dat text),
+            # "{ICAO}.txt" (readme), and a nested "*_Scenery_Pack.zip" (full WED pack).
+            apt_dat_name = next(
+                (n for n in names if n.lower() == f"{icao.lower()}.dat"),
+                None,
+            )
+            if apt_dat_name is None:
+                apt_dat_name = next(
+                    (
+                        n for n in names
+                        if n.lower().endswith(".dat") and not n.lower().endswith(".zip.dat")
+                    ),
+                    None,
+                )
+            if apt_dat_name is None:
+                raise FileNotFoundError(
+                    f"Could not locate apt.dat in scenery pack {scenery_id} for {icao}. "
+                    f"Zip contents: {names}"
+                )
+
+            return zf.read(apt_dat_name).decode("utf-8", errors="ignore")
+
+    @staticmethod
+    def _parse_gateway_runways(apt_dat_text: str) -> dict[str, dict]:
+        """Returns {runway_ident: {lat, lon, length_m, width_m, displaced_threshold_m, stopway_m, bearing, other_ident}}"""
+        runways: dict[str, dict] = {}
+
+        for line in apt_dat_text.splitlines():
+            tokens = line.strip().split()
+            if not tokens or tokens[0] != "100":
+                continue
+
+            width_m = float(tokens[1])
+
+            ends = [
+                {
+                    "ident": tokens[8],
+                    "lat": float(tokens[9]),
+                    "lon": float(tokens[10]),
+                    "displaced_threshold_m": float(tokens[11]),
+                    "stopway_m": float(tokens[12]),
+                },
+                {
+                    "ident": tokens[17],
+                    "lat": float(tokens[18]),
+                    "lon": float(tokens[19]),
+                    "displaced_threshold_m": float(tokens[20]),
+                    "stopway_m": float(tokens[21]),
+                },
+            ]
+
+            fwd_az, back_az, length_m = AiracNetClient._geod.inv(
+                ends[0]["lon"], ends[0]["lat"], ends[1]["lon"], ends[1]["lat"]
+            )
+            bearings = {0: fwd_az % 360, 1: back_az % 360}
+
+            for i, end in enumerate(ends):
+                other = ends[1 - i]
+                runways[end["ident"]] = {
+                    "lat": end["lat"],
+                    "lon": end["lon"],
+                    "other_lat": other["lat"],
+                    "other_lon": other["lon"],
+                    "other_ident": other["ident"],
+                    "length_m": length_m,
+                    "width_m": width_m,
+                    "displaced_threshold_m": end["displaced_threshold_m"],
+                    "stopway_m": end["stopway_m"],
+                    "bearing": bearings[i],
+                }
+
+        return runways
+
     def get_runways(
             self,
             icao: str,
@@ -140,33 +238,15 @@ class AiracNetClient:
             airport_elevation: float,
             approaches: list[Approach]
     ) -> list[ArincRunway]:
-        # alternative -> todo: https://raw.githubusercontent.com/davidmegginson/ourairports-data/main/runways.csv
-        r = requests.get(
-            f"{self.nav_base}/{icao}",
-            headers=self.nav_headers
-        )
-
-        # here we can also get the elevation of the airport -> response.delevation
-        r.raise_for_status()
-        data = r.json()
-        runways = data.get("runways", [])
+        gateway_runways = self._parse_gateway_runways(self._get_gateway_apt_dat(icao))
 
         arinc_runways: list[ArincRunway] = []
 
-        for rw in runways:
-            ident = rw["ident"]
-            length = rw["length"]
-            width = rw["width"]
-            thresholdOffset = rw.get("thresholdOffset", 0)
-            overrunLength = rw.get("overrunLength", 0)
-            bearing = rw.get("bearing", 0)
+        for ident, rw in gateway_runways.items():
+            lat1, lon1 = rw["lat"], rw["lon"]
+            lat2, lon2 = rw["other_lat"], rw["other_lon"]
 
-            #print(ident)
-
-            ends = rw.get("ends", [])
-            end1, end2 = ends[0], ends[1]
-            lat1, lon1 = end1["lat"], end1["lon"]
-            lat2, lon2 = end2["lat"], end2["lon"]
+            bearing = rw["bearing"]
 
             rw_approaches = [
                 app for app in approaches
@@ -179,17 +259,23 @@ class AiracNetClient:
                         fix.latitude = lat1
                         fix.longitude = lon1
 
+            runway_elevation = self.get_runway_elevation(icao, ident)
+            if runway_elevation is None:
+                runway_elevation_ft = airport_elevation
+            else:
+                runway_elevation_ft = runway_elevation * 3.28084
+
             new_runway = ArincRunway(
                 runway_identifier=ident,
                 latitude=lat1,
                 longitude=lon1,
-                length=length,
+                length=rw["length_m"] * 3.28084,
                 bearing=bearing,
-                width=width,
-                stopway=overrunLength,
-                displaced_threshold=thresholdOffset,
+                width=rw["width_m"]* 3.28084,
+                stopway=rw["stopway_m"]* 3.28084,
+                displaced_threshold=rw["displaced_threshold_m"]* 3.28084,
                 magnetic_variation=magnetic_variation,
-                runway_altitude=airport_elevation,
+                runway_altitude=runway_elevation_ft,
                 approaches=rw_approaches,
             )
             new_runway.centerline_coordinates = (
@@ -198,9 +284,7 @@ class AiracNetClient:
             )
             new_runway.polygon_coordinates = new_runway._compute_polygon()
 
-            arinc_runways.append(
-                new_runway
-            )
+            arinc_runways.append(new_runway)
 
         return arinc_runways
 
@@ -239,13 +323,39 @@ class AiracNetClient:
 
         return runways
 
+    def get_runway_elevation(
+            self,
+            airport_ident: str,
+            runway_ident: str,
+    ) -> float | None:
+        response = requests.get(self.RUNWAYS_CSV_URL)
+        response.raise_for_status()
+
+        reader = csv.DictReader(io.StringIO(response.text))
+
+        for row in reader:
+            if row["airport_ident"] != airport_ident:
+                continue
+
+            if row["le_ident"] == runway_ident:
+                if row["le_elevation_ft"]:
+                    return float(row["le_elevation_ft"]) * 0.3048
+
+            if row["he_ident"] == runway_ident:
+                if row["he_elevation_ft"]:
+                    return float(row["he_elevation_ft"]) * 0.3048
+
+        return None
+
 
 if __name__ == "__main__":
     client = AiracNetClient()
 
-    icao = "CYVR" # CYVR, EDDF
+    icao = "CYVR"  # CYVR, EDDF
 
     data = client.get_airport_full(icao)
 
     print(data)
+    print(data[0].runway_altitude)
+    print(data[0].runway_identifier)
 
