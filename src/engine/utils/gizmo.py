@@ -1,4 +1,6 @@
 import math
+from pathlib import Path
+
 import numpy as np
 
 from OpenGL.GL import (
@@ -21,39 +23,23 @@ from engine.utils.mesh import Mesh
 from engine.utils.color import Color
 from engine.utils.vec3 import Vec3
 from engine.utils.helpers import _mat4_translate, _mat4_rotate_x, _mat4_rotate_z, _mat4_identity
-
-
-_GIZMO_VERT = """
-#version 330 core
-layout(location=0) in vec3 aPos;
-layout(location=1) in vec3 aNormal;
-layout(location=2) in vec2 aUV;
-uniform mat4 uModel;
-uniform mat4 uView;
-uniform mat4 uProjection;
-void main() {
-    gl_Position = uProjection * uView * uModel * vec4(aPos, 1.0);
-}
-"""
-
-_GIZMO_FRAG = """
-#version 330 core
-out vec4 FragColor;
-uniform vec4 uColor;
-void main() {
-    FragColor = uColor;
-}
-"""
+from utils.simplematerial import load_shader_source
 
 
 class _GizmoShader:
+    _UTILS_DIR = Path(__file__).resolve().parent
+    _SHADER_DIR = _UTILS_DIR / "shaders"
+
+    _GIZMO_VERT = load_shader_source(_SHADER_DIR / "gizmo.vert")
+    _GIZMO_FRAG = load_shader_source(_SHADER_DIR / "gizmo.frag")
+
     _program: ShaderProgram | None = None
 
     @classmethod
     def get(cls) -> ShaderProgram:
         if cls._program is None:
-            vert = compileShader(_GIZMO_VERT, GL_VERTEX_SHADER)
-            frag = compileShader(_GIZMO_FRAG, GL_FRAGMENT_SHADER)
+            vert = compileShader(cls._GIZMO_VERT, GL_VERTEX_SHADER)
+            frag = compileShader(cls._GIZMO_FRAG, GL_FRAGMENT_SHADER)
             cls._program = compileProgram(vert, frag)
         return cls._program
 

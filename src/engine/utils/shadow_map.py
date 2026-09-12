@@ -45,16 +45,16 @@ from engine.utils.helpers import _mat4_look_at, _mat4_ortho
 from engine.utils.vec3 import Vec3
 from engine.utils.simplematerial import load_shader_source
 
-_UTILS_DIR = Path(__file__).resolve().parent
-_SHADER_DIR = _UTILS_DIR / "shaders"
-
-_DEPTH_VERT_SRC = load_shader_source(_SHADER_DIR / "shadow_depth.vert")
-_DEPTH_FRAG_SRC = load_shader_source(_SHADER_DIR / "shadow_depth.frag")
-
 class ShadowMap:
     """Single 2D depth map for the scene's directional light. Sampled in the
     material shaders with slope-scaled depth bias + normal-offset + 3x3 PCF
     for soft, acne-free edges (curved geometry like spheres included)."""
+
+    _UTILS_DIR = Path(__file__).resolve().parent
+    _SHADER_DIR = _UTILS_DIR / "shaders"
+
+    _DEPTH_VERT_SRC = load_shader_source(_SHADER_DIR / "shadow_depth.vert")
+    _DEPTH_FRAG_SRC = load_shader_source(_SHADER_DIR / "shadow_depth.frag")
 
     def __init__(self, size: int = 4096) -> None:
         self.size: int                 = size
@@ -94,8 +94,8 @@ class ShadowMap:
         glReadBuffer(GL_NONE)
         glBindFramebuffer(GL_FRAMEBUFFER, 0)
 
-        vert = compileShader(_DEPTH_VERT_SRC, GL_VERTEX_SHADER)
-        frag = compileShader(_DEPTH_FRAG_SRC, GL_FRAGMENT_SHADER)
+        vert = compileShader(self._DEPTH_VERT_SRC, GL_VERTEX_SHADER)
+        frag = compileShader(self._DEPTH_FRAG_SRC, GL_FRAGMENT_SHADER)
         self._program = compileProgram(vert, frag)
 
     def _compute_light_space_matrix(self, light_dir: Vec3, center: Vec3, radius: float) -> NDArray[np.float32]:

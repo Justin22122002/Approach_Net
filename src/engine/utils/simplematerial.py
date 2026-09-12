@@ -28,13 +28,10 @@ from OpenGL.GL.shaders import compileShader, compileProgram, ShaderProgram
 def load_shader_source(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
-_UTILS_DIR = Path(__file__).resolve().parent
-_SHADER_DIR = _UTILS_DIR / "shaders"
-
-_VERT_SRC = load_shader_source(_SHADER_DIR / "default.vert")
-_FRAG_SRC = load_shader_source(_SHADER_DIR / "default.frag")
-
 class Material(metaclass=ABCMeta):
+    _UTILS_DIR = Path(__file__).resolve().parent
+    _SHADER_DIR = _UTILS_DIR / "shaders"
+
     @property
     def is_transparent(self) -> bool:
         """True once color.a < 1 -> tells MeshRenderer/Scene to use the transparent draw pass."""
@@ -58,6 +55,9 @@ class Material(metaclass=ABCMeta):
         glUniform1i(glGetUniformLocation(prog, "uShadowMap"), 1)
 
 class ComplexMaterial(Material):
+    _VERT_SRC = load_shader_source(Material._SHADER_DIR / "default.vert")
+    _FRAG_SRC = load_shader_source(Material._SHADER_DIR / "default.frag")
+
     _shared_program: ShaderProgram | None = None
 
     def __init__(
@@ -77,8 +77,8 @@ class ComplexMaterial(Material):
     @classmethod
     def _get_program(cls) -> ShaderProgram | int:
         if cls._shared_program is None:
-            vert = compileShader(_VERT_SRC, GL_VERTEX_SHADER)
-            frag = compileShader(_FRAG_SRC, GL_FRAGMENT_SHADER)
+            vert = compileShader(cls._VERT_SRC, GL_VERTEX_SHADER)
+            frag = compileShader(cls._FRAG_SRC, GL_FRAGMENT_SHADER)
             cls._shared_program = compileProgram(vert, frag)
         return cls._shared_program
 
@@ -159,10 +159,10 @@ class ComplexMaterial(Material):
         glUniform1i(glGetUniformLocation(prog, "uTexture"), 0)
 
 
-_SIMPLE_VERT_SRC = load_shader_source(Path(_SHADER_DIR / "simple_default.vert"))
-_SIMPLE_FRAG_SRC = load_shader_source(Path(_SHADER_DIR / "simple_default.frag"))
-
 class SimpleMaterial(Material):
+    _SIMPLE_VERT_SRC = load_shader_source(Path(Material._SHADER_DIR / "simple_default.vert"))
+    _SIMPLE_FRAG_SRC = load_shader_source(Path(Material._SHADER_DIR / "simple_default.frag"))
+
     _shared_program: ShaderProgram | None = None
 
     def __init__(
@@ -178,8 +178,8 @@ class SimpleMaterial(Material):
     @classmethod
     def _get_program(cls) -> ShaderProgram | int:
         if cls._shared_program is None:
-            vert = compileShader(_SIMPLE_VERT_SRC, GL_VERTEX_SHADER)
-            frag = compileShader(_SIMPLE_FRAG_SRC, GL_FRAGMENT_SHADER)
+            vert = compileShader(cls._SIMPLE_VERT_SRC, GL_VERTEX_SHADER)
+            frag = compileShader(cls._SIMPLE_FRAG_SRC, GL_FRAGMENT_SHADER)
             cls._shared_program = compileProgram(vert, frag)
         return cls._shared_program
 

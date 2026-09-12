@@ -38,11 +38,6 @@ from engine.utils.simplematerial import load_shader_source
 from engine.utils.renderer import Renderer
 from engine.utils.vec3 import Vec3
 
-_UTILS_DIR = Path(__file__).resolve().parent
-_SHADER_DIR = _UTILS_DIR / "shaders"
-
-_VERT_SRC = load_shader_source(_SHADER_DIR / "point.vert")
-_FRAG_SRC = load_shader_source(_SHADER_DIR / "point.frag")
 
 class PointRenderer(Component, Renderer):
     """
@@ -53,6 +48,12 @@ class PointRenderer(Component, Renderer):
     colors  – per point color, needs to be the same length ad points
     size    – point size ine pixel.
     """
+
+    _UTILS_DIR = Path(__file__).resolve().parent
+    _SHADER_DIR = _UTILS_DIR / "shaders"
+
+    _VERT_SRC = load_shader_source(_SHADER_DIR / "point.vert")
+    _FRAG_SRC = load_shader_source(_SHADER_DIR / "point.frag")
 
     _program: ShaderProgram | None = None
 
@@ -75,8 +76,8 @@ class PointRenderer(Component, Renderer):
     def _get_program(cls) -> int:
         if cls._program is None:
             glEnable(GL_PROGRAM_POINT_SIZE)
-            vert = compileShader(_VERT_SRC, GL_VERTEX_SHADER)
-            frag = compileShader(_FRAG_SRC, GL_FRAGMENT_SHADER)
+            vert = compileShader(cls._VERT_SRC, GL_VERTEX_SHADER)
+            frag = compileShader(cls._FRAG_SRC, GL_FRAGMENT_SHADER)
             cls._program = compileProgram(vert, frag)
 
         if cls._program is None: raise ValueError(f"class program {cls._program} is not defined")

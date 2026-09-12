@@ -1,4 +1,5 @@
 import ctypes
+from pathlib import Path
 
 import numpy as np
 import pygame
@@ -51,54 +52,7 @@ from typing_extensions import override
 from engine.utils.color import Color
 from engine.utils.component import Component
 from engine.utils.renderer import Renderer
-
-_VERT = """
-#version 330 core
-layout(location=0) in vec2 aPos;   
-layout(location=1) in vec2 aUV;
-
-uniform mat4 uModel;
-uniform mat4 uView;
-uniform mat4 uProjection;
-uniform vec2 uSize;        
-uniform int  uBillboard;   
-
-out vec2 vUV;
-
-void main() {
-    if (uBillboard != 0) {
-        vec3 worldPos = uModel[3].xyz;
-
-        vec3 right = vec3(uView[0][0], uView[1][0], uView[2][0]);
-        vec3 up    = vec3(uView[0][1], uView[1][1], uView[2][1]);
-
-        vec3 pos = worldPos
-                 + right * aPos.x * uSize.x
-                 + up    * aPos.y * uSize.y;
-
-        gl_Position = uProjection * uView * vec4(pos, 1.0);
-    } else {
-        vec4 local  = vec4(aPos.x * uSize.x, aPos.y * uSize.y, 0.0, 1.0);
-        gl_Position = uProjection * uView * uModel * local;
-    }
-    vUV = aUV;
-}
-"""
-
-_FRAG = """
-#version 330 core
-in  vec2 vUV;
-out vec4 FragColor;
-
-uniform sampler2D uTexture;
-uniform vec4      uColor;
-
-void main() {
-    vec4 t = texture(uTexture, vUV);
-    FragColor = t * uColor;
-    if (FragColor.a < 0.02) discard;
-}
-"""
+from utils.simplematerial import load_shader_source
 
 # Layout: x  y  u  v  (per 4 floats)
 _QUAD_DATA = np.array([
@@ -112,6 +66,12 @@ _QUAD_DATA = np.array([
 
 
 class TextRenderer(Component, Renderer):
+    _UTILS_DIR = Path(__file__).resolve().parent
+    _SHADER_DIR = _UTILS_DIR / "shaders"
+
+    _VERT = load_shader_source(_SHADER_DIR / "text.vert")
+    _FRAG = load_shader_source(_SHADER_DIR / "text.frag")
+
     _program: ShaderProgram | None = None
 
     def __init__(
@@ -208,8 +168,8 @@ class TextRenderer(Component, Renderer):
     @classmethod
     def _get_program(cls) -> int:
         if cls._program is None:
-            vert = compileShader(_VERT, GL_VERTEX_SHADER)
-            frag = compileShader(_FRAG, GL_FRAGMENT_SHADER)
+            vert = compileShader(cls._VERT, GL_VERTEX_SHADER)
+            frag = compileShader(cls._FRAG, GL_FRAGMENT_SHADER)
             cls._program = compileProgram(vert, frag)
         return cls._program
 
