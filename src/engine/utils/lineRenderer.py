@@ -37,12 +37,6 @@ from engine.utils.simplematerial import load_shader_source
 from engine.utils.renderer import Renderer
 from engine.utils.vec3 import Vec3
 
-_UTILS_DIR = Path(__file__).resolve().parent
-_SHADER_DIR = _UTILS_DIR / "shaders"
-
-_VERT_SRC = load_shader_source(_SHADER_DIR / "line.vert")
-_FRAG_SRC = load_shader_source(_SHADER_DIR / "line.frag")
-
 class LineRenderer(Component, Renderer):
     """
     Renders a set of line segments in 3D space.
@@ -56,6 +50,12 @@ class LineRenderer(Component, Renderer):
                  driver limitation, not a bug here. Whether it has any visible
                  effect depends on the GPU/driver in use.
     """
+
+    _UTILS_DIR = Path(__file__).resolve().parent
+    _SHADER_DIR = _UTILS_DIR / "shaders"
+
+    _VERT_SRC = load_shader_source(_SHADER_DIR / "line.vert")
+    _FRAG_SRC = load_shader_source(_SHADER_DIR / "line.frag")
 
     _program: int | None = None  # shared across all instances
 
@@ -79,8 +79,8 @@ class LineRenderer(Component, Renderer):
     @classmethod
     def _get_program(cls) -> int:
         if cls._program is None:
-            vert = compileShader(_VERT_SRC, GL_VERTEX_SHADER)
-            frag = compileShader(_FRAG_SRC, GL_FRAGMENT_SHADER)
+            vert = compileShader(cls._VERT_SRC, GL_VERTEX_SHADER)
+            frag = compileShader(cls._FRAG_SRC, GL_FRAGMENT_SHADER)
             cls._program = compileProgram(vert, frag)
 
         if cls._program is None: raise ValueError(f"class program {cls._program} is not defined")
