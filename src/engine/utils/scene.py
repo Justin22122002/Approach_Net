@@ -11,6 +11,7 @@ from engine.utils.vec3 import Vec3
 from engine.utils.boxCollider import BoxCollider
 from engine.utils.shadow_map import ShadowMap
 from utils.mesh import Mesh
+from utils.renderer import Renderer
 
 
 class Scene:
@@ -92,6 +93,8 @@ class Scene:
         view_mat: NDArray[np.float32],
         proj_mat: NDArray[np.float32]
     ) -> None:
+        opaque: list[GameObject]
+        transparent: list[GameObject]
         opaque, transparent = [], []
         for go in self._objects:
             if not go.active:

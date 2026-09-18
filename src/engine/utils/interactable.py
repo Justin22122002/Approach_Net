@@ -1,5 +1,7 @@
 from typing import Callable, Optional
 
+from typing_extensions import override
+
 from engine.utils.component import Component
 from engine.utils.gameObject import GameObject
 
@@ -27,3 +29,15 @@ class Interactable(Component):
     def _handle_click(self) -> None:
         if self.on_click:
             self.on_click(self.owner)
+
+    @override
+    def on_update(self, dt: float):
+        pass
+
+    @override
+    def on_start(self) -> None:
+        pass
+
+    @override
+    def on_destroy(self) -> None:
+        pass

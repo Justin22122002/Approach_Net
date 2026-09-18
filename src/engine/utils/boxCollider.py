@@ -1,4 +1,7 @@
 from dataclasses import dataclass, field
+
+from typing_extensions import override
+
 from engine.utils.component import Component
 from engine.utils.vec3 import Vec3
 
@@ -24,3 +27,15 @@ class BoxCollider(Component):
         return (a0.x <= b1.x and a1.x >= b0.x and
                 a0.y <= b1.y and a1.y >= b0.y and
                 a0.z <= b1.z and a1.z >= b0.z)
+
+    @override
+    def on_update(self, dt: float):
+        pass
+
+    @override
+    def on_start(self) -> None:
+        pass
+
+    @override
+    def on_destroy(self) -> None:
+        pass

@@ -37,5 +37,14 @@ class MeshRenderer(Component, Renderer):
         if transparent:
             glDepthMask(GL_TRUE)
 
+    @override
+    def on_update(self, dt: float):
+        pass
+
+    @override
+    def on_start(self) -> None:
+        pass
+
+    @override
     def on_destroy(self) -> None:
         self.mesh.destroy()

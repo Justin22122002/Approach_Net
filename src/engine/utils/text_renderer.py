@@ -210,9 +210,18 @@ class TextRenderer(Component, Renderer):
         glBindVertexArray(0)
         glUseProgram(0)
 
+    @override
     def on_destroy(self) -> None:
         if self._vao is not None:
             glDeleteVertexArrays(1, [self._vao])
             glDeleteBuffers(1, [self._vbo])
             self._vao = None
         self._destroy_texture()
+
+    @override
+    def on_update(self, dt: float):
+        pass
+
+    @override
+    def on_start(self) -> None:
+        pass

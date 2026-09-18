@@ -1,9 +1,10 @@
-from abc import ABCMeta
+from abc import ABCMeta, abstractmethod
 from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
 from numpy.typing import NDArray
+from typing_extensions import override
 
 from engine.utils.texture import Texture
 from engine.utils.color import Color
@@ -37,6 +38,15 @@ class Material(metaclass=ABCMeta):
         """True once color.a < 1 -> tells MeshRenderer/Scene to use the transparent draw pass."""
         c = getattr(self, "color", None)
         return c is not None and c.a < 1.0
+
+    @abstractmethod
+    def bind(
+            self,
+            model_mat: NDArray[np.float32],
+            view_mat: NDArray[np.float32],
+            proj_mat: NDArray[np.float32],
+            scene: "Scene"
+    ) -> None: pass
 
     @staticmethod
     def _bind_shadow_uniforms(prog, scene: "Scene") -> None:
@@ -82,6 +92,7 @@ class ComplexMaterial(Material):
             cls._shared_program = compileProgram(vert, frag)
         return cls._shared_program
 
+    @override
     def bind(
         self,
         model_mat: NDArray[np.float32],
@@ -183,6 +194,7 @@ class SimpleMaterial(Material):
             cls._shared_program = compileProgram(vert, frag)
         return cls._shared_program
 
+    @override
     def bind(
         self,
         model_mat: NDArray[np.float32],
