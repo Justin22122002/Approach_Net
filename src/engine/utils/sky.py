@@ -132,7 +132,7 @@ class Sky:
         glDepthFunc(GL_LESS)
         glDepthMask(GL_TRUE)
         glEnable(GL_DEPTH_TEST)
-        glEnable(GL_CULL_FACE)
+        glEnable(GL_CULL_FACE)  # glDisable(GL_CULL_FACE) -> todo: GL_CULL_FACE from engine
 
     def get_light_direction(self) -> Vec3:
         sun = self._sun_direction()

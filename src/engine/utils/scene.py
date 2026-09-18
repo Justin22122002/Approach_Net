@@ -1,3 +1,5 @@
+from collections.abc import Generator
+
 import numpy as np
 from numpy.typing import NDArray
 
@@ -8,6 +10,8 @@ from engine.utils.meshRenderer import MeshRenderer
 from engine.utils.vec3 import Vec3
 from engine.utils.boxCollider import BoxCollider
 from engine.utils.shadow_map import ShadowMap
+from utils.mesh import Mesh
+
 
 class Scene:
     def __init__(self) -> None:
@@ -56,7 +60,8 @@ class Scene:
     def check_collision(self, a: BoxCollider) -> list[BoxCollider]:
         return [b for b in self.get_colliders() if b is not a and a.overlaps(b)]
 
-    def shadow_casters(self):
+    # -> model_mat, mesh
+    def shadow_casters(self) -> Generator[tuple[np.ndarray, Mesh], None, None]:
         for o in self._objects:
             if not o.active:
                 continue

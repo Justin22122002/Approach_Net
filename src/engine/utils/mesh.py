@@ -311,3 +311,46 @@ class Mesh:
             verts += [x, y, z, *n, 0, 0]
         idx = list(range(segments))
         return Mesh(np.array(verts, dtype=np.float32), np.array(idx, dtype=np.uint32))
+
+    @staticmethod
+    def staircase(steps=6, width=1.0, step_height=0.2, step_depth=0.3):
+        verts = []
+        idx = []
+        hw = width / 2.0
+
+        def add_quad(p0, p1, p2, p3, normal, u0v0=(0, 0), u1v1=(1, 1)):
+            base = len(verts) // 8
+            (u0, v0), (u1, v1) = u0v0, u1v1
+            for p, (u, v) in zip((p0, p1, p2, p3), ((u0, v0), (u1, v0), (u1, v1), (u0, v1))):
+                verts.extend([*p, *normal, u, v])
+            idx.extend([base, base + 1, base + 2, base, base + 2, base + 3])
+
+            inv_n = (-normal[0], -normal[1], -normal[2])
+            base2 = len(verts) // 8
+            for p, (u, v) in zip((p0, p3, p2, p1), ((u0, v0), (u0, v1), (u1, v1), (u1, v0))):
+                verts.extend([*p, *inv_n, u, v])
+            idx.extend([base2, base2 + 1, base2 + 2, base2, base2 + 2, base2 + 3])
+
+        for i in range(steps):
+            y0, y1 = i * step_height, (i + 1) * step_height
+            z0, z1 = i * step_depth, (i + 1) * step_depth
+
+            add_quad(
+                (hw, y0, z0), (-hw, y0, z0), (-hw, y1, z0), (hw, y1, z0),
+                normal=(0, 0, -1),
+            )
+            add_quad(
+                (-hw, y1, z1), (hw, y1, z1), (hw, y1, z0), (-hw, y1, z0),
+                normal=(0, 1, 0),
+            )
+
+        top_y = steps * step_height
+        total_z = steps * step_depth
+        for sign, nx in ((-hw, -1.0), (hw, 1.0)):
+            if nx < 0:
+                pts = [(sign, 0, 0), (sign, 0, total_z), (sign, top_y, total_z), (sign, top_y, 0)]
+            else:
+                pts = [(sign, 0, 0), (sign, top_y, 0), (sign, top_y, total_z), (sign, 0, total_z)]
+            add_quad(pts[0], pts[1], pts[2], pts[3], normal=(nx, 0, 0))
+
+        return Mesh(np.array(verts, dtype=np.float32), np.array(idx, dtype=np.uint32))

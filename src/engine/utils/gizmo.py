@@ -113,9 +113,9 @@ class TransformGizmo:
         self.target: "GameObject | None" = None
         self.mode: str = "translate"
 
-        self._arrow_shaft = Mesh.cylinder(radius=0.035, height=ARROW_SHAFT_LEN, segments=10)
-        self._arrow_head  = Mesh.cone(radius=0.09, height=ARROW_HEAD_LEN, segments=10)
-        self._rings = {ax: Mesh.ring(radius=RING_RADIUS, segments=64, axis=ax) for ax in ("x", "y", "z")}
+        self._arrow_shaft: Mesh = Mesh.cylinder(radius=0.035, height=ARROW_SHAFT_LEN, segments=10)
+        self._arrow_head: Mesh  = Mesh.cone(radius=0.09, height=ARROW_HEAD_LEN, segments=10)
+        self._rings: dict[str, Mesh] = {ax: Mesh.ring(radius=RING_RADIUS, segments=64, axis=ax) for ax in ("x", "y", "z")}
 
         self._drag_axis: str | None = None
         self._drag_kind: str | None = None  # "translate" | "rotate"
