@@ -20,6 +20,7 @@ from OpenGL.GL import (
     glEnable,
     glViewport
 )
+from numpy.typing import NDArray
 from pygame import Surface
 import time as t
 from pygame.time import Clock
@@ -231,7 +232,7 @@ class Engine:
     def quit(self) -> None:
         self._running = False
 
-    def _update_picking(self, view: np.ndarray, proj: np.ndarray) -> None:
+    def _update_picking(self, view: NDArray[np.float32], proj: NDArray[np.float32]) -> None:
         mx, my = pygame.mouse.get_pos()
         origin, direction = screen_to_ray(
             mx, my, self.width, self.height, view, proj, self.camera.position

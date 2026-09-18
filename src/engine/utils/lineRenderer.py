@@ -38,19 +38,6 @@ from engine.utils.renderer import Renderer
 from engine.utils.vec3 import Vec3
 
 class LineRenderer(Component, Renderer):
-    """
-    Renders a set of line segments in 3D space.
-
-    points     – flat line of Vec3, always 2 for the directly following points = 1 segment
-    color      - one color for all points (ignored when colors are set, see the comment down below)
-    colors     - per vertex-color, needs to be the same length as the points
-    line_width - glLineWidth in pixels (default 1.0). Note: many desktop GL Core
-                 Profile drivers (esp. NVIDIA/AMD on Windows) ignore values > 1.0
-                 and always render 1px regardless of this setting -- that's a
-                 driver limitation, not a bug here. Whether it has any visible
-                 effect depends on the GPU/driver in use.
-    """
-
     _UTILS_DIR = Path(__file__).resolve().parent
     _SHADER_DIR = _UTILS_DIR / "shaders"
 
@@ -87,7 +74,6 @@ class LineRenderer(Component, Renderer):
 
         return cls._program
 
-    # GPU-Upload
     def _upload(self) -> None:
         if self._vao is not None:
             return
@@ -249,7 +235,6 @@ class LineRenderer(Component, Renderer):
         axis: str = "y",
         color: Color | None = None,
     ) -> "LineRenderer":
-        """circle in one of the three axes (axis='x'|'y'|'z')."""
         import math
         c   = color or Color.white()
         pts: list[Vec3] = []

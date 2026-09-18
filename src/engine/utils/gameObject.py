@@ -18,7 +18,7 @@ class GameObject:
         self._components.append(comp)
         return comp
 
-    def get_component(self, cls) -> Component | None:
+    def get_component[T: Component](self, cls: type[T]) -> T | None:
         for c in self._components:
             if isinstance(c, cls):
                 return c

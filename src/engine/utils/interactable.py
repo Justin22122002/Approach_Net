@@ -11,9 +11,9 @@ class Interactable(Component):
         on_hover_exit:  Optional[Callable[["GameObject"], None]] = None,
         on_click:       Optional[Callable[["GameObject"], None]] = None,
     ) -> None:
-        self.on_hover_enter = on_hover_enter
-        self.on_hover_exit  = on_hover_exit
-        self.on_click       = on_click
+        self.on_hover_enter: Optional[Callable[["GameObject"], None]] | None = on_hover_enter
+        self.on_hover_exit:  Optional[Callable[["GameObject"], None]] | None = on_hover_exit
+        self.on_click:       Optional[Callable[["GameObject"], None]] | None = on_click
         self.hovered: bool  = False
 
     def _set_hovered(self, value: bool) -> None:

@@ -2,6 +2,7 @@ import math
 from abc import ABCMeta, abstractmethod
 
 import pygame
+from numpy.typing import NDArray
 from typing_extensions import override
 
 from engine.utils.vec3 import Vec3
@@ -25,13 +26,13 @@ class Camera(metaclass=ABCMeta):
         return _mat4_perspective(self.fov, aspect, self.near, self.far)
 
     @abstractmethod
-    def handle_event(self, event): pass
+    def handle_event(self, event: pygame.event.Event) -> None: pass
 
     @abstractmethod
-    def update(self, dt, keys): pass
+    def update(self, dt: float, keys: pygame.key.ScancodeWrapper) -> None: pass
 
     @abstractmethod
-    def get_view(self) -> np.ndarray: pass
+    def get_view(self) -> NDArray[np.float32]: pass
 
 class FlyCamera(Camera):
     """WASD + mouse look free-fly camera."""
@@ -58,12 +59,12 @@ class FlyCamera(Camera):
                     math.cos(p) * math.sin(y)).normalized()
 
     @override
-    def get_view(self) -> np.ndarray:
+    def get_view(self) -> NDArray[np.float32]:
         f = self._front()
         return _mat4_look_at(self.position, self.position + f, Vec3.up())
 
     @override
-    def handle_event(self, event):
+    def handle_event(self, event: pygame.event.Event) -> None:
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 3:
             self._captured = True
             pygame.mouse.set_visible(False)
@@ -78,7 +79,11 @@ class FlyCamera(Camera):
             self.pitch  = max(-89, min(89, self.pitch - dy * self.sensitivity))
 
     @override
-    def update(self, dt, keys):
+    def update(
+        self,
+        dt: float,
+        keys: pygame.key.ScancodeWrapper
+    ) -> None:
         f = self._front()
         r = f.cross(Vec3.up()).normalized()
         spd = self.speed * dt
@@ -114,12 +119,12 @@ class OrbitCamera(Camera):
         return Vec3(self.target.x+x, self.target.y+yl, self.target.z+z)
 
     @override
-    def get_view(self) -> np.ndarray:
+    def get_view(self) -> NDArray[np.float32]:
         self.position = self._calc_pos()
         return _mat4_look_at(self.position, self.target, Vec3.up())
 
     @override
-    def handle_event(self, event):
+    def handle_event(self, event: pygame.event.Event) -> None:
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 3:
             self._dragging = True
             pygame.mouse.set_visible(False)
@@ -136,5 +141,9 @@ class OrbitCamera(Camera):
             self.distance = max(0.5, self.distance - event.y * 0.5)
 
     @override
-    def update(self, dt, keys):
+    def update(
+            self,
+            dt: float,
+            keys: pygame.key.ScancodeWrapper
+    ) -> None:
         pass

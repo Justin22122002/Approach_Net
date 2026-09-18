@@ -61,7 +61,7 @@ class Scene:
         return [b for b in self.get_colliders() if b is not a and a.overlaps(b)]
 
     # -> model_mat, mesh
-    def shadow_casters(self) -> Generator[tuple[np.ndarray, Mesh], None, None]:
+    def shadow_casters(self) -> Generator[tuple[NDArray[np.float32], Mesh], None, None]:
         for o in self._objects:
             if not o.active:
                 continue

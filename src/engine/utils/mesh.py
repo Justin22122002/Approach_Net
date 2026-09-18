@@ -22,18 +22,20 @@ from OpenGL.GL import (
     glGenVertexArrays,
     glVertexAttribPointer,
 )
+from numpy.typing import NDArray
+
 
 class Mesh:
     """
     Vertex layout: [x,y,z,  nx,ny,nz,  u,v]  → 8 floats per vertex
     Indices are unsigned ints.
     """
-    def __init__(self, vertices: np.ndarray, indices: np.ndarray):
-        self.vertices = np.array(vertices, dtype=np.float32)
-        self.indices  = np.array(indices,  dtype=np.uint32)
-        self._vao = None
-        self._vbo = None
-        self._ebo = None
+    def __init__(self, vertices: NDArray[np.float32], indices: NDArray[np.uint32]):
+        self.vertices: NDArray[np.float32] = np.array(vertices, dtype=np.float32)
+        self.indices: NDArray[np.uint32]  = np.array(indices,  dtype=np.uint32)
+        self._vao: int | None = None
+        self._vbo: int | None = None
+        self._ebo: int | None = None
 
     # GPU upload
     def _upload(self):

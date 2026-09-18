@@ -51,7 +51,7 @@ class HUD:
     _HUD_FRAG = load_shader_source(_SHADER_DIR / "hud.frag")
 
     def __init__(self, engine: "Engine") -> None:
-        self._engine                          = engine
+        self._engine: "Engine"               = engine
         self._surface: pygame.Surface | None = None
         self._tex_id:  int | None            = None
         self._prog:    ShaderProgram | None  = None
@@ -65,7 +65,7 @@ class HUD:
         self._slider_rects: dict[str, tuple] = {}
         self._dragging_slider: str | None    = None
 
-    def _ensure_gpu(self):
+    def _ensure_gpu(self) -> None:
         if self._prog is not None:
             return
         vert = compileShader(self._HUD_VERT, GL_VERTEX_SHADER)
@@ -78,7 +78,7 @@ class HUD:
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
         glBindTexture(GL_TEXTURE_2D, 0)
 
-    def _ensure_surface(self):
+    def _ensure_surface(self) -> None:
         w, h = self._engine.width, self._engine.height
         if self._surface is None or self._surface.get_size() != (w, h):
             self._surface = pygame.Surface((w, h), pygame.SRCALPHA)
@@ -88,7 +88,7 @@ class HUD:
             self._fonts[size] = pygame.font.SysFont("segoeui", size)
         return self._fonts[size]
 
-    def _begin(self):
+    def _begin(self) -> None:
         self._ensure_gpu()
         self._ensure_surface()
         self._surface.fill((0, 0, 0, 0))
@@ -96,7 +96,7 @@ class HUD:
         self._slider_rects.clear()
         self._mouse_pos = pygame.mouse.get_pos()
 
-    def _end(self):
+    def _end(self) -> None:
         surf = self._surface
         w, h = surf.get_size()
         raw  = pygame.image.tostring(surf, "RGBA", False)
@@ -107,7 +107,6 @@ class HUD:
                      GL_RGBA, GL_UNSIGNED_BYTE, raw)
         glBindTexture(GL_TEXTURE_2D, 0)
 
-        # Draw fullscreen quad with HUD shader
         glDisable(GL_DEPTH_TEST)
         glDisable(GL_CULL_FACE)
         glEnable(GL_BLEND)
@@ -144,7 +143,7 @@ class HUD:
                 if btn["x"] <= mx < btn["x"] + btn["w"] and \
                    btn["y"] <= my < btn["y"] + btn["h"]:
                     btn["callback"]()
-                    break   # consume the first hit
+                    break
 
         if event.type == pygame.MOUSEBUTTONUP and event.button == 1:
             self._dragging_slider = None
