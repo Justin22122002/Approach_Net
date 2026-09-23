@@ -13,6 +13,8 @@ from utils.arinc_runway import ArincRunway
 from utils.geo_types import Coordinate
 from utils.clients.sqlite_airinc24_database_client import extract_runway_from_procedure
 
+M_TO_FT = 3.28084
+
 
 class AiracNetClient:
     RUNWAYS_CSV_URL = (
@@ -30,6 +32,8 @@ class AiracNetClient:
             "Accept": "application/json",
             "User-Agent": "MyApp/1.0 (myemail@example.com)"
         }
+
+        self._runways_csv_rows: list[dict] | None = None
 
     def get_airport(self, icao: str) -> Any:
         r = requests.get(
@@ -180,7 +184,7 @@ class AiracNetClient:
 
     @staticmethod
     def _parse_gateway_runways(apt_dat_text: str) -> dict[str, dict]:
-        """Returns {runway_ident: {lat, lon, length_m, width_m, displaced_threshold_m, stopway_m, bearing, other_ident}}"""
+        geod = AiracNetClient._geod
         runways: dict[str, dict] = {}
 
         for line in apt_dat_text.splitlines():
@@ -207,20 +211,26 @@ class AiracNetClient:
                 },
             ]
 
-            fwd_az, back_az, length_m = AiracNetClient._geod.inv(
+            fwd_az, back_az, physical_length_m = geod.inv(
                 ends[0]["lon"], ends[0]["lat"], ends[1]["lon"], ends[1]["lat"]
             )
             bearings = {0: fwd_az % 360, 1: back_az % 360}
 
             for i, end in enumerate(ends):
                 other = ends[1 - i]
+
+                thr_lon, thr_lat, _ = geod.fwd(
+                    end["lon"], end["lat"], bearings[i], end["displaced_threshold_m"]
+                )
+
                 runways[end["ident"]] = {
-                    "lat": end["lat"],
-                    "lon": end["lon"],
-                    "other_lat": other["lat"],
-                    "other_lon": other["lon"],
+                    "thr_lat": thr_lat,
+                    "thr_lon": thr_lon,
+                    "end_lat": other["lat"],
+                    "end_lon": other["lon"],
                     "other_ident": other["ident"],
-                    "length_m": length_m,
+                    "physical_length_m": physical_length_m,
+                    "landing_length_m": physical_length_m - end["displaced_threshold_m"],
                     "width_m": width_m,
                     "displaced_threshold_m": end["displaced_threshold_m"],
                     "stopway_m": end["stopway_m"],
@@ -241,10 +251,8 @@ class AiracNetClient:
         arinc_runways: list[ArincRunway] = []
 
         for ident, rw in gateway_runways.items():
-            lat1, lon1 = rw["lat"], rw["lon"]
-            lat2, lon2 = rw["other_lat"], rw["other_lon"]
-
-            bearing = rw["bearing"]
+            lat1, lon1 = rw["thr_lat"], rw["thr_lon"]
+            lat2, lon2 = rw["end_lat"], rw["end_lon"]
 
             rw_approaches = [
                 app for app in approaches
@@ -261,17 +269,17 @@ class AiracNetClient:
             if runway_elevation is None:
                 runway_elevation_ft = airport_elevation
             else:
-                runway_elevation_ft = runway_elevation * 3.28084
+                runway_elevation_ft = runway_elevation * M_TO_FT
 
             new_runway = ArincRunway(
                 runway_identifier=ident,
                 latitude=lat1,
                 longitude=lon1,
-                length=rw["length_m"] * 3.28084,
-                bearing=bearing,
-                width=rw["width_m"]* 3.28084,
-                stopway=rw["stopway_m"]* 3.28084,
-                displaced_threshold=rw["displaced_threshold_m"]* 3.28084,
+                length=rw["landing_length_m"] * M_TO_FT,
+                bearing=rw["bearing"],
+                width=rw["width_m"] * M_TO_FT,
+                stopway=rw["stopway_m"] * M_TO_FT,
+                displaced_threshold=rw["displaced_threshold_m"] * M_TO_FT,
                 magnetic_variation=magnetic_variation,
                 runway_altitude=runway_elevation_ft,
                 approaches=rw_approaches,
@@ -321,27 +329,27 @@ class AiracNetClient:
 
         return runways
 
+    def _load_runways_csv(self) -> list[dict]:
+        if self._runways_csv_rows is None:
+            response = requests.get(self.RUNWAYS_CSV_URL)
+            response.raise_for_status()
+            self._runways_csv_rows = list(csv.DictReader(io.StringIO(response.text)))
+        return self._runways_csv_rows
+
     def get_runway_elevation(
             self,
             airport_ident: str,
             runway_ident: str,
     ) -> float | None:
-        response = requests.get(self.RUNWAYS_CSV_URL)
-        response.raise_for_status()
-
-        reader = csv.DictReader(io.StringIO(response.text))
-
-        for row in reader:
+        for row in self._load_runways_csv():
             if row["airport_ident"] != airport_ident:
                 continue
 
-            if row["le_ident"] == runway_ident:
-                if row["le_elevation_ft"]:
-                    return float(row["le_elevation_ft"]) * 0.3048
+            if row["le_ident"] == runway_ident and row["le_elevation_ft"]:
+                return float(row["le_elevation_ft"]) * 0.3048
 
-            if row["he_ident"] == runway_ident:
-                if row["he_elevation_ft"]:
-                    return float(row["he_elevation_ft"]) * 0.3048
+            if row["he_ident"] == runway_ident and row["he_elevation_ft"]:
+                return float(row["he_elevation_ft"]) * 0.3048
 
         return None
 
@@ -360,7 +368,12 @@ if __name__ == "__main__":
     for airport_icao in airport_list_icao:
         data = client.get_airport_full(airport_icao)
 
-        print(data)
-        print(data[0].runway_altitude)
-        print(data[0].runway_identifier)
-
+        for rw in data:
+            start, end = rw.centerline_coordinates
+            print(
+                f"{airport_icao} {rw.runway_identifier}: "
+                f"thr=({rw.latitude:.6f}, {rw.longitude:.6f}) "
+                f"end=({end.lat:.6f}, {end.lon:.6f}) "
+                f"len={rw.length:.0f} ft, dthr={rw.displaced_threshold:.0f} ft, "
+                f"elev={rw.runway_altitude:.0f} ft"
+            )

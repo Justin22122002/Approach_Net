@@ -53,18 +53,11 @@ class RunwayProjectMesh(ProjectMesh):
         start_lat = self.lat
         start_lon = self.lon
 
-        start_lon, start_lat, _ = self.geod.fwd(
-            start_lon,
-            start_lat,
-            self.bearing,
-            self.displaced_threshold_m
-        )
-
         end_lon, end_lat, _ = self.geod.fwd(
             start_lon,
             start_lat,
             self.bearing,
-            self.length_m
+            self.length_m # - self.displaced_threshold_m
         )
 
         return (start_lat, start_lon), (end_lat, end_lon)
