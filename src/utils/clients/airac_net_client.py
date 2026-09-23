@@ -127,6 +127,7 @@ class AiracNetClient:
                     speed_kts=speed_kts,
                     turn_direction=turn_direction,
                     altitude_restriction=altitude_restriction,
+                    description_code="",
                 )
             )
 
@@ -136,7 +137,6 @@ class AiracNetClient:
             fixes=fixes,
         )
 
-    # ---------- X-Plane Scenery Gateway (runway geometry incl. stopway) ----------
     def _get_gateway_apt_dat(self, icao: str) -> str:
         r = requests.get(f"{self.GATEWAY_BASE}/airport/{icao}")
         r.raise_for_status()
@@ -158,8 +158,6 @@ class AiracNetClient:
         with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
             names = zf.namelist()
 
-            # Gateway master zip layout: "{ICAO}.dat" (the raw apt.dat text),
-            # "{ICAO}.txt" (readme), and a nested "*_Scenery_Pack.zip" (full WED pack).
             apt_dat_name = next(
                 (n for n in names if n.lower() == f"{icao.lower()}.dat"),
                 None,
@@ -351,11 +349,18 @@ class AiracNetClient:
 if __name__ == "__main__":
     client = AiracNetClient()
 
-    icao = "CYVR"  # CYVR, EDDF
+    airport_list_icao: list[str] = [
+        "CYVR",
+        "CYUL",
+        "CYYZ",
+        "CYYC",
+        "CYEG",
+    ]
 
-    data = client.get_airport_full(icao)
+    for airport_icao in airport_list_icao:
+        data = client.get_airport_full(airport_icao)
 
-    print(data)
-    print(data[0].runway_altitude)
-    print(data[0].runway_identifier)
+        print(data)
+        print(data[0].runway_altitude)
+        print(data[0].runway_identifier)
 

@@ -126,6 +126,7 @@ class ArincRunway(JsonSerializable):
                     speed_kts=f.get("speed_kts", None),
                     turn_direction=f.get("turn_direction", None),
                     altitude_restriction=f.get("altitude_restriction", None),
+                    description_code=f.get("description_code", None),
                 )
                 for f in fixes_data
             ]
@@ -180,6 +181,7 @@ class ArincRunway(JsonSerializable):
                             "speed_kts": f.speed_kts,
                             "turn_direction": f.turn_direction,
                             "altitude_restriction": f.altitude_restriction,
+                            "description_code": f.description_code,
                         }
                         for f in app.fixes
                     ],

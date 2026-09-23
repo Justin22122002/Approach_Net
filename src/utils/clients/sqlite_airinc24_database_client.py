@@ -188,6 +188,13 @@ class SQLiteArInC24DatabaseClient:
                         path_term = entry["Path_Terminator"]
                         altitude_1 = entry["Altitude_1"]
                         seq_num = entry.get("Sequence_Number", 0)
+
+                        description_code = entry["Description_Code"]
+                        magnetic_course = entry["Magnetic_Course"]
+                        turn_direction = entry["Turn_Direction"]
+                        speed_limit = entry["Speed_Limit"]
+                        altitude_descriptor = entry["Altitude_Descriptor"]
+
                         lat, lon = None, None
 
                         if fix_name == runway_id and path_term == "TF":
@@ -208,10 +215,11 @@ class SQLiteArInC24DatabaseClient:
                             longitude=lon,
                             altitude=float(altitude_1) if altitude_1 != "" else 0,
                             sequence_number=seq_num,
-                            course=None, # todo: see AiracNetClient
-                            speed_kts=None,
-                            turn_direction=None,
-                            altitude_restriction=None,
+                            course=magnetic_course,
+                            speed_kts=speed_limit,
+                            turn_direction=turn_direction,
+                            altitude_restriction=altitude_descriptor,
+                            description_code=description_code,
                         ))
 
                     if any(f.fix_identifier == runway_id or f.latitude is not None for f in fixes):
@@ -274,7 +282,7 @@ if __name__ == "__main__":
     print(SQLiteArInC24DatabaseClient.faa_to_decimal("N40382374"))
     print(SQLiteArInC24DatabaseClient.faa_to_decimal("W073464329"))
 
-    database_client = SQLiteArInC24DatabaseClient(Path("../FAACIFP18"))
+    database_client = SQLiteArInC24DatabaseClient(Path("../../FAACIFP18"))
 
     approaches = database_client.get_approaches_by_airport_and_procedure("KJFK", "R04LY")
     waypoints = database_client.get_waypoints("KJFK", "REPRE")

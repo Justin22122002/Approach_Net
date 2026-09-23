@@ -124,6 +124,7 @@ class AiracNetClientOld:
                     speed_kts=speed_kts,
                     turn_direction=turn_direction,
                     altitude_restriction=altitude_restriction,
+                    description_code="",
                 )
             )
 
