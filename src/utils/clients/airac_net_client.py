@@ -317,6 +317,7 @@ class AiracNetClient:
 
         approaches: list[Approach] = []
         for proc in procedures:
+            # here we get a specific order -> always first IF and then FAF
             approach = self.get_procedure_detail(icao, proc["identifier"])
             approaches.append(approach)
 

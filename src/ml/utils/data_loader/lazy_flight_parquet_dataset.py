@@ -5,11 +5,13 @@ import pandas as pd
 from pandas import DataFrame, Series
 from torch.utils.data import Dataset
 
-from physics.aircraft_dynamics import AircraftDynamics
+from engine.physics.aircraft_dynamics import AircraftDynamics
 from utils.aircraft import AircraftType
+from utils.airport import Airport
+from utils.approch import Approach
+from utils.arinc_runway import ArincRunway
 
 
-# todo: create a base class for this and crate a data loader that loads all current data point for a sorted time !
 class LazyFlightParquetDataset(Dataset[DataFrame]):
     """
         ../../data/frankfurt_20260530_1900_1930
@@ -21,15 +23,17 @@ class LazyFlightParquetDataset(Dataset[DataFrame]):
     """
     def __init__(self, base_path: str | Path) -> None:
         base_path: str | Path = Path(base_path)
-        directory = base_path.parent
-        suffix    = base_path.name
+        self.dataset_path: str | Path = base_path.parent
+        self.airport_path: str | Path = base_path.parent.parent
+        suffix: str = base_path.name
 
-        self.flight_path: Path   = directory / f"arrivals_{suffix}.parquet"
-        self.aircraft_path: Path = directory / f"aircraft_{suffix}.parquet"
-        self.runway_path: Path   = directory / f"runway_assignments_{suffix}.parquet"
+        self.flight_path: Path   = self.dataset_path / f"arrivals_{suffix}.parquet"
+        self.aircraft_path: Path = self.dataset_path / f"aircraft_{suffix}.parquet"
+        self.runway_path: Path   = self.dataset_path / f"runway_assignments_{suffix}.parquet"
 
         self._aircraft_cache: dict[str, tuple[AircraftType, AircraftDynamics]] | None = None
         self._runway_cache: DataFrame | None = None
+        self._airport_cache: Airport | None = None
 
         meta_df: DataFrame = pd.read_parquet(
             self.flight_path, columns=["icao24", "flight_id"]
@@ -108,8 +112,37 @@ class LazyFlightParquetDataset(Dataset[DataFrame]):
             raise KeyError(f"No runway assignment for icao24={icao24!r}, flight_id={flight_id!r}.")
         return match.iloc[0]
 
+    def load_airport(self) -> Airport:
+        if self._airport_cache is None:
+            icao = self.airport_path.name
+
+            airport_data_path = (
+                    Path(__file__).resolve().parents[3] / "data"
+            )
+
+            self._airport_cache = Airport.load_from_folder(
+                airport_data_path,
+                icao,
+            )
+
+        return self._airport_cache
+
+    """
+    get_procedure("26L") -> self.get_procedure("26L")
+    """
+    def get_procedure(self, runway_name: str, approach_index: int = 0) -> tuple[Approach, ArincRunway]:
+        airport: Airport = self.load_airport()
+
+        searched_runway: ArincRunway = None
+        for runway in airport.arinc_424_runway:
+            if runway.runway_identifier == runway_name:
+                searched_runway = runway
+                break
+
+        return searched_runway.approaches[approach_index], searched_runway
+
 if __name__ == "__main__":
-    base_path = "../../data/CYVR/20260627_1403"
+    base_path = "../../../data/CYVR/train/20260802_0920"
 
     dataset = LazyFlightParquetDataset(base_path)
     print(f"Number of available flights in dataset: {len(dataset)}")

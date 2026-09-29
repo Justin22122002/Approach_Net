@@ -81,7 +81,7 @@ if __name__ == "__main__":
 
     trainer = LandingActionTrainer(
         model=model,
-        optimizer=optim.Adam(model.parameters(), lr=1e-4),
+        optimizer=optim.Adam(model.parameters(), lr=1e-4), # optim.AdamW(model.parameters(), lr=1e-4, weight_decay=1e-5)
         loss=nn.MSELoss(),
         device=device,
         results_path=Path("results/multiple_airports_landing_action_ft_transformer_augmented"),

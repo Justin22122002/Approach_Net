@@ -23,10 +23,10 @@ class LandingActionFTTransformer(nn.Module):
         residual_dropout: float = 0.0,
     ) -> None:
         super().__init__()
-        self.model = FTTransformer(
+        self.model: FTTransformer = FTTransformer(
             n_cont_features=input_dim,
             cat_cardinalities=[],
-            d_out=action_dim,
+            d_out=action_dim, # d_out=None,  # no Head -> forward() yields CLS-Embedding
             n_blocks=n_blocks,
             d_block=d_block,
             attention_n_heads=attention_n_heads,
