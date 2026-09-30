@@ -36,7 +36,7 @@ if __name__ == "__main__":
             mode="bspline_state",
             max_dt=5.0,
             airport_center_latlon=(airport.lat, airport.lon),
-            airport_elevation_m=airport.arinc_424_runway[0].runway_altitude * 0.3048,
+            airport_elevation_m=airport.get_mean_runway_elevation_ft() * 0.3048,
             augment_rotations_deg=[10.0, 350.0, 180.0, 190.0, 170.0], # augment_rotations_deg=[180.0],
         )
         print(f"[{airport_icao}] samples: {len(dataset)}, input_dim: {dataset.input_dim}")

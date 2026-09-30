@@ -497,7 +497,7 @@ $
 n = \frac{(\dot{\vec{v}} - \vec{g}) \cdot \vec{n}}{g}
 $
 
-Roll angle
+bank angle
 $
 \phi = \arctan\left(\frac{v \, \dot{\chi}}{g}\right)
 $

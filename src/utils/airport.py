@@ -67,6 +67,18 @@ class Airport(JsonSerializable):
                 encoding="utf-8"
             )
 
+    def get_mean_runway_elevation_ft(self) -> float | None:
+        elevations = [
+            rw.runway_altitude
+            for rw in self.arinc_424_runway
+            if rw.runway_altitude is not None
+        ]
+
+        if not elevations:
+            return None
+
+        return float(np.mean(elevations))
+
     @classmethod
     def load_from_folder(cls: type["Airport"], base_path: Path, icao: str) -> "Airport":
         airport_path = base_path / icao

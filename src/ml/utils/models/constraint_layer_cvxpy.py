@@ -9,19 +9,6 @@ from cvxpylayers.torch import CvxpyLayer
 
 DEG2RAD = math.pi / 180.0
 
-# todo: soft constraint is to hard and remove during training
-# self decided parameters, todo -> w_action = cp.Parameter(3, nonneg=True), rho_slack = cp.Parameter(nonneg=True)
-# w_action = (4.0, 1.0, 1.0)  -> self.log_w_action = nn.Parameter(
-#     torch.log(torch.tensor([4.0, 1.0, 1.0]))
-# )
-#
-# w_action = torch.exp(self.log_w_action)
-# rho_slack = 1e4
-# rho_track = 1.0, k_track = (kp, kd) -> soft centerline-tracking cost weight/gains
-# h_floor = 2000.0 -> caps how far outside the funnel the HOCBF term is allowed to "see",
-# avoids an ill-conditioned/huge b that makes SCS report a false "infeasible"
-# (AircraftFunnelQPLayer/AircraftCombinedQPLayer), needs tuning
-
 class AircraftFormulasTorch:
     """1:1-mirror of AircraftKinematicsStateCasadi (batched, torch)."""
     g = 9.81
@@ -78,7 +65,7 @@ class _QPLayerBase(nn.Module):
         self.solver_args: dict = solver_args or {}
         self.debug: bool = debug
         self.fail_rate_warn: float = 0.1  # log warning if per-batch fail rate exceeds this
-        self.last_solved_mask: Tensor | None = None  # (B,) bool, nach jedem forward() verfügbar
+        self.last_solved_mask: Tensor | None = None  # (B,) bool, will be places after every forward() pass
         self.solver: str = solver
 
     def _decode_action(self, x_norm: Tensor, t_max: Tensor) -> tuple[Tensor, Tensor, Tensor, Tensor]:
@@ -143,43 +130,6 @@ class _QPLayerBase(nn.Module):
         assert problem.is_dpp(), "QP is not DPP conform"
 
         return CvxpyLayer(problem, parameters=parameters, variables=[u, s], solver=self.solver) #  ,solver=cp.MOREAU
-
-    #def _solve(
-    #    self,
-    #    layer: CvxpyLayer,
-    #    u_nn: Tensor,
-    #    n_min: Tensor,
-    #    n_max: Tensor,
-    #    tanphi: Tensor,
-    #    A: Tensor,
-    #    b: Tensor,
-    #    T_nn: Tensor,
-    #    n_nn: Tensor,
-    #    roll_nn: Tensor,
-    #    t_max: Tensor,
-    #    roll_max: Tensor,
-    #    A_track: Tensor | None = None,
-    #    b_track: Tensor | None = None,
-    #) -> tuple[Tensor, Tensor | None]:
-    #    try:
-    #        layer_args: list[Tensor] = [u_nn, torch.clamp(n_min, min=0.0), n_max, tanphi, A, b]
-    #        if A_track is not None and b_track is not None:
-    #            layer_args += [A_track, b_track]
-    #        u_opt, s_opt = layer(
-    #            *layer_args,
-    #            solver_args=self.solver_args,
-    #        )
-    #    except Exception as e: # due to,   Infeasibility, Nan, Inf or Timeout of the solver
-    #        print(f"[qp] WARN: Solver failed ({e}) -> pass unprocessed inputs as output")
-    #        t_fallback = torch.clamp(T_nn, min=torch.zeros_like(t_max), max=t_max)
-    #        n_fallback = torch.clamp(n_nn, min=n_min, max=n_max)
-    #        roll_fallback = torch.clamp(roll_nn, min=-roll_max, max=roll_max)
-    #        return torch.stack([t_fallback, n_fallback, roll_fallback], dim=-1), None
-    #    # back transformation from (T̃, uv, uh) to (T, n, bank)
-    #    thrust = t_max * u_opt[:, 0]
-    #    n = torch.linalg.norm(u_opt[:, 1:3], dim=1)
-    #    roll = torch.rad2deg(torch.atan2(u_opt[:, 2], u_opt[:, 1]))
-    #    return torch.stack([thrust, n, roll], dim=-1), s_opt
 
     def _solve(
             self,
@@ -343,7 +293,6 @@ class AircraftEnvelopeQPLayer(_QPLayerBase):
         )
         return a_row, b_row, drag, v_stall, sin_g, cos_g
 
-    # @torch.no_grad()
     def forward(
         self,
         x_norm: Tensor,
@@ -396,10 +345,11 @@ class AircraftFunnelQPLayer(_QPLayerBase):
         h_floor: float = 2000.0,                # self decided, todo -> tune: caps |hy|/|hz| fed into b, avoids
                                                  # an ill-conditioned/huge b (and a resulting false "infeasible"
                                                  # from SCS) when the aircraft is far outside the funnel
-        s_activate: float = 15_000.0,
+        s_activate_funnel: float = 10_000.0,    # distance [m] below which the HOCBF funnel rows are active
+        s_activate_track: float = 20_000.0,     # distance [m] below which the soft tracking cost (30 deg intercept) is active
         s_min: float = 150.0,
         heading_gate_deg: float = 90.0,
-        w_action: tuple[float, float, float] = (4.0, 1.0, 1.0),
+        w_action: tuple[float, float, float] = (1.0, 1.0, 1.0),
         rho_slack: float = 1e4,
         rho_track: float = 1.0, # self decided, todo -> tune: weight of the soft tracking cost
         solver_args: dict | None = None,
@@ -442,10 +392,47 @@ class AircraftFunnelQPLayer(_QPLayerBase):
         self.k_vf: float = k_vf                                     # lateral tracking: vector-field gain (1/m)
         self.k_heading: float = k_heading                           # lateral tracking: heading gain (1/s)
         self.h_floor: float = h_floor                               # clamp on hy/hz fed into b, see param docstring above
-        self.s_activate: float = s_activate                         # when the funnel constraint AND the tracking cost are activated in meters
+        self.s_activate_funnel: float = s_activate_funnel           # when the funnel constraint (HOCBF rows) is activated, in meters
+        self.s_activate_track: float = s_activate_track             # when the soft tracking cost (30 deg intercept + glide path PD) is activated, in meters
         self.s_min: float = s_min                                   # when the funnel constraint is deactivated again, due to fragile solving
         self.cos_gate: float = math.cos(heading_gate_deg * DEG2RAD) # heading gate, this means the funnel constraint is activated depending on the heading of the aircraft
         self.layer: CvxpyLayer = self._build_qp(n_rows=2, n_track_rows=2)
+
+    @staticmethod
+    def lpv_lateral_geometry(
+        runway_length_m: Tensor,
+        thr_half_width_lat_m: float,
+        lgsa_deg: float | None = None,
+    ) -> tuple[Tensor, Tensor]:
+        """
+        per-sample (batched) version of the LPV lateral geometry from __init__.
+        runway_length_m: (B,) in meters, NaN / <= 0 -> 9023 ft FPAP floor (same as runway_length_m=None)
+        returns d_garp (B,) [m] and tan_lgsa (B,)
+          para. 3-1-5.c(1) + c(3)(a): FPAP = max(runway length, 9023 ft), GARP = FPAP + 1000 ft
+          Formula 3-1-1: course width at threshold = max(350 ft, tan(1.5 deg) * d_GARP) -> tan(LGSA_eff)
+        """
+        length_ft = torch.nan_to_num(runway_length_m / 0.3048, nan=0.0, posinf=0.0, neginf=0.0)
+        fpap_ft = torch.clamp(length_ft, min=9023.0)
+        d_garp = (fpap_ft + 1000.0) * 0.3048
+
+        if lgsa_deg is not None:
+            tan_lgsa = torch.full_like(d_garp, math.tan(lgsa_deg * DEG2RAD))
+        else:
+            course_width_thr = torch.clamp(math.tan(1.5 * DEG2RAD) * d_garp, min=thr_half_width_lat_m)
+            tan_lgsa = course_width_thr / d_garp  # = tan(atan(w_thr / d_garp))
+        return d_garp, tan_lgsa
+
+    @staticmethod
+    def fix_distance(fix_pos: Tensor, runway_pos: Tensor) -> Tensor:
+        """
+        distance [m] of an approach fix (FAF, IF, ...) to the runway fix, measured along the landing axis
+        (same definition as s_ in compute_rows, so it can directly be compared to s_).
+        fix_pos: (B, 2) = (x, y), runway_pos: (B, 3) = (fix_x, fix_y, chi_r_deg), same frame.
+        """
+        x, y = fix_pos.unbind(dim=-1)
+        fix_x, fix_y, chi_r_deg = runway_pos.unbind(dim=-1)
+        chi_r = torch.deg2rad(chi_r_deg)
+        return -((x - fix_x) * torch.sin(chi_r) + (y - fix_y) * torch.cos(chi_r))
 
     @staticmethod
     def compute_rows(
@@ -463,15 +450,16 @@ class AircraftFunnelQPLayer(_QPLayerBase):
         runway_pos: Tensor,
         h_thr: float,
         gs: float,
-        tan_lgsa: float,
-        d_garp: float,
+        tan_lgsa: float | Tensor,           # scalar or per-sample (B,), e.g. from the runway length
+        d_garp: float | Tensor,             # scalar or per-sample (B,), e.g. from the runway length
         tan_fsdv: float,
         fsd_v_min: float,
         fsd_v_max: float,
         k1_f: float,
         k2_f: float,
         h_floor: float,
-        s_activate: float,
+        s_activate_funnel: float | Tensor,  # scalar or per-sample (B,), e.g. the FAF distance
+        s_activate_track: float | Tensor,   # scalar or per-sample (B,), e.g. the IF distance
         s_min: float,
         cos_gate: float,
         kp_track: float,
@@ -575,21 +563,22 @@ class AircraftFunnelQPLayer(_QPLayerBase):
         b = torch.stack([r1b, r2b], dim=1)
 
         # Gating: activate the funnel constraint only within a valid distance
-        # window (s_min < s_ < s_activate) and heading cone (heading_ok).
+        # window (s_min < s_ < s_activate_funnel) and heading cone (heading_ok).
         # Outside that range the constraint would be geometrically meaningless
         # or numerically fragile, but the QP still needs a fixed-size row, so
         # instead of removing it, we neutralize it: A -> 0 and b -> 1 turn the
         # row into "0*u + 1 + s >= 0", which is trivially satisfied for any u
         # and any s=0, i.e. no effect on the solve.
         heading_ok = (cdel > cos_gate).float()
-        active = ((s_ > s_min) & (s_ < s_activate)).float() * heading_ok
+        active = ((s_ > s_min) & (s_ < s_activate_funnel)).float() * heading_ok
         gate = torch.stack([active, active], dim=1)
         A = A * gate.unsqueeze(-1)
         b = torch.where(gate > 0, b, torch.ones_like(b))
 
         # --- soft centerline-tracking cost, NOT a barrier ---
         # cost term in the QP objective (never makes the QP infeasible), activated once the
-        # aircraft is within s_activate of the threshold and roughly heading towards the runway.
+        # aircraft is within s_activate_track of the threshold and roughly heading towards the runway.
+        # Independent of s_activate_funnel, so the 30 deg intercept can start earlier/later than the funnel.
         #
         # lateral: heading-reference (vector-field) guidance instead of a PD on e_y.
         # A PD on e_y commands a lateral acceleration proportional to the offset, so far from
@@ -613,14 +602,13 @@ class AircraftFunnelQPLayer(_QPLayerBase):
         a_track_z = torch.stack([aTz, auvz, auhz], dim=1)
         b_track_z = bz + kd_track * ez_dot + kp_track * e_z
 
-        track_active = (s_ < s_activate).float() * heading_ok
+        track_active = (s_ < s_activate_track).float() * heading_ok
         gate_t = torch.stack([track_active, track_active], dim=1)
         A_track = torch.stack([a_track_y, a_track_z], dim=1) * gate_t.unsqueeze(-1)
         b_track = torch.stack([b_track_y, b_track_z], dim=1) * gate_t
 
         return A, b, A_track, b_track, s_, e_y, e_z
 
-    # @torch.no_grad()
     def forward(
         self,
         x_norm: Tensor,
@@ -640,7 +628,8 @@ class AircraftFunnelQPLayer(_QPLayerBase):
         A, b, A_track, b_track, s_, e_y, e_z = self.compute_rows(
             h, v, gamma, mass, C_D0, area, cl_max, k, t_max, n_nn, aircraft_pos, runway_pos,
             self.h_thr, self.gs, self.tan_lgsa, self.d_garp, self.tan_fsdv, self.fsd_v_min, self.fsd_v_max,
-            self.k1_f, self.k2_f, self.h_floor, self.s_activate, self.s_min, self.cos_gate, self.kp_track, self.kd_track,
+            self.k1_f, self.k2_f, self.h_floor, self.s_activate_funnel, self.s_activate_track,
+            self.s_min, self.cos_gate, self.kp_track, self.kd_track,
             self.intercept_angle_deg, self.k_vf, self.k_heading,
         )
 
@@ -669,20 +658,21 @@ class AircraftCombinedQPLayer(_QPLayerBase):
         fsd_v_ratio: float = 0.25,
         fsd_v_min_m: float = 45.0,
         fsd_v_max_m: float = 150.0,
-        runway_length_m: float | None = None,
+        runway_length_m: float | None = None, # fallback runway length, only used if no runway_length_m is passed to forward()
         lgsa_deg: float | None = None,
         k_funnel: tuple[float, float] = (0.4, 0.4),
-        k_track: tuple[float, float] = (0.05, 0.4), # self decided, todo -> tune
+        k_track: tuple[float, float] = (0.05, 0.4),
         intercept_angle_deg: float = 30.0,
         k_vf: float = 1e-3,
         k_heading: float = 0.3,
-        h_floor: float = 2000.0, # self decided, todo -> tune; see AircraftFunnelQPLayer docstring
-        s_activate: float = 15_000.0, # todo -> also tunable default: 15_000
+        h_floor: float = 2000.0,
+        s_activate_funnel: float = 10_000.0, # fallback funnel activation distance, only used if no faf_pos is passed to forward()
+        s_activate_track: float = 20_000.0,  # fallback tracking activation distance, only used if no if_pos is passed to forward()
         s_min: float = 150.0,
         heading_gate_deg: float = 90.0,
         w_action: tuple[float, float, float] = (1.0, 1.0, 1.0),
         rho_slack: float = 1e4,
-        rho_track: float = 1.0, # self decided, todo -> tune default 1.0, maybe set 0.0 at the beginning of the training, 0.01 for really slow convergence --> smooth
+        rho_track: float = 1.0,
         solver_args: dict | None = None,
         debug: bool = True,
     ) -> None:
@@ -699,10 +689,13 @@ class AircraftCombinedQPLayer(_QPLayerBase):
         )
         self.stall_margin = stall_margin
         self.alpha_stall = alpha_stall
-        self.h_thr = h_thr
+        self.h_thr = h_thr  # 0.0 cause the data is centered around 0.0 of the airport
         self.gs = glideslope_deg * DEG2RAD
+        self.thr_half_width_lat_m = thr_half_width_lat_m  # needed for the per-sample geometry in forward()
+        self.lgsa_deg = lgsa_deg                          # needed for the per-sample geometry in forward()
 
         # --- RNAV (GPS) LPV funnel geometry, mirrors LpvFunnelGeometry ---
+        # fallback values, used if no per-sample runway_length_m is passed to forward()
         fpap_distance_ft = max((runway_length_m or 0.0) / 0.3048, 9023.0)
         self.d_garp = (fpap_distance_ft + 1000.0) * 0.3048
 
@@ -723,12 +716,12 @@ class AircraftCombinedQPLayer(_QPLayerBase):
         self.k_vf = k_vf
         self.k_heading = k_heading
         self.h_floor = h_floor
-        self.s_activate = s_activate
+        self.s_activate_funnel = s_activate_funnel
+        self.s_activate_track = s_activate_track
         self.s_min = s_min
         self.cos_gate = math.cos(heading_gate_deg * DEG2RAD)
         self.layer = self._build_qp(n_rows=3, n_track_rows=2)
 
-    # @torch.no_grad()
     def forward(
             self,
             x_norm: Tensor,
@@ -736,7 +729,10 @@ class AircraftCombinedQPLayer(_QPLayerBase):
             aircraft_dyn: Tensor,
             aircraft_limits: Tensor,
             aircraft_pos: Tensor,
-            runway_pos: Tensor
+            runway_pos: Tensor,
+            faf_pos: Tensor | None = None,  # (B, 2) faf x/y [m], same frame as runway_pos; None -> s_activate_funnel
+            if_pos: Tensor | None = None,   # (B, 2) IF  x/y [m], same frame as runway_pos; None -> s_activate_track
+            runway_length_m: Tensor | None = None,  # (B,) runway length [m], NaN -> 9023 ft floor; None -> constructor value
     ) -> Tensor:
         h, v, gamma = aircraft_state.unbind(dim=-1)
         mass, C_D0, area, cl_max, k = aircraft_dyn.unbind(dim=-1)
@@ -745,13 +741,34 @@ class AircraftCombinedQPLayer(_QPLayerBase):
 
         T_nn, n_nn, roll_nn, u_nn = self._decode_action(x_norm, t_max)
 
+        # funnel activation distance: FAF -> runway fix distance [m] per sample if given, else the fixed default
+        if faf_pos is not None:
+            s_act_funnel: float | Tensor = AircraftFunnelQPLayer.fix_distance(faf_pos, runway_pos)
+        else:
+            s_act_funnel = self.s_activate_funnel
+
+        # tracking (30 deg intercept) activation distance: IF -> runway fix distance [m] per sample if given
+        if if_pos is not None:
+            s_act_track: float | Tensor = AircraftFunnelQPLayer.fix_distance(if_pos, runway_pos)
+        else:
+            s_act_track = self.s_activate_track
+
+        # lateral LPV geometry (GARP distance + LGSA): per sample from the runway length if given
+        if runway_length_m is not None:
+            d_garp, tan_lgsa = AircraftFunnelQPLayer.lpv_lateral_geometry(
+                runway_length_m, self.thr_half_width_lat_m, self.lgsa_deg,
+            )
+        else:
+            d_garp, tan_lgsa = self.d_garp, self.tan_lgsa
+
         env_a, env_b, drag, v_stall, sin_g, cos_g = AircraftEnvelopeQPLayer.compute_row(
             h, v, gamma, mass, C_D0, area, cl_max, k, t_max, n_nn, self.stall_margin, self.alpha_stall,
         )
         fun_A, fun_b, fun_A_track, fun_b_track, s_, e_y, e_z = AircraftFunnelQPLayer.compute_rows(
             h, v, gamma, mass, C_D0, area, cl_max, k, t_max, n_nn, aircraft_pos, runway_pos,
-            self.h_thr, self.gs, self.tan_lgsa, self.d_garp, self.tan_fsdv, self.fsd_v_min, self.fsd_v_max,
-            self.k1_f, self.k2_f, self.h_floor, self.s_activate, self.s_min, self.cos_gate, self.kp_track, self.kd_track,
+            self.h_thr, self.gs, tan_lgsa, d_garp, self.tan_fsdv, self.fsd_v_min, self.fsd_v_max,
+            self.k1_f, self.k2_f, self.h_floor, s_act_funnel, s_act_track,
+            self.s_min, self.cos_gate, self.kp_track, self.kd_track,
             self.intercept_angle_deg, self.k_vf, self.k_heading,
         )
 
@@ -762,10 +779,14 @@ class AircraftCombinedQPLayer(_QPLayerBase):
         if self.debug:
             for i in range(out.shape[0]):
                 slack = f"{s_opt[i].max():.4f}" if s_opt is not None else "fallback"
+                s_act_f_i = s_act_funnel[i] if isinstance(s_act_funnel, Tensor) else s_act_funnel
+                s_act_t_i = s_act_track[i] if isinstance(s_act_track, Tensor) else s_act_track
+                d_garp_i = d_garp[i] if isinstance(d_garp, Tensor) else d_garp
                 print(f"[combo-qp] v={v[i]:6.1f}  {self.stall_margin:.2f}·v_stall={self.stall_margin*v_stall[i]:6.1f}  |  "
                       f"T {T_nn[i]/1e3:6.1f} -> {out[i,0]/1e3:6.1f} kN  |  n {n_nn[i]:5.2f} -> {out[i,1]:5.2f}  |  "
                       f"roll {roll_nn[i]:+6.1f} -> {out[i,2]:+6.1f}°  |  slack {slack}  |  "
-                      f"s={s_[i]:8.1f}  e_y={e_y[i]:+6.1f}  e_z={e_z[i]:+6.1f}")
+                      f"s={s_[i]:8.1f}  e_y={e_y[i]:+6.1f}  e_z={e_z[i]:+6.1f}  "
+                      f"s_act_funnel={s_act_f_i:8.1f}  s_act_track={s_act_t_i:8.1f}  d_garp={d_garp_i:7.1f}")
         return out
 
 
@@ -852,6 +873,15 @@ if __name__ == "__main__":
     aircraft_pos = torch.tensor(poss, dtype=torch.float32)
     runway_pos = torch.tensor([[fix_x, fix_y, chi_r_deg]], dtype=torch.float32).repeat(B, 1)
 
+    # FAF 10 km and IF 18 km in front of the runway fix, on the centerline
+    faf_x, faf_y, _ = make_pos(10_000.0, 0.0, 0.0)
+    faf_pos = torch.tensor([[faf_x, faf_y]], dtype=torch.float32).repeat(B, 1)
+    if_x, if_y, _ = make_pos(18_000.0, 0.0, 0.0)
+    if_pos = torch.tensor([[if_x, if_y]], dtype=torch.float32).repeat(B, 1)
+
+    # runway lengths [m]: short (-> 9023 ft floor), long (~11500 ft), unknown (NaN -> 9023 ft floor)
+    runway_length_m = torch.tensor([2200.0, 11_500.0 * 0.3048, float("nan")], dtype=torch.float32)
+
     actions_phys = torch.tensor([
         [55_000.0, 1.00, 2.0],
         [55_000.0, 1.00, 0.0],
@@ -863,7 +893,7 @@ if __name__ == "__main__":
 
     results = {}
 
-    # --- Envelope ---
+    # Envelope
     env_model = _LearnableActionModel(actions_norm)
     env_layer = AircraftEnvelopeQPLayer(base_model=env_model, y_mean=y_mean, y_std=y_std, debug=False, solver=None)
     results["envelope"] = check_gradient_flow(
@@ -871,22 +901,48 @@ if __name__ == "__main__":
         x_dummy, aircraft_state, aircraft_dyn, aircraft_limits,
     )
 
-    # --- Funnel ---
+    # Funnel
     fun_model = _LearnableActionModel(actions_norm)
-    fun_layer = AircraftFunnelQPLayer(base_model=fun_model, y_mean=y_mean, y_std=y_std, h_thr=4.0, debug=False, solver=None)
+    fun_layer = AircraftFunnelQPLayer(
+        base_model=fun_model, y_mean=y_mean, y_std=y_std, h_thr=4.0, debug=False, solver=None,
+        s_activate_funnel=15_000.0, s_activate_track=25_000.0,
+    )
     results["funnel"] = check_gradient_flow(
         "funnel", fun_layer, fun_model, y_mean, y_std,
         x_dummy, aircraft_state, aircraft_dyn, aircraft_limits, aircraft_pos, runway_pos,
     )
 
-    # --- Combined ---
+    # Combined, without FAF/IF -> s_activate_funnel / s_activate_track
     combo_model = _LearnableActionModel(actions_norm)
-    combo_layer = AircraftCombinedQPLayer(base_model=combo_model, y_mean=y_mean, y_std=y_std, h_thr=4.0, debug=False, solver=None)
+    combo_layer = AircraftCombinedQPLayer(
+        base_model=combo_model, y_mean=y_mean, y_std=y_std, h_thr=4.0, debug=False, solver=None,
+        s_activate_funnel=15_000.0, s_activate_track=25_000.0,
+    )
     results["combined"] = check_gradient_flow(
         "combined", combo_layer, combo_model, y_mean, y_std,
         x_dummy, aircraft_state, aircraft_dyn, aircraft_limits, aircraft_pos, runway_pos,
     )
 
+    # Combined, with FAF + IF -> FAF / IF distances
+    combo_fix_model = _LearnableActionModel(actions_norm)
+    combo_fix_layer = AircraftCombinedQPLayer(
+        base_model=combo_fix_model, y_mean=y_mean, y_std=y_std, h_thr=4.0, debug=False, solver=None,
+        s_activate_funnel=15_000.0, s_activate_track=25_000.0,
+    )
+    results["combined_fix"] = check_gradient_flow(
+        "combined_fix", combo_fix_layer, combo_fix_model, y_mean, y_std,
+        x_dummy, aircraft_state, aircraft_dyn, aircraft_limits, aircraft_pos, runway_pos, faf_pos, if_pos,
+        runway_length_m,
+    )
+    print(f"[combined_fix] faf distance = {AircraftFunnelQPLayer.fix_distance(faf_pos, runway_pos).tolist()}  (expected ~10000 m)")
+    print(f"[combined_fix] if  distance = {AircraftFunnelQPLayer.fix_distance(if_pos, runway_pos).tolist()}  (expected ~18000 m)")
+
+    d_garp_t, tan_lgsa_t = AircraftFunnelQPLayer.lpv_lateral_geometry(runway_length_m, 106.68)
+    print(f"[combined_fix] d_garp = {d_garp_t.tolist()}  (expected ~[3055, 3810, 3055] m)")
+    print(f"[combined_fix] lgsa   = {torch.rad2deg(torch.atan(tan_lgsa_t)).tolist()}  (expected ~[2.00, 1.60, 2.00] deg)")
+    print(f"[combined_fix] matches scalar default: "
+          f"{abs(d_garp_t[0].item() - combo_fix_layer.d_garp) < 1e-3 and abs(tan_lgsa_t[0].item() - combo_fix_layer.tan_lgsa) < 1e-6}")
+
     print(f"\n{'=' * 70}\nsummary\n{'=' * 70}")
     for name, passed in results.items():
-        print(f"  {name:10s}: {'PASSED' if passed else 'FAILED'}")
+        print(f"  {name:12s}: {'PASSED' if passed else 'FAILED'}")

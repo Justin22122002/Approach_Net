@@ -66,6 +66,16 @@ plane.transform.position = Vec3(0, -1, -7)
 plane_material = ComplexMaterial(color=Color.gray())
 plane.add_component(MeshRenderer(Mesh.plane(size=10), material=plane_material))
 
+stairs = scene.spawn("Stairs")
+stairs.transform.position = Vec3(-2, -1, -6)
+stairs_material = ComplexMaterial(color=Color.gray())
+stairs.add_component(MeshRenderer(Mesh.staircase(steps=6, width=1.5, step_height=0.25, step_depth=0.35), material=stairs_material))
+
+teapot = scene.spawn("Teapot")
+teapot.transform.position = Vec3(-10, -1, -6)
+teapot_material = ComplexMaterial(color=Color.gray())
+teapot.add_component(MeshRenderer(Mesh.from_obj("textures/teapot.obj"), material=teapot_material))
+
 spotlight = SpotLight()
 spotlight.color = Color.red()
 spotlight.position = Vec3(0, 1, -3)

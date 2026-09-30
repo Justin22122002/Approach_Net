@@ -19,18 +19,20 @@ from engine.utils_project.taxiway_project_mesh import TaxiwayProjectMesh
 from engine.utils_project.terrain_project_mesh import TerrainProjectMesh
 
 icao_vancouver = {
-    "icao": "CYVR",
+    "icao": "CYYZ",
 }
 
 icao_frankfurt = {
     "icao": "EDDF",
 }
 
-icao = icao_frankfurt
+icao = icao_vancouver
 
 # --- load airport data section ---
 basePath: Path = Path("../data")
 airport = Airport.load_from_folder(basePath, icao["icao"])
+print(airport.get_mean_runway_elevation_ft() * 0.3048)
+print(airport.get_mean_runway_elevation_ft())
 
 crs_to: str = GeoTransformer.utm_epsg(airport.lat, airport.lon)
 

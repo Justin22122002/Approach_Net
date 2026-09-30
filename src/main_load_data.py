@@ -54,7 +54,7 @@ def test_airports() -> None:
 def data_airports_paper() -> None:
     client = OpenAirportMapClient()
 
-    radius_km: float = 25.0
+    radius_km: float = 30.0
 
     airports = [
         ("CYVR", 49.1947, -123.1792),  # Vancouver

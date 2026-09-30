@@ -494,7 +494,7 @@ def load_data(
 
     print("\nStart interpolating with AircraftHistoryInterpolator...")
     interpolator = AircraftHistoryInterpolator(
-        history_file_path, airport_height=airport.arinc_424_runway[0].runway_altitude
+        history_file_path, airport_height=airport.get_mean_runway_elevation_ft()
     )
     interpolator.clean_dataframe()
     interpolator.interpolate()

@@ -403,7 +403,7 @@ def main() -> None:
     crs_to = GeoTransformer.utm_epsg(alat, alon)
     to_utm = Transformer.from_crs("EPSG:4326", crs_to, always_xy=True)
     airport_cx, airport_cy = to_utm.transform(alon, alat)
-    airport_elev = airport.arinc_424_runway[0].runway_altitude * 0.3048
+    airport_elev = airport.get_mean_runway_elevation_ft() * 0.3048
 
     print(f"[SELECT] Suche {N_FLIGHTS} Flüge mit Dauer >= {MIN_DURATION_S:.0f}s (kürzeste zuerst) an {ICAO} ...")
     selected = select_flights(dataset, N_FLIGHTS, MIN_DURATION_S)

@@ -200,7 +200,7 @@ def on_update(dt: float) -> None:
                 category = row.get("category")
 
                 if pd.isna(geoaltitude):
-                     geoaltitude = airport.arinc_424_runway[0].runway_altitude * 0.3048
+                     geoaltitude = airport.get_mean_runway_elevation_ft() * 0.3048
                 else:
                     _, _, new_height = tform.transform(
                         longitude,

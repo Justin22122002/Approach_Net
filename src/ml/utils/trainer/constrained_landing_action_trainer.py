@@ -10,7 +10,6 @@ from ml.utils.trainer.mlp_trainer import LandingActionTrainer
 
 
 class ConstrainedLandingActionTrainer(LandingActionTrainer):
-    # todo: override trainer to also save the base model without the solver layer extra
     def __init__(
             self,
             *args,
@@ -30,31 +29,36 @@ class ConstrainedLandingActionTrainer(LandingActionTrainer):
         self._w_sum: float = 0.0
         self._w_count: int = 0
 
-    def _unpack(self, packed: Tensor) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor, Tensor]:
+    def _unpack(self, packed: Tensor) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor]:
         d = self.input_dim  # 15
         x_norm = packed[:, :d]
         x_raw = packed[:, d:2 * d]
         limits = packed[:, 2 * d:2 * d + 4]
+        faf_pos = packed[:, 2 * d + 4:2 * d + 6]  # (faf_x, faf_y), airport-centered UTM [m]
+        if_pos = packed[:, 2 * d + 6:2 * d + 8]   # (if_x, if_y),   airport-centered UTM [m]
+        runway_length_m = packed[:, 2 * d + 8]    # (B,) runway length [m], NaN if unknown
 
         aircraft_dyn = x_raw[:, 0:5]
         aircraft_pos = x_raw[:, [5, 6, 10]]
         aircraft_state = x_raw[:, 7:10]
         runway_pos = x_raw[:, [11, 12, 14]]
-        return x_norm, aircraft_state, aircraft_dyn, limits, aircraft_pos, runway_pos
+        return x_norm, aircraft_state, aircraft_dyn, limits, aircraft_pos, runway_pos, faf_pos, if_pos, runway_length_m
 
     @override
     def forward_pass(self, inputs: Tensor) -> Tensor:
-        x_norm, aircraft_state, aircraft_dyn, aircraft_limits, aircraft_pos, runway_pos = self._unpack(inputs)
-        out_phys = self.model(x_norm, aircraft_state, aircraft_dyn, aircraft_limits, aircraft_pos, runway_pos)
+        (x_norm, aircraft_state, aircraft_dyn, aircraft_limits, aircraft_pos, runway_pos, faf_pos, if_pos, runway_length_m) = self._unpack(inputs)
+        out_phys = self.model(
+            x_norm=x_norm,
+            aircraft_state=aircraft_state,
+            aircraft_dyn=aircraft_dyn,
+            aircraft_limits=aircraft_limits,
+            aircraft_pos=aircraft_pos,
+            runway_pos=runway_pos,
+            faf_pos=faf_pos,
+            if_pos=if_pos,
+            runway_length_m=runway_length_m,
+        )
         return (out_phys - self.y_mean_t) / self.y_std_t
-
-    #@override
-    #def calculate_loss(self, outputs: Tensor, labels: Tensor) -> Tensor:
-    #    per_sample = (outputs - labels).pow(2).mean(dim=-1)
-    #    loss = masked_mean_loss(per_sample, self.model)
-    #    if loss is None:
-    #        return torch.zeros((), device=outputs.device, dtype=outputs.dtype, requires_grad=True)
-    #    return loss
 
     def _raw_in_label_space(self) -> Tensor:
         # last_raw_norm is normalised with the layer buffer,
@@ -82,37 +86,15 @@ class ConstrainedLandingActionTrainer(LandingActionTrainer):
 
         mse_qp = (outputs - labels).pow(2).mean(dim=-1)
         mse_raw = (raw - labels).pow(2).mean(dim=-1)
+
         # Fallback-Samples where w=0 -> only raw loss: mse_qp will be erased (non zero gradients)
         mse_qp = torch.where(solved > 0, mse_qp, torch.zeros_like(mse_qp))
         loss = (w * mse_qp + (1.0 - w) * mse_raw).mean()
-
-        #print(f"w_mean={w.mean():.3f}  w<0.1={(w < 0.1).float().mean():.1%}  "
-        #      f"median_shift={shift[shift > 1e-4].median() if (shift > 1e-4).any() else 0:.4f}")
 
         self._w_sum += w.sum().item()
         self._w_count += w.numel()
 
         return loss
-
-    # todo: like mean square error
-    #@override
-    #def calculate_loss(self, outputs: Tensor, labels: Tensor) -> Tensor:
-    #    # zulaessiger QP-Korrektur) dominieren den Batch-Loss nicht mehr so stark.
-    #    per_sample = F.huber_loss(outputs, labels, delta=1.0, reduction="none").mean(dim=-1)
-    #
-    #    if self.debug_worst_samples and per_sample.numel() > 0:
-    #        worst_idx = per_sample.argsort(descending=True)[:5]
-    #        mask = self.model.last_solved_mask
-    #        for i in worst_idx.tolist():
-    #            slack_str = "n/a"
-    #            if mask is not None:
-    #                slack_str = "solved" if mask[i] else "FALLBACK"
-    #            print(f"[worst-sample] loss={per_sample[i].item():.3f}  status={slack_str}")
-    #
-    #    loss = masked_mean_loss(per_sample, self.model)
-    #    if loss is None:
-    #        return torch.zeros((), device=outputs.device, dtype=outputs.dtype, requires_grad=True)
-    #    return loss
 
     @override
     def calculate_accuracy(self, outputs: Tensor, labels: Tensor) -> float:
@@ -124,7 +106,54 @@ class ConstrainedLandingActionTrainer(LandingActionTrainer):
 
     @override
     def evaluate(self, loader: DataLoader) -> tuple[float, float]:
+        # todo: save w_mean = w_sum / w_count as a metric of the training
         if self._w_count > 0:
             print(f"[w] mean over all samples per epoch: {self._w_sum / self._w_count:.4f}")
             self._w_sum, self._w_count = 0.0, 0
         return super().evaluate(loader)
+
+    @override
+    def save_best_model(self, val_loss: float) -> None:
+        # here just the bast model get saved cause we don't have trainable parameters in the cvxpylayers
+        self.results_path.mkdir(parents=True, exist_ok=True)
+
+        if val_loss < self.best_val_loss:
+            # Save the trainable base model for inference / deployment.
+            torch.save(
+                self.model.base_model.state_dict(),
+                self.results_path / "best_base_model.pth",
+            )
+
+            # Save the complete constrained model state for checkpointing / debugging.
+            torch.save(
+                self.model.state_dict(),
+                self.results_path / "best_constrained_model.pth",
+            )
+
+            print(f"Best model updated with validation loss {val_loss:.4f}.")
+
+    @override
+    def save_last_model(self) -> None:
+        self.results_path.mkdir(parents=True, exist_ok=True)
+
+        # Save the trainable base model for inference / deployment.
+        torch.save(
+            self.model.base_model.state_dict(),
+            self.results_path / "last_base_model.pth",
+        )
+
+        # Save the complete constrained model state for checkpointing / debugging.
+        torch.save(
+            self.model.state_dict(),
+            self.results_path / "last_constrained_model.pth",
+        )
+
+        print("Last model saved.")
+
+    #@override
+    #def calculate_loss(self, outputs: Tensor, labels: Tensor) -> Tensor:
+    #    per_sample = (outputs - labels).pow(2).mean(dim=-1)
+    #    loss = masked_mean_loss(per_sample, self.model)
+    #    if loss is None:
+    #        return torch.zeros((), device=outputs.device, dtype=outputs.dtype, requires_grad=True)
+    #    return loss

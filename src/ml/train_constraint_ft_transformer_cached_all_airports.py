@@ -46,7 +46,7 @@ if __name__ == "__main__":
         per_airport_split.append((dataset, train_flights, val_flights))
 
         for f in train_flights:
-            X, Y, _ = dataset._cache[f]
+            X, Y, _, _ = dataset._cache[f]
             train_X.append(X)
             train_Y.append(Y)
 
@@ -90,10 +90,6 @@ if __name__ == "__main__":
         debug=False,
         solver=cp.MOREAU,  # cp.SCS
         # parameter for training
-        s_activate=10_000, # 1_000, 5_000
-        rho_track=1.0,  # 0.01, 0.0
-        w_action=(1.0, 1.0, 1.0),
-        stall_margin=1.2, # 1.0
     )
 
     optimizer = optim.AdamW(qp_layer.parameters(), lr=1e-5, weight_decay=1e-5)  # lr=1e-4
@@ -106,8 +102,9 @@ if __name__ == "__main__":
         y_mean=y_mean,
         y_std=y_std,
         results_path=Path("ml/results/multiple_airports_landing_action_constrained_ft_transformer"),
-        patience=10,  # 5 10
-        scheduler=optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=3) # 2
+        patience=5,  # 5 10
+        scheduler=optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=3), # 2
+        tau=2.7
     )
 
     trainer.save_normalization(x_mean, x_std, y_mean, y_std)

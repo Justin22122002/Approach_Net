@@ -13,22 +13,24 @@ from ml.utils.models.constraint_layer_cvxpy import (
     AircraftEnvelopeQPLayer, AircraftFunnelQPLayer, AircraftCombinedQPLayer,
 )
 
-from physics.aircraft_environment import AircraftEnvironment
-from physics.aircraft_kinematics_state import AircraftKinematicsState
+from engine.physics.aircraft_environment import AircraftEnvironment
+from engine.physics.aircraft_kinematics_state import AircraftKinematicsState
 
 from utils.airport import Airport
 from utils.arinc_runway import ArincRunway
-from utils.engine import Engine
-from utils.lineRenderer import LineRenderer
-from utils.color import Color
-from utils.directionalLight import DirectionalLight
-from utils.camera import OrbitCamera
-from utils.pointRenderer import PointRenderer
+from engine.utils.engine import Engine
 from utils.clients.terrain_client import CopernicusDEMProvider
-from utils.vec3 import Vec3
-from utils_project.geo_transformer import GeoTransformer
-from utils_project.runway_project_mesh import RunwayProjectMesh
-from utils_project.terrain_project_mesh import TerrainProjectMesh
+
+from engine.utils.lineRenderer import LineRenderer
+from engine.utils.color import Color
+from engine.utils.directionalLight import DirectionalLight
+from engine.utils.camera import OrbitCamera
+from engine.utils.pointRenderer import PointRenderer
+from engine.utils.vec3 import Vec3
+from engine.utils_project.geo_transformer import GeoTransformer
+from engine.utils_project.runway_project_mesh import RunwayProjectMesh
+from engine.utils_project.terrain_project_mesh import TerrainProjectMesh
+
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -68,7 +70,7 @@ to_latlon = Transformer.from_crs(crs_to, "EPSG:4326", always_xy=True)
 
 airport_cx, airport_cy = to_utm.transform(airport.lon, airport.lat)
 
-airport_elev = airport.arinc_424_runway[0].runway_altitude * 0.3048
+airport_elev = airport.get_mean_runway_elevation_ft() * 0.3048
 
 runways: list[ArincRunway] = airport.arinc_424_runway
 
@@ -187,15 +189,15 @@ _layer_kwargs = dict(base_model=model, y_mean=y_mean, y_std=y_std, debug=False)
 
 if LAYER_MODE == "envelope":
     guided_model = AircraftEnvelopeQPLayer(
-        **_layer_kwargs, stall_margin=STALL_MARGIN, alpha_stall=ALPHA_STALL,
+        **_layer_kwargs, stall_margin=STALL_MARGIN, alpha_stall=ALPHA_STALL, solver=None
     )
 elif LAYER_MODE == "funnel":
     guided_model = AircraftFunnelQPLayer(
-        **_layer_kwargs, h_thr=runway_elevation_m,
+        **_layer_kwargs, h_thr=runway_elevation_m, solver=None
     )
 elif LAYER_MODE == "combined":
     guided_model = AircraftCombinedQPLayer(
-        **_layer_kwargs, stall_margin=STALL_MARGIN, alpha_stall=ALPHA_STALL, h_thr=runway_elevation_m,
+        **_layer_kwargs, stall_margin=STALL_MARGIN, alpha_stall=ALPHA_STALL, h_thr=runway_elevation_m, solver=None
     )
 else:
     raise ValueError(f"unknown LAYER_MODE: {LAYER_MODE!r}")

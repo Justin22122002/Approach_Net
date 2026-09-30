@@ -236,7 +236,7 @@ if __name__ == "__main__":
         run_batch_rollout(
             dataset=dataset,
             airport_center_latlon=(airport.lat, airport.lon),
-            airport_elevation_m=airport.arinc_424_runway[0].runway_altitude * 0.3048,
+            airport_elevation_m=airport.get_mean_runway_elevation_ft() * 0.3048,
             model_path=MODEL_PATH,
             norm_x_path=NORM_X_PATH,
             norm_y_path=NORM_Y_PATH,

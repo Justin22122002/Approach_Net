@@ -25,7 +25,7 @@ def main():
     airport = toronto
 
     history_file_path: Path = basePath / Path(f"{airport.icao}/test/arrivals_raw_20260709_1207.parquet")
-    interpolator: AircraftHistoryInterpolator = AircraftHistoryInterpolator(history_file_path, airport_height=airport.arinc_424_runway[0].runway_altitude)
+    interpolator: AircraftHistoryInterpolator = AircraftHistoryInterpolator(history_file_path, airport_height=airport.get_mean_runway_elevation_ft())
     interpolator.clean_dataframe()
     interpolator.interpolate()
 

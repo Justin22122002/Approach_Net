@@ -28,6 +28,8 @@ from engine.utils.lineRenderer import LineRenderer
 from OpenGL.GL import glDeleteVertexArrays, glDeleteBuffers
 from dotenv import load_dotenv
 
+from utils_project.rnav_lpv_funnel_project_mesh import RnavLpvFunnelProjectMesh
+
 load_dotenv()
 
 icao_vancouver = {
@@ -51,7 +53,7 @@ transformer: Transformer = Transformer.from_crs(
 )
 
 history_file_path: Path = basePath / Path("CYYC/train/arrivals_20260708_1247.parquet")
-interpolator: AircraftHistoryInterpolator = AircraftHistoryInterpolator(history_file_path, airport_height=airport.arinc_424_runway[0].runway_altitude)
+interpolator: AircraftHistoryInterpolator = AircraftHistoryInterpolator(history_file_path, airport_height=airport.get_mean_runway_elevation_ft())
 # interpolator.clean_dataframe()
 # interpolator.interpolate()
 
@@ -123,6 +125,16 @@ for runway in runways:
             transformer=transformer
         )
         builder.spawn(scene, geo)
+
+    for approach in runway.approaches:
+        funnel_mesh = RnavLpvFunnelProjectMesh(
+            approach=approach,
+            transformer=transformer,
+            horizontal_scale=horizontal_scale,
+            vertical_scale=vertical_scale,
+            runway=runway,
+        )
+        funnel_mesh.spawn(scene, geo)
 
 for taxiway in airport.taxiways:
     if len(taxiway.coordinates) < 2:

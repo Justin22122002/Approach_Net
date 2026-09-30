@@ -46,7 +46,7 @@ if __name__ == "__main__":
             mode="bspline_state",
             max_dt=5.0,
             airport_center_latlon=(airport.lat, airport.lon),
-            airport_elevation_m=airport.arinc_424_runway[0].runway_altitude * 0.3048,
+            airport_elevation_m=airport.get_mean_runway_elevation_ft() * 0.3048,
             augment_rotations_deg=[180.0],
             provide_raw_features=True,
         )
@@ -57,7 +57,7 @@ if __name__ == "__main__":
         per_airport_split.append((dataset, train_flights, val_flights))
 
         for f in train_flights:
-            X, Y, _ = dataset._cache[f]
+            X, Y, _, _ = dataset._cache[f]
             train_X.append(X)
             train_Y.append(Y)
 
