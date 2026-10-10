@@ -68,8 +68,13 @@ class _QPLayerBase(nn.Module):
         self.last_solved_mask: Tensor | None = None  # (B,) bool, will be places after every forward() pass
         self.solver: str = solver
 
-    def _decode_action(self, x_norm: Tensor, t_max: Tensor) -> tuple[Tensor, Tensor, Tensor, Tensor]:
-        raw_norm = self.base_model(x_norm) # forward pass
+    def _decode_action(
+        self, x_norm: Tensor, t_max: Tensor, raw_norm: Tensor | None = None,
+    ) -> tuple[Tensor, Tensor, Tensor, Tensor]:
+        # raw_norm given -> prediction already computed outside (e.g. by a GNN that needs batch_idx),
+        # the base_model is NOT called again
+        if raw_norm is None:
+            raw_norm = self.base_model(x_norm) # forward pass
         self.last_raw_norm = raw_norm
         raw_phys = raw_norm * self.y_std + self.y_mean
         T_nn, n_nn, roll_nn = raw_phys.unbind(dim=-1)
@@ -180,8 +185,7 @@ class _QPLayerBase(nn.Module):
                 solved_mask[finite_idx] = True
             except Exception as e:
                 # todo: use best iteration of the solver
-                print(f"[qp] WARN: batched solve over {finite_idx.numel()} finite samples failed ({e}) "
-                      f"-> falling back to box-clamp for this subset")
+                print(f"[qp] WARN: batched solve over {finite_idx.numel()} finite samples failed ({e}) " f"-> falling back to box-clamp for this subset")
 
         unsolved_idx = (~solved_mask).nonzero(as_tuple=True)[0]
         if unsolved_idx.numel() > 0:
@@ -201,8 +205,7 @@ class _QPLayerBase(nn.Module):
         self.last_solved_mask = solved_mask
         fail_rate = 1.0 - solved_mask.float().mean().item()
         if fail_rate > self.fail_rate_warn:
-            print(f"[qp] WARN: high fail rate {fail_rate:.1%} in this batch "
-                  f"({unsolved_idx.numel()}/{B} samples fell back to box-clamp)")
+            print(f"[qp] WARN: high fail rate {fail_rate:.1%} in this batch ({unsolved_idx.numel()}/{B} samples fell back to box-clamp)")
 
         return u_out, s_out
 
@@ -338,20 +341,18 @@ class AircraftFunnelQPLayer(_QPLayerBase):
         runway_length_m: float | None = None,   # else 9023 ft FPAP floor, para. 3-1-5.c(1)
         lgsa_deg: float | None = None,          # override; else derived from Formula 3-1-1
         k_funnel: tuple[float, float] = (0.4, 0.4),
-        k_track: tuple[float, float] = (0.05, 0.4), # self decided, todo -> tune: (kp, kd) for the soft centerline-tracking cost (vertical)
+        k_track: tuple[float, float] = (0.05, 0.4),
         intercept_angle_deg: float = 30.0,      # max. intercept angle onto the centerline (localizer-style)
         k_vf: float = 1e-3,                     # 1/m, how fast the commanded intercept angle shrinks near the centerline
         k_heading: float = 0.3,                 # 1/s, heading-tracking gain of the lateral tracking cost
-        h_floor: float = 2000.0,                # self decided, todo -> tune: caps |hy|/|hz| fed into b, avoids
-                                                 # an ill-conditioned/huge b (and a resulting false "infeasible"
-                                                 # from SCS) when the aircraft is far outside the funnel
+        h_floor: float = 2000.0,
         s_activate_funnel: float = 10_000.0,    # distance [m] below which the HOCBF funnel rows are active
         s_activate_track: float = 20_000.0,     # distance [m] below which the soft tracking cost (30 deg intercept) is active
         s_min: float = 150.0,
         heading_gate_deg: float = 90.0,
         w_action: tuple[float, float, float] = (1.0, 1.0, 1.0),
         rho_slack: float = 1e4,
-        rho_track: float = 1.0, # self decided, todo -> tune: weight of the soft tracking cost
+        rho_track: float = 1.0,
         solver_args: dict | None = None,
         debug: bool = True,
     ) -> None:
@@ -448,7 +449,7 @@ class AircraftFunnelQPLayer(_QPLayerBase):
         n_nn: Tensor,
         aircraft_pos: Tensor,
         runway_pos: Tensor,
-        h_thr: float,
+        h_thr: float | Tensor,              # scalar or per-sample (B,), runway fix height incl. TCH
         gs: float,
         tan_lgsa: float | Tensor,           # scalar or per-sample (B,), e.g. from the runway length
         d_garp: float | Tensor,             # scalar or per-sample (B,), e.g. from the runway length
@@ -721,6 +722,10 @@ class AircraftCombinedQPLayer(_QPLayerBase):
         self.s_min = s_min
         self.cos_gate = math.cos(heading_gate_deg * DEG2RAD)
         self.layer = self._build_qp(n_rows=3, n_track_rows=2)
+        # rows of the last forward (envelope + 2 funnel rows), (B, 3, 3) / (B, 3) -> reused by the
+        # multi-aircraft separation QP so it keeps the stall/funnel constraints of every aircraft
+        self.last_A: Tensor | None = None
+        self.last_b: Tensor | None = None
 
     def forward(
             self,
@@ -733,13 +738,15 @@ class AircraftCombinedQPLayer(_QPLayerBase):
             faf_pos: Tensor | None = None,  # (B, 2) faf x/y [m], same frame as runway_pos; None -> s_activate_funnel
             if_pos: Tensor | None = None,   # (B, 2) IF  x/y [m], same frame as runway_pos; None -> s_activate_track
             runway_length_m: Tensor | None = None,  # (B,) runway length [m], NaN -> 9023 ft floor; None -> constructor value
+            raw_norm: Tensor | None = None,         # (B, 3) precomputed normalized prediction; None -> base_model(x_norm)
+            h_thr: Tensor | None = None,            # (B,) runway fix height incl. TCH [m] per sample, same frame as aircraft_state h; None -> constructor value
     ) -> Tensor:
         h, v, gamma = aircraft_state.unbind(dim=-1)
         mass, C_D0, area, cl_max, k = aircraft_dyn.unbind(dim=-1)
         t_max, n_min, n_max, roll_max = aircraft_limits.unbind(dim=-1)
         phi_max = torch.deg2rad(roll_max)
 
-        T_nn, n_nn, roll_nn, u_nn = self._decode_action(x_norm, t_max)
+        T_nn, n_nn, roll_nn, u_nn = self._decode_action(x_norm, t_max, raw_norm=raw_norm)
 
         # funnel activation distance: FAF -> runway fix distance [m] per sample if given, else the fixed default
         if faf_pos is not None:
@@ -766,7 +773,7 @@ class AircraftCombinedQPLayer(_QPLayerBase):
         )
         fun_A, fun_b, fun_A_track, fun_b_track, s_, e_y, e_z = AircraftFunnelQPLayer.compute_rows(
             h, v, gamma, mass, C_D0, area, cl_max, k, t_max, n_nn, aircraft_pos, runway_pos,
-            self.h_thr, self.gs, tan_lgsa, d_garp, self.tan_fsdv, self.fsd_v_min, self.fsd_v_max,
+            self.h_thr if h_thr is None else h_thr, self.gs, tan_lgsa, d_garp, self.tan_fsdv, self.fsd_v_min, self.fsd_v_max,
             self.k1_f, self.k2_f, self.h_floor, s_act_funnel, s_act_track,
             self.s_min, self.cos_gate, self.kp_track, self.kd_track,
             self.intercept_angle_deg, self.k_vf, self.k_heading,
@@ -774,6 +781,7 @@ class AircraftCombinedQPLayer(_QPLayerBase):
 
         A = torch.cat([env_a.unsqueeze(1), fun_A], dim=1)
         b = torch.cat([env_b.unsqueeze(1), fun_b], dim=1)
+        self.last_A, self.last_b = A, b
 
         out, s_opt = self._solve(self.layer, u_nn, n_min, n_max, torch.tan(phi_max), A, b, T_nn, n_nn, roll_nn, t_max, roll_max, fun_A_track, fun_b_track)
         if self.debug:

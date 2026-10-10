@@ -70,6 +70,7 @@ class LandingTrajectoryRnavOptimizer:
 
         self.STALL_MARGIN_FACTOR: float = 1.2
         self.APPROACH_SPEED_FACTOR: float = 1.3  # Vref = 1.3·Vstall
+        self.last_solving_time: float = 0.0
 
         self._build()
 
@@ -329,6 +330,7 @@ class LandingTrajectoryRnavOptimizer:
                 self.opti.set_initial(self.U[:, k], [120_000.0, 1.0, 0.0])
 
         success: bool = False
+        self.last_solving_time = 0.0
         try:
             sol   = self.opti.solve()
             X_val = sol.value(self.X)
@@ -342,5 +344,8 @@ class LandingTrajectoryRnavOptimizer:
             U_val = self.opti.debug.value(self.U)
             T_val = float(self.opti.debug.value(self.T))
             success = False
+
+        stats = self.opti.stats()
+        self.last_solving_time = float(stats.get("t_wall_total", float("nan")))
 
         return X_val, U_val, T_val, success

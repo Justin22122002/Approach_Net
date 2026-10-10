@@ -3,24 +3,30 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from matplotlib import pyplot as plt
-from pyproj import Transformer
 
 from evaluation.utils.trajectory_evaluator import TrajectorySuccessEvaluator
 from utils.airport import Airport
-from utils_project.geo_transformer import GeoTransformer
 from ml.utils.data_loader.lazy_flight_parquet_dataset import LazyFlightParquetDataset
+from ml.utils.data_loader.landing_action_dataset import LandingActionDataset
+
+FT_TO_M = 0.3048
 
 
 def plot_sample_trajectories(
     evaluator: TrajectorySuccessEvaluator,
-    dataset: LazyFlightParquetDataset,
-    transformer: Transformer,
+    ds: LandingActionDataset,
     trajectories_path: Path,
+    eval_df: pd.DataFrame,
     n_samples: int = 6,
     seed: int = 42,
     label: str = "",
 ) -> None:
     df_traj = pd.read_parquet(trajectories_path)
+
+    # (icao24, flight_id) -> success from the TrajectorySuccessEvaluator; missing -> not evaluated
+    success_of: dict[tuple[str, int], bool] = {
+        (str(r.icao24), int(r.flight_id)): bool(r.success) for r in eval_df.itertuples()
+    } if not eval_df.empty else {}
 
     keys = df_traj[["icao24", "flight_id"]].drop_duplicates().reset_index(drop=True)
     rng = np.random.default_rng(seed)
@@ -39,18 +45,24 @@ def plot_sample_trajectories(
             (df_traj["icao24"] == icao24) & (df_traj["flight_id"] == flight_id)
         ].sort_values("step")
 
-        ax.plot(group["x"], group["y"], "b-", label="trajectory")
-        ax.scatter(group["x"].iloc[0], group["y"].iloc[0], c="green", s=60, label="start")
-        ax.scatter(group["x"].iloc[-1], group["y"].iloc[-1], c="red", s=60, label="end")
+        success = success_of.get((str(icao24), int(flight_id)))
+        color = "tab:gray" if success is None else ("tab:green" if success else "tab:red")
+        status = "NOT EVALUATED" if success is None else ("SUCCESS" if success else "FAIL")
+
+        ax.plot(group["x"], group["y"], "-", color="tab:blue", label="trajectory")
+        ax.scatter(group["x"].iloc[0], group["y"].iloc[0], c="tab:blue", marker="o", s=60, label="start")
+        ax.scatter(group["x"].iloc[-1], group["y"].iloc[-1], c="tab:orange", marker="s", s=60, label="end")
 
         try:
-            runway_row = dataset.get_runway_assignment(str(icao24), int(flight_id))
-            goal_x, goal_y, _, _ = evaluator._project_goal(transformer, runway_row)
+            goal_x, goal_y, _, _ = evaluator._project_goal(ds, str(icao24), int(flight_id))
             ax.scatter(goal_x, goal_y, c="black", marker="x", s=80, label="runway fix")
-        except KeyError:
+        except (KeyError, ValueError):
             pass
 
-        ax.set_title(f"{icao24} / {flight_id}")
+        ax.set_title(f"{icao24} / {flight_id}  -  {status}", color=color, fontweight="bold")
+        for spine in ax.spines.values():  # colored frame: green = success, red = fail
+            spine.set_edgecolor(color)
+            spine.set_linewidth(2.5)
         ax.axis("equal")
         ax.grid(True)
         ax.legend(fontsize=7)
@@ -96,8 +108,7 @@ def flatten_stats(icao: str, layer_mode: str, stats: dict) -> dict:
 
 def evaluate_dir(
     evaluator: TrajectorySuccessEvaluator,
-    dataset: LazyFlightParquetDataset,
-    transformer: Transformer,
+    ds: LandingActionDataset,
     output_dir: Path,
     traj_filename: str,
     status_filename: str,
@@ -111,11 +122,10 @@ def evaluate_dir(
     eval_df = evaluator.evaluate_batch(
         trajectories_path=output_dir / traj_filename,
         status_path=output_dir / status_filename,
-        dataset=dataset,
-        transformer=transformer,
+        ds=ds,
     )
 
-    eval_df.to_csv(output_dir / f"{label.lower()}_evaluation.csv", index=False)
+    eval_df.to_csv(output_dir / f"{Path(traj_filename).stem}_evaluation.csv", index=False)
     print(eval_df)
 
     stats = evaluator.aggregate(eval_df)
@@ -123,8 +133,9 @@ def evaluate_dir(
         print(f"  {key}: {value}")
 
     plot_sample_trajectories(
-        evaluator, dataset, transformer,
+        evaluator, ds,
         trajectories_path=output_dir / traj_filename,
+        eval_df=eval_df,
         n_samples=n_samples,
         label=label,
     )
@@ -132,69 +143,120 @@ def evaluate_dir(
     return flatten_stats(icao, layer_mode, stats)
 
 
+def rollout_experiment(label: str, output_dir_name: str, name: str, run_id: str, constrained: bool = False) -> dict:
+    """file names exactly like RolloutEvaluator.run(): {name}[_constrained]_rollout_{run_id}"""
+    tag = f"{name}{'_constrained' if constrained else ''}_rollout_{run_id}"
+    return dict(
+        label=label,
+        layer_mode=label.lower(),
+        output_dir_name=output_dir_name,
+        traj_filename=f"{tag}.parquet",
+        status_filename=f"{tag}_status.jsonl",
+    )
+
+
+RUN_FT_ACTION = "2026-08-05_21-33-34"
+RUN_FT_ACTION_CONSTRAINT_TRAINING = "2026-10-04_01-07-00" # 2026-10-04_01-07-00 2026-10-03_15-01-43 2026-10-06_20-40-23
+RUN_RESNET_ACTION = "2026-08-05_14-54-31"
+RUN_RESNET_ACTION_CONSTRAINT_TRAINING = "2026-10-05_02-31-22" # 2026-10-05_02-31-22 2026-10-05_02-28-26
+RUN_FT_NEXT_STATE = "2026-08-06_13-05-37"
+RUN_RESNET_NEXT_STATE = "2026-08-06_13-05-41"
+
+RUN_FT_GNN = "2026-10-01_15-35-49"
+RUN_FT_GNN_CONSTRAINT_TRAINING = "2026-10-06_17-51-44" # 2026-10-06_17-51-44 2026-10-03_17-50-09
+
 EXPERIMENTS: list[dict] = [
-    dict(
-        label="RESNET101_ACTION_BASELINE",
-        layer_mode="resnet101_action_baseline",
-        output_dir_name="multiple_airports_resnet101_rollout",
-        traj_filename="resnet101_rollout.parquet",
-        status_filename="resnet101_rollout_status.jsonl",
+    rollout_experiment(
+        "RESNET101_ACTION_BASELINE",
+        "multiple_airports_resnet101_rollout",
+        "resnet101",
+        RUN_RESNET_ACTION
     ),
-    dict(
-        label="RESNET101_ACTION_CONSTRAINT",
-        layer_mode="resnet101_action_constraint",
-        output_dir_name="multiple_airports_resnet101_rollout_constraint",
-        traj_filename="combined_qp_rollout.parquet",
-        status_filename="combined_qp_rollout_status.jsonl",
+    rollout_experiment(
+        "RESNET101_ACTION_CONSTRAINT",
+        "multiple_airports_resnet101_rollout_constraint",
+        "resnet101",
+        RUN_RESNET_ACTION,
+        constrained=True
     ),
-    dict(
-        label="FT_TRANSFORMER_ACTION_BASELINE",
-        layer_mode="ft_transformer_action_baseline",
-        output_dir_name="multiple_airports_ft_transformer_rollout",
-        traj_filename="ft_transformer_rollout.parquet",
-        status_filename="ft_transformer_rollout_status.jsonl",
+    rollout_experiment(
+        "RESNET101_ACTION_CONSTRAINT_TRAINING",
+        "multiple_airports_resnet101_rollout_constraint_training",
+         "resnet101",
+        RUN_RESNET_ACTION_CONSTRAINT_TRAINING,
+        constrained=True
     ),
-    dict(
-        label="FT_TRANSFORMER_ACTION_CONSTRAINT",
-        layer_mode="ft_transformer_action_constraint",
-        output_dir_name="multiple_airports_ft_transformer_rollout_constraint",
-        traj_filename="combined_qp_rollout.parquet",
-        status_filename="combined_qp_rollout_status.jsonl",
+    rollout_experiment(
+        "FT_TRANSFORMER_ACTION_BASELINE",
+        "multiple_airports_ft_transformer_rollout",
+        "ft_transformer",
+        RUN_FT_ACTION
     ),
-    dict(
-        label="RESNET101_NEXT_STATE_BASELINE",
-        layer_mode="resnet101_next_state_baseline",
-        output_dir_name="multiple_airports_next_state_resnet101_rollout",
-        traj_filename="resnet101_next_state_rollout.parquet",
-        status_filename="resnet101_next_state_rollout_status.jsonl",
+    rollout_experiment(
+        "FT_TRANSFORMER_ACTION_CONSTRAINT",
+        "multiple_airports_ft_transformer_rollout_constraint",
+        "ft_transformer",
+        RUN_FT_ACTION,
+        constrained=True
     ),
-    dict(
-        label="RESNET101_NEXT_STATE_ILS_FUNNEL",
-        layer_mode="resnet101_next_state_ils_funnel",
-        output_dir_name="multiple_airports_next_state_resnet101_rollout_constraint",
-        traj_filename="ils_funnel_next_state_resnet101_rollout.parquet",
-        status_filename="ils_funnel_next_state_resnet101_rollout_status.jsonl",
+    rollout_experiment(
+        "FT_TRANSFORMER_ACTION_CONSTRAINT_TRAINING",
+        "multiple_airports_ft_transformer_rollout_constraint_training",
+        "ft_transformer",
+        RUN_FT_ACTION_CONSTRAINT_TRAINING,
+        constrained=True
     ),
-    dict(
-        label="FT_TRANSFORMER_NEXT_STATE_BASELINE",
-        layer_mode="ft_transformer_next_state_baseline",
-        output_dir_name="multiple_airports_ft_transformer_next_state_rollout",
-        traj_filename="ft_transformer_next_state_rollout.parquet",
-        status_filename="ft_transformer_next_state_rollout_status.jsonl",
+    rollout_experiment(
+        "RESNET101_NEXT_STATE_BASELINE",
+        "multiple_airports_next_state_resnet101_rollout",
+        "resnet101_next_state",
+        RUN_RESNET_NEXT_STATE
     ),
-    dict(
-        label="FT_TRANSFORMER_NEXT_STATE_ILS_FUNNEL",
-        layer_mode="ft_transformer_next_state_ils_funnel",
-        output_dir_name="multiple_airports_ft_transformer_next_state_rollout_constraint",
-        traj_filename="ils_funnel_next_state_ft_transformer_rollout.parquet",
-        status_filename="ils_funnel_next_state_ft_transformer_rollout_status.jsonl",
+    rollout_experiment(
+        "RESNET101_NEXT_STATE_CONSTRAINT",
+        "multiple_airports_next_state_resnet101_rollout_constraint",
+        "resnet101_next_state",
+        RUN_RESNET_NEXT_STATE,
+        constrained=True
     ),
-    dict(
-        label="RNAV_OPTIMIZER",
-        layer_mode="rnav_optimizer",
-        output_dir_name="rnav_optimized",
-        traj_filename="rnav_trajectories.parquet",
-        status_filename="rnav_status.jsonl",
+    rollout_experiment(
+        "FT_TRANSFORMER_NEXT_STATE_BASELINE",
+        "multiple_airports_ft_transformer_next_state_rollout",
+        "ft_transformer_next_state",
+        RUN_FT_NEXT_STATE
+    ),
+    rollout_experiment(
+        "FT_TRANSFORMER_NEXT_STATE_CONSTRAINT",
+        "multiple_airports_ft_transformer_next_state_rollout_constraint",
+        "ft_transformer_next_state",
+        RUN_FT_NEXT_STATE,
+        constrained=True
+    ),
+    rollout_experiment(
+        "RNAV_OPTIMIZER",
+        "rnav_optimized",
+        "rnav_optimizer",
+        "20261005_1406",
+    ),
+    rollout_experiment(
+        "FT_GNN_BASELINE",
+        "multiple_airports_ft_transformer_gnn_rollout",
+        "gnn",
+        RUN_FT_GNN
+    ),
+    rollout_experiment(
+        "FT_GNN_CONSTRAINT",
+        "multiple_airports_ft_transformer_gnn_rollout_constraint",
+        "gnn",
+        RUN_FT_GNN,
+        constrained=True
+    ),
+    rollout_experiment(
+        "FT_GNN_CONSTRAINT_TRAINING",
+        "multiple_airports_ft_transformer_gnn_rollout_constraint_training",
+        "gnn",
+        RUN_FT_GNN_CONSTRAINT_TRAINING,
+        constrained=True
     ),
 ]
 
@@ -222,22 +284,23 @@ if __name__ == "__main__":
         # "CYEG",
     ]
 
-    dataset_name: str = "20260709_1207" # note: arrivals_20260802_0920 -> wrong, 20260802_0920 -> right
+    dataset_name: str = "20261005_1406" # 20261005_1406 -> new test set, 20260709_1207 -> old test set
 
     summary_rows: list[dict] = []
 
     for airport_icao in airport_list_icao:
-        test_base_path = f"../data/{airport_icao}/test/{dataset_name}"
-        airport_dataset = LazyFlightParquetDataset(test_base_path)
-
         airport_obj: Airport = Airport.load_from_folder(base_path=Path("../data/"), icao=airport_icao)
-        crs_to = GeoTransformer.utm_epsg(airport_obj.lat, airport_obj.lon)
-        airport_transformer = Transformer.from_crs("EPSG:4326", crs_to, always_xy=True)
+        ds = LandingActionDataset(
+            LazyFlightParquetDataset(f"../data/{airport_icao}/test/{dataset_name}"),
+            mode="bspline_state",
+            airport_center_latlon=(airport_obj.lat, airport_obj.lon),
+            airport_elevation_m=airport_obj.get_mean_runway_elevation_ft() * FT_TO_M,
+        )
 
         for exp in EXPERIMENTS:
             try:
                 row = evaluate_dir(
-                    evaluator, airport_dataset, airport_transformer,
+                    evaluator, ds,
                     output_dir=Path(f"../data/{airport_icao}/{exp['output_dir_name']}"),
                     traj_filename=exp["traj_filename"],
                     status_filename=exp["status_filename"],

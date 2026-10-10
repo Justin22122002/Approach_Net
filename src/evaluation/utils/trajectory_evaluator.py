@@ -3,13 +3,12 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from pandas import DataFrame, Series
-from pyproj import Transformer
+from pandas import DataFrame
 
 from physics.aircraft_dynamics import AircraftDynamics
 from physics.aircraft_kinematics_state_casadi import AircraftKinematicsStateCasadi
 from physics.batch_result_store import load_status_log
-from ml.utils.data_loader.lazy_flight_parquet_dataset import LazyFlightParquetDataset
+from ml.utils.data_loader.landing_action_dataset import LandingActionDataset
 
 
 @dataclass
@@ -27,8 +26,8 @@ class FlightEvaluation:
     approach_speed_ref_ms: float | None = None
     velocity_dev_pct: float | None = None
     landing_time_s: float | None = None
-    s_needed: float = float("inf")           # strict tolerances -- drives `success` AND succ@1/succ@2/...
-    s_needed_window: float = float("inf")     # wide window tolerances -- drives window_auc ONLY
+    s_needed: float = float("inf")
+    s_needed_window: float = float("inf")
 
 
 class TrajectorySuccessEvaluator:
@@ -73,17 +72,14 @@ class TrajectorySuccessEvaluator:
         self.window_velocity_tol_pct: float = window_velocity_tol_pct
 
     @staticmethod
-    def _project_goal(
-        transformer: Transformer,
-        runway_row: Series,
-    ) -> tuple[float, float, float, float]:
-        goal_x, goal_y = transformer.transform(
-            float(runway_row["fix_longitude"]),
-            float(runway_row["fix_latitude"]),
-        )
-        goal_h = float(runway_row["fix_elevation_m"])
-        heading_goal_deg = float(runway_row["runway_bearing"])
-        return goal_x, goal_y, goal_h, heading_goal_deg
+    def _project_goal(ds: LandingActionDataset, icao24: str, flight_id: int) -> tuple[float, float, float, float]:
+        """
+        same goal as model input / QP (LandingActionDataset): ARINC runway fix incl. TCH + ARINC bearing.
+        returns absolute UTM x/y (like the trajectory parquet), absolute height [m], bearing [deg]
+        """
+        runway = str(ds.flight_dataset.get_runway_assignment(icao24, flight_id)["landing_runway"])
+        _, _, _, _, rw_x, rw_y, rw_h, _, bearing = ds._approach_fixes_airport_frame(runway)
+        return rw_x + ds.airport_cx, rw_y + ds.airport_cy, float(rw_h), float(bearing)
 
     def _compute_s_needed(
         self,
@@ -151,9 +147,8 @@ class TrajectorySuccessEvaluator:
         self,
         df_traj_flight: DataFrame,
         converged: bool,
-        runway_row: Series,
+        goal: tuple[float, float, float, float],   # goal_x, goal_y, goal_h, heading_goal_deg from _project_goal()
         aircraft_dynamics: AircraftDynamics,
-        transformer: Transformer,
     ) -> FlightEvaluation:
 
         icao24 = str(df_traj_flight["icao24"].iloc[0])
@@ -169,7 +164,7 @@ class TrajectorySuccessEvaluator:
         chis = df_sorted["chi"].to_numpy()      # rad
         gammas = df_sorted["gamma"].to_numpy()   # rad
 
-        goal_x, goal_y, goal_h, heading_goal_deg = self._project_goal(transformer, runway_row)
+        goal_x, goal_y, goal_h, heading_goal_deg = goal
 
         dx = xs - goal_x
         dy = ys - goal_y
@@ -253,8 +248,7 @@ class TrajectorySuccessEvaluator:
         self,
         trajectories_path: Path,
         status_path: Path,
-        dataset: LazyFlightParquetDataset,
-        transformer: Transformer,
+        ds: LandingActionDataset,   # same dataset as in the rollout (provides frame + runway fix incl. TCH)
     ) -> DataFrame:
         df_traj = pd.read_parquet(trajectories_path)
         df_status = load_status_log(status_path)
@@ -275,18 +269,12 @@ class TrajectorySuccessEvaluator:
             converged = bool(status_row["success"].iloc[0])
 
             try:
-                runway_row = dataset.get_runway_assignment(str(icao24), int(flight_id))
-            except KeyError:
+                goal = self._project_goal(ds, str(icao24), int(flight_id))
+                _, aircraft_dynamics = ds.flight_dataset.get_aircraft(str(icao24))
+            except (KeyError, ValueError):  # no runway assignment / no approach / no aircraft data
                 continue
 
-            try:
-                _, aircraft_dynamics = dataset.get_aircraft(str(icao24))
-            except KeyError:
-                continue
-
-            evaluation = self.evaluate_flight(
-                group, converged, runway_row, aircraft_dynamics, transformer
-            )
+            evaluation = self.evaluate_flight(group, converged, goal, aircraft_dynamics)
             results.append(evaluation)
 
         return pd.DataFrame([vars(e) for e in results])

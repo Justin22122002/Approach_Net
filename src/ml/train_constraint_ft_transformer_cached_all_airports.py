@@ -114,5 +114,3 @@ if __name__ == "__main__":
     trainer.save_metrics()
     trainer.save_last_model()
 
-# current changes
-# lr=1e-4 to lr= 1e-5 and use pretrained model and scheduler=optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=2)

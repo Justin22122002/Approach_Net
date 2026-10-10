@@ -1,246 +1,124 @@
-from pathlib import Path
-
 import numpy as np
-import pandas as pd
-from pandas import DataFrame, Series
-from pyproj import Transformer
+from torch import nn, Tensor
+from typing_extensions import override
 
-from physics.aircraft_dynamics import AircraftDynamics
-from physics.aircraft_kinematics_state_casadi import AircraftKinematicsStateCasadi
-from physics.batch_result_store import already_processed, append_trajectory, append_status
+from evaluation.utils.rollout_evaluator import DATASET_NAME, RolloutEvaluator
+from ml.utils.data_loader.landing_action_dataset import LandingActionDataset
 from physics.landing_optimizer_rnav import LandingTrajectoryRnavOptimizer, state_to_casadi
-from utils.airport import Airport
-from utils_project.geo_transformer import GeoTransformer
-from ml.utils.data_loader.lazy_flight_parquet_dataset import LazyFlightParquetDataset
 
 
-def build_start_state(
-    start_point: Series,
-    aircraft_dynamics: AircraftDynamics,
-    transformer: Transformer,
-) -> AircraftKinematicsStateCasadi:
+class RnavOptimizerRollout(RolloutEvaluator):
+    name: str = "rnav_optimizer"
 
-    x0, y0 = transformer.transform(float(start_point["lon"]), float(start_point["lat"]))
+    def __init__(
+        self,
+        dataset_name: str = DATASET_NAME,
+        N: int = 200,
+        T_min: float = 60.0,
+        T_max: float = 1800.0,
+        glideslope_deg: float = 3.0,
+        resume: bool = True,
+        mode: str = "bspline_state",
+    ) -> None:
+        self.constrained, self.resume, self.mode = False, resume, mode
+        self.safety_layer = None
+        self.solver = None
+        self.run_id = dataset_name
+        self.N, self.T_min, self.T_max = N, T_min, T_max
+        self.tan_gs = float(np.tan(np.radians(glideslope_deg)))
 
-    v0 = float(start_point["velocity"])
-    h0 = float(start_point["geoaltitude"])
+    @override
+    def create_model(self, input_dim: int, output_dim: int) -> nn.Module:
+        raise NotImplementedError("RNAV optimizer has no model")
 
-    heading0 = float(start_point["heading"]) if pd.notna(start_point["heading"]) else 0.0
-    chi0 = heading0
+    @override
+    def build_safety_layer(self) -> nn.Module:
+        raise NotImplementedError("RNAV optimizer has no safety layer")
 
-    vertrate0 = float(start_point["vertrate"]) if pd.notna(start_point["vertrate"]) else 0.0
-    gamma0 = float(np.degrees(np.arctan2(vertrate0, max(v0, 1e-3))))
+    @override
+    def safe_predict(self, x_norm: Tensor, state_feat: np.ndarray) -> Tensor:
+        raise NotImplementedError("RNAV optimizer has no safety layer")
 
-    return AircraftKinematicsStateCasadi(
-        x=x0,
-        y=y0,
-        h=h0,
-        v=v0,
-        gamma=gamma0,
-        chi=chi0,
-        aircraft_type=aircraft_dynamics,
-    )
+    @override
+    def step(self, state, pred: np.ndarray) -> dict:
+        raise NotImplementedError("RNAV optimizer solves the whole trajectory at once")
 
+    def approach_points(self) -> tuple[np.ndarray, np.ndarray, float]:
+        fx, fy, _, bearing = self.rwy_feat.tolist()
+        faf_x, faf_y = float(self.approach[0]), float(self.approach[1])
 
-def solve_single_flight(
-    icao24: str,
-    flight_id: int,
-    df_flight: DataFrame,
-    dataset: LazyFlightParquetDataset,
-    transformer: Transformer,
-    N: int,
-    T_min: float,
-    T_max: float,
-) -> dict:
+        b = np.radians(bearing)
+        s_faf = -((faf_x - fx) * np.sin(b) + (faf_y - fy) * np.cos(b))
+        faf_h = self.h_thr + s_faf * self.tan_gs
 
-    start_point, _ = dataset.get_start_and_end_points(df_flight)
-    _, aircraft_dynamics = dataset.get_aircraft(icao24)
-    runway_row = dataset.get_runway_assignment(icao24, flight_id)
+        goal = np.array([fx + self.cx, fy + self.cy, self.h_thr + self.airport_elev])
+        via = np.array([faf_x + self.cx, faf_y + self.cy, faf_h + self.airport_elev])
+        return goal, via, float(bearing)
 
-    state = build_start_state(start_point, aircraft_dynamics, transformer)
+    @override
+    def rollout_flight(self, ds: LandingActionDataset, idx: int) -> tuple[list[dict], bool, float]:
+        if idx not in ds._cache:
+            raise ValueError("flight skipped by LandingActionDataset (no approach / no valid samples)")
+        flights = ds.flight_dataset
+        icao24, flight_id = flights.flights[idx]
 
-    goal_x, goal_y = transformer.transform(
-        float(runway_row["fix_longitude"]),
-        float(runway_row["fix_latitude"])
-    )
-    goal_h = float(runway_row["fix_elevation_m"])
-    goal_chi_deg = float(runway_row["runway_bearing"])
+        self.setup_flight(ds, idx)
+        _, self.dynamics = flights.get_aircraft(icao24)
+        start_point, _ = flights.get_start_and_end_points(flights[idx])
+        state = self.build_start_state(start_point, self.dynamics, self.to_utm)
 
-    faf_x, faf_y = transformer.transform(
-        float(runway_row["faf_longitude"]),
-        float(runway_row["faf_latitude"])
-    )
-    faf_h = float(runway_row["faf_elevation_m"])
+        goal, via, bearing = self.approach_points()
+        x0 = state_to_casadi(state)
+        k_via_frac_start, k_via_frac_end = self.via_window(x0, via, goal)
+        print(f"via window: {k_via_frac_start:.2f} - {k_via_frac_end:.2f}")
 
-    goal = np.array([goal_x, goal_y, goal_h])
-    via_point = np.array([faf_x, faf_y, faf_h])
+        optimizer = LandingTrajectoryRnavOptimizer(
+            state=state, N=self.N, T_min=self.T_min, T_max=self.T_max,
+            k_via_frac_start=k_via_frac_start, k_via_frac_end=k_via_frac_end,
+        )
+        X_opt, U_opt, T_opt, success = optimizer.solve(
+            x0=x0,
+            goal=goal,
+            heading_goal_deg=bearing,
+            via_point=via,
+        )
+        solve_time_s = optimizer.last_solving_time
+        if np.isnan(solve_time_s):
+            print("[WARNING] solving time is NaN, check the solver settings")
 
-    optimizer = LandingTrajectoryRnavOptimizer(
-        state=state,
-        N=N,
-        T_min=T_min,
-        T_max=T_max,
-    )
-
-    x0_vec = state_to_casadi(state)
-
-    X_opt, U_opt, T_opt, success = optimizer.solve(
-        x0=x0_vec,
-        goal=goal,
-        heading_goal_deg=goal_chi_deg,
-        via_point=via_point,
-    )
-
-    return {
-        "icao24": icao24,
-        "flight_id": flight_id,
-        "X_opt": X_opt,
-        "U_opt": U_opt,
-        "T_opt": T_opt,
-        "N": N,
-        "success": success,
-    }
-
-
-def trajectory_to_dataframe(result: dict) -> DataFrame:
-
-    X_opt, U_opt, T_opt, N = (
-        result["X_opt"],
-        result["U_opt"],
-        result["T_opt"],
-        result["N"],
-    )
-
-    dt = T_opt / N
-
-    rows = []
-
-    for k in range(N + 1):
-        rows.append({
-            "icao24": result["icao24"],
-            "flight_id": result["flight_id"],
-            "step": k,
-            "time_s": k * dt,
-            "x": float(X_opt[0, k]),
-            "y": float(X_opt[1, k]),
-            "h": float(X_opt[2, k]),
-            "v": float(X_opt[3, k]),
-            "chi": float(X_opt[4, k]),
-            "gamma": float(X_opt[5, k]),
-            "thrust": float(U_opt[0, k]) if k < N else None,
-            "load_factor": float(U_opt[1, k]) if k < N else None,
-            "roll": float(U_opt[2, k]) if k < N else None,
-        })
-
-    return pd.DataFrame(rows)
-
-
-def run_batch_optimization(
-    dataset: LazyFlightParquetDataset,
-    airport_lat: float,
-    airport_lon: float,
-    output_dir: Path,
-    N: int = 100,
-    T_min: float = 60.0,
-    T_max: float = 1800.0,
-    resume: bool = True,
-) -> None:
-
-    crs_to = GeoTransformer.utm_epsg(airport_lat, airport_lon)
-    transformer = Transformer.from_crs("EPSG:4326", crs_to, always_xy=True)
-
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    trajectories_path = output_dir / "rnav_trajectories.parquet"
-    status_path = output_dir / "rnav_status.jsonl"
-
-    n_ok = 0
-    n_total = len(dataset)
-
-    for idx in range(n_total):
-        icao24, flight_id = dataset.flights[idx]
-
-        print(f"\n[{idx + 1}/{n_total}] RNAV optimize {icao24} / flight_id={flight_id}")
-
-        if resume and already_processed(status_path, icao24, flight_id):
-            print("  [SKIP] already processed (resume=True)")
-            n_ok += 1
-            continue
-
-        try:
-            df_flight = dataset[idx]
-            if df_flight.empty:
-                raise ValueError("Empty flight data")
-
-            result = solve_single_flight(
-                icao24,
-                flight_id,
-                df_flight,
-                dataset,
-                transformer,
-                N,
-                T_min,
-                T_max,
-            )
-
-            df_traj = trajectory_to_dataframe(result)
-            append_trajectory(df_traj, trajectories_path)
-
-            append_status(status_path, {
+        dt = T_opt / self.N
+        rows: list[dict] = []
+        for k in range(self.N + 1):
+            rows.append({
                 "icao24": icao24,
                 "flight_id": flight_id,
-                "success": result["success"],
-                "T_opt": result["T_opt"],
-                "error": None if result["success"] else "IPOPT did not converge",
+                "step": k,
+                "time_s": k * dt,
+                "x": float(X_opt[0, k]),
+                "y": float(X_opt[1, k]),
+                "h": float(X_opt[2, k]),
+                "v": float(X_opt[3, k]),
+                "chi": float(X_opt[4, k]),
+                "gamma": float(X_opt[5, k]),
+                "thrust": float(U_opt[0, k]) if k < self.N else None,
+                "load_factor": float(U_opt[1, k]) if k < self.N else None,
+                "roll": float(U_opt[2, k]) if k < self.N else None,
             })
-            if result["success"]:
-                n_ok += 1
-                print(f"  [OK] T_opt={result['T_opt']:.1f} s (saved)")
-            else:
-                print(f"  [WARN] not converged, T_opt={result['T_opt']:.1f} s (best-so-far, saved)")
+        return rows, bool(success), solve_time_s
 
-        except Exception as e:
-            print(f"  [FAIL] {e}")
-            append_status(status_path, {
-                "icao24": icao24,
-                "flight_id": flight_id,
-                "success": False,
-                "T_opt": None,
-                "error": str(e),
-            })
-
-    print(f"\n[DONE] {n_ok}/{n_total} success")
-    print(f"  Trajektorien: {trajectories_path}")
-    print(f"  Status-Log:   {status_path}")
+    @staticmethod
+    def via_window(
+        x0: np.ndarray, via: np.ndarray, goal: np.ndarray,
+        final_slowdown: float = 1.3, half_width: float = 0.15,
+    ) -> tuple[float, float]:
+        d_start_faf = float(np.linalg.norm(via[:2] - x0[:2]))
+        d_faf_goal = float(np.linalg.norm(goal[:2] - via[:2]))
+        frac = d_start_faf / max(d_start_faf + final_slowdown * d_faf_goal, 1.0)
+        start = float(np.clip(frac - half_width, 0.10, 0.80))
+        end = float(np.clip(frac + half_width, start + 0.05, 0.95))
+        return start, end
 
 
 if __name__ == "__main__":
-    airport_list_icao: list[str] = [
-        "CYVR",
-        "CYUL",
-        "CYYZ",
-        # "CYYC",
-        # "CYEG",
-    ]
-
-    dataset_name: str = "20260709_1207" # note: arrivals_20260802_0920 -> wrong, 20260802_0920 -> right
-
-    for airport_icao in airport_list_icao:
-        icao = airport_icao
-        base_path = f"../data/{icao}/test/{dataset_name}"
-        dataset = LazyFlightParquetDataset(base_path)
-
-        airport: Airport = Airport.load_from_folder(base_path=Path("../data/"), icao=icao)
-
-        print(f"start RNAV-optimization for airport: {icao}")
-
-        run_batch_optimization(
-            dataset=dataset,
-            airport_lat=airport.lat,
-            airport_lon=airport.lon,
-            output_dir=Path(f"../data/{icao}/rnav_optimized"),
-            N=200,
-            T_min=60.0,
-            T_max=1800.0,
-            resume=True,
-        )
+    rollout = RnavOptimizerRollout(dataset_name=DATASET_NAME, N=200, T_min=60.0, T_max=1800.0)
+    rollout.run_airports("rnav_optimized", dataset_name=rollout.run_id)

@@ -8,10 +8,10 @@ from pandas import Timestamp
 from pyproj import Transformer
 
 from ml.utils.data_loader.lazy_flight_parquet_dataset import LazyFlightParquetDataset
-from physics.aircraft_environment_casadi import AircraftEnvironmentCasadi
-from physics.trajectory_action_processor import FlightTrajectoryProcessor, TrajectoryMode
+from engine.physics.aircraft_environment_casadi import AircraftEnvironmentCasadi
+from engine.physics.trajectory_action_processor import FlightTrajectoryProcessor, TrajectoryMode
 from utils.airport import Airport
-from utils_project.geo_transformer import GeoTransformer
+from engine.utils_project.geo_transformer import GeoTransformer
 from utils.fix_identifier import FixIdentifier
 
 

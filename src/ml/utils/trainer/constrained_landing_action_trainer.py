@@ -29,7 +29,7 @@ class ConstrainedLandingActionTrainer(LandingActionTrainer):
         self._w_sum: float = 0.0
         self._w_count: int = 0
 
-    def _unpack(self, packed: Tensor) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor]:
+    def _unpack(self, packed: Tensor) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor]:
         d = self.input_dim  # 15
         x_norm = packed[:, :d]
         x_raw = packed[:, d:2 * d]
@@ -42,11 +42,12 @@ class ConstrainedLandingActionTrainer(LandingActionTrainer):
         aircraft_pos = x_raw[:, [5, 6, 10]]
         aircraft_state = x_raw[:, 7:10]
         runway_pos = x_raw[:, [11, 12, 14]]
-        return x_norm, aircraft_state, aircraft_dyn, limits, aircraft_pos, runway_pos, faf_pos, if_pos, runway_length_m
+        h_thr = x_raw[:, 13]                      # runway fix height incl. TCH, relative like aircraft_state h
+        return x_norm, aircraft_state, aircraft_dyn, limits, aircraft_pos, runway_pos, faf_pos, if_pos, runway_length_m, h_thr
 
     @override
     def forward_pass(self, inputs: Tensor) -> Tensor:
-        (x_norm, aircraft_state, aircraft_dyn, aircraft_limits, aircraft_pos, runway_pos, faf_pos, if_pos, runway_length_m) = self._unpack(inputs)
+        (x_norm, aircraft_state, aircraft_dyn, aircraft_limits, aircraft_pos, runway_pos, faf_pos, if_pos, runway_length_m, h_thr) = self._unpack(inputs)
         out_phys = self.model(
             x_norm=x_norm,
             aircraft_state=aircraft_state,
@@ -57,6 +58,7 @@ class ConstrainedLandingActionTrainer(LandingActionTrainer):
             faf_pos=faf_pos,
             if_pos=if_pos,
             runway_length_m=runway_length_m,
+            h_thr=h_thr,
         )
         return (out_phys - self.y_mean_t) / self.y_std_t
 
@@ -114,17 +116,14 @@ class ConstrainedLandingActionTrainer(LandingActionTrainer):
 
     @override
     def save_best_model(self, val_loss: float) -> None:
-        # here just the bast model get saved cause we don't have trainable parameters in the cvxpylayers
         self.results_path.mkdir(parents=True, exist_ok=True)
 
         if val_loss < self.best_val_loss:
-            # Save the trainable base model for inference / deployment.
             torch.save(
                 self.model.base_model.state_dict(),
                 self.results_path / "best_base_model.pth",
             )
 
-            # Save the complete constrained model state for checkpointing / debugging.
             torch.save(
                 self.model.state_dict(),
                 self.results_path / "best_constrained_model.pth",
@@ -136,13 +135,11 @@ class ConstrainedLandingActionTrainer(LandingActionTrainer):
     def save_last_model(self) -> None:
         self.results_path.mkdir(parents=True, exist_ok=True)
 
-        # Save the trainable base model for inference / deployment.
         torch.save(
             self.model.base_model.state_dict(),
             self.results_path / "last_base_model.pth",
         )
 
-        # Save the complete constrained model state for checkpointing / debugging.
         torch.save(
             self.model.state_dict(),
             self.results_path / "last_constrained_model.pth",

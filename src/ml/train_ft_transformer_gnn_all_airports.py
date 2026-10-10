@@ -73,8 +73,8 @@ if __name__ == "__main__":
     final_val_set = ConcatDataset(val_views)
     print(f"total train timesteps: {len(final_train_set)}, val timesteps: {len(final_val_set)}")
 
-    train_loader = DataLoader(final_train_set, batch_size=32, shuffle=True, collate_fn=graph_collate_fn)
-    val_loader = DataLoader(final_val_set, batch_size=32, shuffle=False, collate_fn=graph_collate_fn)
+    train_loader = DataLoader(final_train_set, batch_size=512, shuffle=True, collate_fn=graph_collate_fn)
+    val_loader = DataLoader(final_val_set, batch_size=512, shuffle=False, collate_fn=graph_collate_fn)
 
     device = MultiAircraftGNNTrainer.get_device()
 
@@ -89,7 +89,7 @@ if __name__ == "__main__":
         optimizer=optim.Adam(model.parameters(), lr=1e-4),
         loss=nn.MSELoss(),
         device=device,
-        results_path=Path("results/multi_aircraft_gnn_all_airports"),
+        results_path=Path("results/multiple_airports_landing_action_ft_transformer_gnn"),
         patience=10,
     )
 

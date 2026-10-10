@@ -101,10 +101,7 @@ if __name__ == "__main__":
         debug=False,
         solver=cp.MOREAU, # cp.SCS
         # parameter for training
-        s_activate=1_000,
-        rho_track=0.0, # 0.01
-        w_action=(1.0, 1.0, 1.0),
-        stall_margin=1.0
+        rho_track=0.01,
     )
 
     optimizer = optim.AdamW(qp_layer.parameters(), lr=1e-5, weight_decay=1e-5) # lr=1e-4
@@ -128,5 +125,3 @@ if __name__ == "__main__":
     trainer.save_metrics()
     trainer.save_last_model()
 
-# current changes
-# lr=1e-4 to lr= 1e-5 and use pretrained model and scheduler=optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=2)
