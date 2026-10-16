@@ -101,7 +101,7 @@ if __name__ == "__main__":
         debug=False,
         solver=cp.MOREAU, # cp.SCS
         # parameter for training
-        rho_track=0.01,
+        # rho_track=0.01,
     )
 
     optimizer = optim.AdamW(qp_layer.parameters(), lr=1e-5, weight_decay=1e-5) # lr=1e-4
@@ -113,7 +113,7 @@ if __name__ == "__main__":
         device=device,
         y_mean=y_mean,
         y_std=y_std,
-        results_path=Path("ml/results/multiple_airports_landing_action_constrained_ft_transformer"),
+        results_path=Path("ml/results/multiple_airports_landing_action_constraint_ft_transformer"),
         patience=10, # 5
         scheduler=optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=2)
     )

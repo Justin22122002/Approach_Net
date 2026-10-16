@@ -28,10 +28,10 @@ if __name__ == "__main__":
 
     folder_path: Path = Path("./data/")  # "../data/"
 
-    TIME_STAMP: str = "2026-08-05_14-54-31"
+    TIME_STAMP: str = "2026-10-10_20-02-35"
 
     PRETRAINED_MODEL_PATH: Path | None = Path(
-        f"ml/results/multiple_airports_landing_action_resnet101_torchvision_augmented/{TIME_STAMP}/best_model.pth"
+        f"ml/results/multiple_airports_landing_action_resnet101_torchvision/{TIME_STAMP}/best_model.pth"
     )
     USE_PRETRAINED_MODEL: bool = True
 
@@ -93,7 +93,6 @@ if __name__ == "__main__":
         debug=False,
         solver=cp.MOREAU,  # cp.SCS
         # parameter for training
-        rho_track=0.01,
     )
 
     optimizer = optim.AdamW(qp_layer.parameters(), lr=1e-5, weight_decay=1e-5)  # lr=1e-4
@@ -105,7 +104,7 @@ if __name__ == "__main__":
         device=device,
         y_mean=y_mean,
         y_std=y_std,
-        results_path=Path("ml/results/multiple_airports_landing_action_constrained_resnet101"),
+        results_path=Path("ml/results/multiple_airports_landing_action_constraint_resnet101"),
         patience=5,  # 5 10
         scheduler=optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=3),  # 2
         tau=2.7,

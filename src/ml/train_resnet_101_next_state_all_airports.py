@@ -31,9 +31,9 @@ if __name__ == "__main__":
     train_X, train_Y = [], []
 
     for airport_icao in airport_list_icao:
-        airport = Airport.load_from_folder(base_path=Path("../data/"), icao=airport_icao)
+        airport = Airport.load_from_folder(base_path=Path("./data/"), icao=airport_icao)
 
-        flight_dataset = LazyFlightParquetDataset(f"../data/{airport_icao}/train/{dataset_name}")
+        flight_dataset = LazyFlightParquetDataset(f"./data/{airport_icao}/train/{dataset_name}")
         dataset = LandingNextStateDataset(
             flight_dataset=flight_dataset,
             mode="bspline_state",
@@ -84,7 +84,7 @@ if __name__ == "__main__":
         optimizer=optim.Adam(model.parameters(), lr=1e-4),
         loss=nn.MSELoss(),
         device=device,
-        results_path=Path("results/multiple_airports_landing_next_state_resnet101_torchvision"),
+        results_path=Path("ml/results/multiple_airports_landing_next_state_resnet101_torchvision"),
         patience=5,
     )
 

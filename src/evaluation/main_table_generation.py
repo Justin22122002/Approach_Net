@@ -10,6 +10,18 @@ BACKBONE_LABELS = {
     "ft_transformer": "FT-Transformer",
 }
 
+MULTI_BACKBONES: tuple[tuple[str, str, str | None], ...] = (
+    ("resnet_gnn", "ResNet-101-GNN", None),       # e.g. "velickovic2018graph" -- None -> no \\cite
+    ("ft_gnn", "FT-Transformer-GNN", None),
+)
+
+# (layer_mode suffix, D, H, T) in table order per backbone
+MULTI_VARIANTS: tuple[tuple[str, bool, bool, bool], ...] = (
+    ("baseline", True, False, False),
+    ("constraint", True, True, False),
+    ("constraint_training", True, True, True),
+)
+
 BACKBONE_CITATIONS = {
     "resnet101": "he2016deep",                    # He et al., Deep Residual Learning (ResNet)
     "ft_transformer": "gorishniy2021revisiting",  # Gorishniy et al., Revisiting Deep Learning Models for Tabular Data
@@ -60,6 +72,8 @@ METRICS = [
     ("landing_time_s", "\\shortstack{Landing\\\\Time (s)}", 2, False),
 ]
 SOLVING_TIME_HEADER = "\\shortstack{Solving\\\\Time (s)}"
+SOLVING_TIME_KEY = "solve_time_s"  # "solve_time_s" (whole flight) or "solve_time_per_step_s" (per control step)
+SOLVING_TIME_DIGITS = 2
 
 ALL_PREFIX = "all_"
 SUCCESS_PREFIX = "success_only_"
@@ -101,6 +115,15 @@ def pool_rows(sub: pd.DataFrame, prefix: str, n_col: str) -> dict:
         mean = sub[f"{prefix}{key}_mean"].to_numpy(dtype=float)
         std = sub[f"{prefix}{key}_std"].to_numpy(dtype=float)
         row[f"{key}_mean"], row[f"{key}_std"] = pooled_mean_std(n, mean, std)
+
+    # solving time (missing columns in an old summary csv -> nan -> '--')
+    col_mean, col_std = f"{prefix}{SOLVING_TIME_KEY}_mean", f"{prefix}{SOLVING_TIME_KEY}_std"
+    if len(sub) and col_mean in sub and col_std in sub:
+        n = sub[n_col].fillna(0).to_numpy(dtype=float)
+        row["solve_mean"], row["solve_std"] = pooled_mean_std(
+            n, sub[col_mean].to_numpy(dtype=float), sub[col_std].to_numpy(dtype=float))
+    else:
+        row["solve_mean"], row["solve_std"] = float("nan"), float("nan")
 
     return row
 
@@ -175,7 +198,7 @@ def _build_table_rows(df: pd.DataFrame, prefix: str, n_col: str, show_std: bool)
                 rank=metric_ranks[key].get(row_idx, 0))
             for key, _, digits, _ in METRICS
         ]
-        solving_cell = "--"  # TODO: solving time
+        solving_cell = fmt(pooled["solve_mean"], pooled["solve_std"], SOLVING_TIME_DIGITS, show_std)
         return " & ".join(label_cells + rate_cells + metric_cells + [solving_cell]) + " \\\\"
 
     lines: list[str] = []
@@ -241,7 +264,7 @@ def _emit_row(label_cells: list[str], pooled: dict, row_idx: int | None,
         fmt(pooled[f"{key}_mean"], pooled[f"{key}_std"], digits, show_std, rank=metric_ranks[key].get(row_idx, 0))
         for key, _, digits, _ in METRICS
     ]
-    solving_cell = "--"  # TODO: solving time
+    solving_cell = fmt(pooled["solve_mean"], pooled["solve_std"], SOLVING_TIME_DIGITS, show_std)
     return " & ".join(label_cells + rate_cells + metric_cells + [solving_cell]) + " \\\\"
 
 
@@ -249,7 +272,14 @@ def build_multi_table(df: pd.DataFrame, over_all_flights: bool = True, show_std:
     prefix = ALL_PREFIX if over_all_flights else SUCCESS_PREFIX
     n_col = "all_n" if over_all_flights else "success_only_n"
 
-    pooled_rows = [pool_layer_mode(df, mode, prefix, n_col) for _, mode, *_ in MULTI_ROWS]
+    rows: list[tuple[str, str, str | None, bool, bool, bool, dict]] = []
+    for key, backbone, citation in MULTI_BACKBONES:
+        for suffix, dyn, hard, trained in MULTI_VARIANTS:
+            pooled = pool_layer_mode(df, f"{key}_{suffix}", prefix, n_col)
+            rows.append((key, backbone, citation, dyn, hard, trained, pooled))
+
+    # best / second best over all GNN rows (both backbones)
+    pooled_rows = [r[-1] for r in rows]
     rate_ranks = {col: _rank_indices([p[col] for p in pooled_rows], higher) for col, _, higher in RATE_COLUMNS}
     metric_ranks = {
         key: _rank_indices([p[f"{key}_mean"] for p in pooled_rows], higher, digits)
@@ -264,15 +294,29 @@ def build_multi_table(df: pd.DataFrame, over_all_flights: bool = True, show_std:
     )
 
     body: list[str] = []
+    prev_key: str | None = None
     prev_h: bool | None = None
-    for row_idx, ((label, _, dyn, hard, trained), pooled) in enumerate(zip(MULTI_ROWS, pooled_rows)):
-        if prev_h is not None and hard != prev_h:
-            body.append(f"\\cmidrule(lr){{2-{N_COLS}}}")
-        if label == MULTI_BACKBONE_LABEL and MULTI_BACKBONE_CITATION:
-            label = f"{label}~\\cite{{{MULTI_BACKBONE_CITATION}}}"
+    for row_idx, (key, backbone, citation, dyn, hard, trained, pooled) in enumerate(rows):
+        new_block = key != prev_key
+        new_h_block = new_block or hard != prev_h
+
+        if prev_key is not None:
+            if new_block:
+                body.append("\\midrule")
+            elif new_h_block:
+                body.append(f"\\cmidrule(lr){{2-{N_COLS}}}")
+
+        if new_h_block:
+            if hard:
+                label = f"ApproachNet ({backbone})"
+            else:
+                label = f"{backbone}~\\cite{{{citation}}}" if citation else backbone
+        else:
+            label = ""
+
         cells = [label] + [CHECK if f else CROSS for f in (dyn, hard, trained)]
         body.append(_emit_row(cells, pooled, row_idx, rate_ranks, metric_ranks, show_std))
-        prev_h = hard
+        prev_key, prev_h = key, hard
 
     lines: list[str] = [
         "\\scriptsize",

@@ -13,5 +13,5 @@ class ResNet101ActionRollout(ActionRollout):
 
 
 if __name__ == "__main__":
-    RESULT_DIR = "../ml/results/multiple_airports_landing_action_resnet101_torchvision_augmented/2026-08-05_14-54-31"
+    RESULT_DIR = "../ml/results/multiple_airports_landing_action_resnet101_torchvision/2026-10-10_20-02-35"
     ResNet101ActionRollout(RESULT_DIR).run_airports("multiple_airports_resnet101_rollout")

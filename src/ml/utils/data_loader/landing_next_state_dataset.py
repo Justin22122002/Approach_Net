@@ -7,9 +7,9 @@ from torch.utils.data import Dataset, Subset
 from pyproj import Transformer
 
 from ml.utils.data_loader.lazy_flight_parquet_dataset import LazyFlightParquetDataset
-from physics.trajectory_action_processor import FlightTrajectoryProcessor, TrajectoryMode
-from utils.airport import Airport
-from utils_project.geo_transformer import GeoTransformer
+from engine.physics.trajectory_action_processor import FlightTrajectoryProcessor, TrajectoryMode
+from engine.utils_project.geo_transformer import GeoTransformer
+from utils.fix_identifier import FixIdentifier
 
 
 class LandingNextStateDataset(Dataset):
@@ -26,6 +26,7 @@ class LandingNextStateDataset(Dataset):
     DYNAMICS_KEYS = (
         "mass", "C_D0", "area", "cl_max", "k",
     )
+    FT_TO_M = 0.3048
 
     def __init__(
         self,
@@ -34,11 +35,16 @@ class LandingNextStateDataset(Dataset):
         airport_center_latlon: tuple[float, float],
         airport_elevation_m: float,
         max_dt: float = 5.0,
+        approach_index: int = 0,
     ) -> None:
         self.flight_dataset: LazyFlightParquetDataset = flight_dataset
-        self.processor: FlightTrajectoryProcessor = FlightTrajectoryProcessor(flight_dataset)
+        self.processor: FlightTrajectoryProcessor = FlightTrajectoryProcessor(
+            dataset=flight_dataset,
+            target_epsg=GeoTransformer.utm_epsg(*airport_center_latlon)
+        )
         self.max_dt: float = max_dt
         self.mode: TrajectoryMode = mode
+        self.approach_index: int = approach_index
 
         self.airport_center_latlon: tuple[float, float] = airport_center_latlon
         self.airport_elevation_m: float = float(airport_elevation_m)
@@ -47,6 +53,9 @@ class LandingNextStateDataset(Dataset):
             "EPSG:4326", GeoTransformer.utm_epsg(alat, alon), always_xy=True
         )
         self.airport_cx, self.airport_cy = self._utm.transform(alon, alat)
+
+        # runway name -> (rw_x, rw_y, rw_height_m, rw_bearing) in the airport-centered frame
+        self._runway_cache: dict[str, tuple[float, float, float, float]] = {}
 
         self._cache: dict[int, tuple[np.ndarray, np.ndarray]] = {}  # flight_idx -> (X, Y)
         self.samples: list[tuple[int, int]] = []
@@ -60,21 +69,46 @@ class LandingNextStateDataset(Dataset):
         self.y_std: np.ndarray | None = None
 
     def _to_airport_frame(self, lon: float, lat: float) -> tuple[float, float]:
+        """lon/lat (deg) -> airport-centered UTM (x, y) in meters."""
         x, y = self._utm.transform(float(lon), float(lat))
         return x - self.airport_cx, y - self.airport_cy
 
-    def _runway_features(self, icao24: str, flight_id: int) -> np.ndarray:
-        try:
-            row = self.flight_dataset.get_runway_assignment(icao24, flight_id)
-        except KeyError:
-            return np.zeros(4, dtype=np.float32)
+    @staticmethod
+    def _fix_latlon(fix: FixIdentifier) -> tuple[float, float]:
+        return fix.latitude, fix.longitude
 
-        fx, fy = self._to_airport_frame(row["fix_longitude"], row["fix_latitude"])
-        return np.array([
-            fx, fy,
-            float(row["fix_elevation_m"]) - self.airport_elevation_m,
-            row["runway_bearing"],
-        ], dtype=np.float32)
+    def _runway_fix_airport_frame(self, runway_name: str) -> tuple[float, float, float, float]:
+        """runway name -> (rw_x, rw_y, rw_height_m, rw_bearing), airport-centered. Cached per runway."""
+        if runway_name in self._runway_cache:
+            return self._runway_cache[runway_name]
+
+        base = runway_name[2:] if runway_name.startswith("RW") else runway_name
+        last_err: Exception | None = None
+        for candidate in (runway_name, base, f"RW{base}"):
+            try:
+                approach, arinc_runway = self.flight_dataset.get_procedure(candidate, approach_index=self.approach_index)
+            except (AttributeError, IndexError) as e:  # runway not found / no approach
+                last_err = e
+                continue
+
+            _, _, rw_fix = approach.get_final_approach_fixes()
+
+            rw_lat, rw_lon = self._fix_latlon(rw_fix)
+            rw_x, rw_y = self._to_airport_frame(rw_lon, rw_lat)
+
+            fix = (rw_x, rw_y, rw_fix.altitude * self.FT_TO_M, arinc_runway.bearing)
+            self._runway_cache[runway_name] = fix
+            return fix
+
+        raise ValueError(f"no approach found for runway {runway_name!r} ({last_err})")
+
+    def _runway_features(self, icao24: str, flight_id: int) -> np.ndarray:
+        row = self.flight_dataset.get_runway_assignment(icao24, flight_id)
+
+        fx, fy, f_height_m, f_bearing = self._runway_fix_airport_frame(str(row["landing_runway"]))
+        elev_rel = f_height_m - self.airport_elevation_m
+
+        return np.array([fx, fy, elev_rel, f_bearing], dtype=np.float32)
 
     def _state_feat(self, s) -> np.ndarray:
         return np.array(

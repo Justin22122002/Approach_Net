@@ -194,77 +194,60 @@ class AircraftEnvironment:
         # γ_{k+1} = γ_k + γ̇ · dt
         self.state.gamma += np.degrees(gamma_dot * self.dt)
 
-        # 𝒳̇ = (g · tan(φ)) / v
-        chi_dot = (9.81 * np.tan(np.radians(roll))) / max(self.state.v, 1e-6)
+        # 𝒳̇ = (v_y · v̇_x - v_x · v̇_y) / v_h²
+        v_h_sq = v_vec[0] ** 2 + v_vec[1] ** 2
+        chi_dot = (v_vec[1] * v_dot[0] - v_vec[0] * v_dot[1]) / max(v_h_sq, 1e-6)
+
         # 𝒳̇ _{k+1} = 𝒳_k + 𝒳̇ · dt
         self.state.chi += np.degrees(chi_dot * self.dt)
 
         return self.state.to_array()
 
-    def autopilot(self) -> tuple[float, float, float]:
-        p0 = np.array([self.state.x, self.state.y, self.state.h])
-        v_vec = self.state.velocity_vector()
+    def inverse_action(
+            self,
+            next_state: AircraftKinematicsState,
+    ) -> tuple[float, float, float]:
+        """
+        note: this method does not cap the actions based on the max constraints
+        Inverse dynamics between two neighboring states.
+            v̇ = ((T - D) / m) · t̂ + (L / m) · n̂ + g⃗
+            T = m · ((v̇ - g⃗) · t̂) + D
+            n = ((v̇ - g⃗) · n̂) / g
+            φ = atan2( v_h · 𝒳̇ , v · γ̇ + g · cos(γ) )
+        """
+        # v⃗_k , v⃗_{k+1}
+        v_vec_k = self.state.velocity_vector()
+        v_vec_k1 = next_state.velocity_vector()
 
-        # ---- Regler system -> v_dot = np.array([goal.x, goal.y, goal.h]) - p0
-        pos_error = np.array([self.goal.x, self.goal.y, self.goal.h]) - p0
-        dist = np.linalg.norm(pos_error)
+        # v̇ ≈ (v⃗_{k+1} - v⃗_k) / dt
+        v_dot = (v_vec_k1 - v_vec_k) / self.dt
 
-        if dist > 1e-6:
-            direction = pos_error / dist
-        else:
-            direction = np.zeros(3)
+        # 𝒳̇ ≈ Δχ / dt, Δχ in [-180°, 180°] gewrapped.
+        d_chi = (next_state.chi - self.state.chi + 180.0) % 360.0 - 180.0
+        chi_dot = np.radians(d_chi) / self.dt
 
-        K = np.clip(dist * 0.0001, 0.2, 2.0)
-        v_desired = direction * min(dist * 0.5, 250.0)
-        v_dot = K * (v_desired - v_vec)
-        # ----
+        # γ̇ ≈ Δγ / dt
+        gamma_dot = np.radians(next_state.gamma - self.state.gamma) / self.dt
 
-        desired_chi = np.arctan2(
-            self.goal.x - self.state.x,
-            self.goal.y - self.state.y
-        )
+        # v, γ, v_h = v · cos(γ) at state k
+        v = self.state.v
+        gamma = np.radians(self.state.gamma)
+        v_h = v * np.cos(gamma)
 
-        vx, vy, _ = v_vec
-        current_chi = np.arctan2(vx, vy)
+        # φ = atan2( v_h · 𝒳̇ , v · γ̇ + g · cos(γ) )
+        roll = np.degrees(np.arctan2(v_h * chi_dot, v * gamma_dot + 9.81 * np.cos(gamma)))
 
-        chi_dot = desired_chi - current_chi
-
-        roll = np.degrees(
-            np.arctan((self.state.v * chi_dot) / 9.81)
-        )
-
-        # this can be done, but we can also input for roll and load_factor = 0.0
-        t_hat, _, n_hat = self.unit_vectors_with_roll(roll=roll)
-        g_vec = self.gravity
-
+        # t̂, n̂ at state_k under this roll
         t_hat, _, n_hat = self.unit_vectors_with_roll(roll)
-        load_factor = np.dot(
-            (v_dot - self.gravity),
-            n_hat
-        ) / 9.81
+
+        # n = ((v̇ - g⃗) · n̂) / g
+        load_factor = np.dot(v_dot - self.gravity, n_hat) / 9.81
 
         requested_cl = self.state.required_lift_coefficient(load_factor=load_factor)
         actual_cl = min(requested_cl, self.state.aircraft_type.cl_max)
-
         drag = self.state.drag_force(actual_cl)
 
-        # v̇ = ((T - D) / m) · (v⃗ / ‖v⃗‖) + (L / m) · n⃗ + g⃗
-        # T = m ( v̇ · t̂ ) + D
-        thrust = self.state.aircraft_type.mass * np.dot(v_dot, t_hat) + drag
+        # T = m · ((v̇ - g⃗) · t̂) + D
+        thrust = self.state.aircraft_type.mass * np.dot(v_dot - self.gravity, t_hat) + drag
 
-        # n = ((v̇ - g) · n̂) / g
-        load_factor = np.dot((v_dot - g_vec), n_hat) / 9.81
-
-        # 𝒳̇ = (g · tan(φ)) / v
-        desired_chi = np.arctan2(self.goal.x - self.state.x, self.goal.y - self.state.y)
-
-        vx, vy, _ = v_vec
-        current_chi = np.arctan2(vx, vy)
-
-        chi_dot = (desired_chi - current_chi)
-
-        # φ = arctan( v · 𝒳̇ / g )
-        roll = np.arctan((self.state.v * chi_dot) / 9.81)
-        roll = np.degrees(roll)
-
-        return thrust, load_factor, roll
+        return float(thrust), float(load_factor), float(roll)

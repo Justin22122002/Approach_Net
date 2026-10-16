@@ -28,16 +28,16 @@ if __name__ == "__main__":
     train_X, train_Y = [], []
 
     for airport_icao in airport_list_icao:
-        airport = Airport.load_from_folder(base_path=Path("../data/"), icao=airport_icao)
+        airport = Airport.load_from_folder(base_path=Path("./data/"), icao=airport_icao)
 
-        flight_dataset = LazyFlightParquetDataset(f"../data/{airport_icao}/train/{dataset_name}")
+        flight_dataset = LazyFlightParquetDataset(f"./data/{airport_icao}/train/{dataset_name}")
         dataset = LandingActionDataset(
             flight_dataset=flight_dataset,
             mode="bspline_state",
             max_dt=5.0,
             airport_center_latlon=(airport.lat, airport.lon),
             airport_elevation_m=airport.get_mean_runway_elevation_ft() * 0.3048,
-            augment_rotations_deg=[10.0, 350.0, 180.0, 190.0, 170.0], # augment_rotations_deg=[180.0],
+            augment_rotations_deg=[180.0],
         )
         print(f"[{airport_icao}] samples: {len(dataset)}, input_dim: {dataset.input_dim}")
         all_datasets.append(dataset)
@@ -46,7 +46,7 @@ if __name__ == "__main__":
         per_airport_split.append((dataset, train_flights, val_flights))
 
         for f in train_flights:
-            X, Y = dataset._cache[f]
+            X, Y, _, _ = dataset._cache[f]
             train_X.append(X)
             train_Y.append(Y)
 
@@ -81,10 +81,10 @@ if __name__ == "__main__":
 
     trainer = LandingActionTrainer(
         model=model,
-        optimizer=optim.Adam(model.parameters(), lr=1e-4), # optim.AdamW(model.parameters(), lr=1e-4, weight_decay=1e-5)
+        optimizer=optim.AdamW(model.parameters(), lr=1e-4, weight_decay=1e-5),
         loss=nn.MSELoss(),
         device=device,
-        results_path=Path("results/multiple_airports_landing_action_ft_transformer_augmented"),
+        results_path=Path("ml/results/multiple_airports_landing_action_ft_transformer"),
         patience=5,
     )
 

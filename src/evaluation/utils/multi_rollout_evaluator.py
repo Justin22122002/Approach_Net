@@ -12,7 +12,7 @@ from evaluation.utils.rollout_evaluator import ActionRollout, AIRPORTS, DATASET_
 from ml.utils.data_loader.lazy_flight_parquet_dataset import LazyFlightParquetDataset
 from ml.utils.data_loader.multi_aircraft_landing_action_dataset import MultiAircraftLandingActionDataset
 from ml.utils.models.constraint_graph_attention_model import MultiAircraftConstrainedQPLayer
-from ml.utils.models.graph_attention_model import MultiAircraftLandingGNN
+from ml.utils.models.graph_attention_model import MultiAircraftLandingGNN, infer_encoder_type
 from engine.physics.aircraft_dynamics import AircraftDynamics
 from engine.physics.aircraft_environment_casadi import AircraftEnvironmentCasadi
 from engine.physics.aircraft_kinematics_state_casadi import AircraftKinematicsStateCasadi
@@ -49,9 +49,16 @@ class MultiAircraftRollout(ActionRollout):
         device: str | None = None,
         dtype: torch.dtype = torch.float32,
         best_model_name: str | None = None,
+        encoder_type: str | None = None,
         **kwargs,
     ) -> None:
         best_model_name = best_model_name or ("best_base_model.pth" if constrained else "best_model.pth")
+        if encoder_type is None:
+            sd = torch.load(Path(result_dir) / best_model_name, map_location="cpu")
+            encoder_type = infer_encoder_type(sd)
+        self.encoder_type: str = encoder_type  # must be set before super().__init__ -> create_model()
+        print(f"[{self.name}] encoder_type={self.encoder_type}")
+
         super().__init__(result_dir, constrained=constrained, solver=solver, best_model_name=best_model_name, **kwargs)
         self.device = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
         self.dtype = dtype
@@ -66,7 +73,7 @@ class MultiAircraftRollout(ActionRollout):
 
     @override
     def create_model(self, input_dim: int, output_dim: int) -> nn.Module:
-        return MultiAircraftLandingGNN(input_dim=input_dim, action_dim=output_dim)
+        return MultiAircraftLandingGNN(input_dim=input_dim, action_dim=output_dim, encoder_type=self.encoder_type)
 
     @override
     def build_safety_layer(self) -> nn.Module:

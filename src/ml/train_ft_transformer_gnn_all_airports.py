@@ -18,7 +18,7 @@ if __name__ == "__main__":
 
     dataset_name: str = "20260802_0920"
 
-    time: str = "2026-08-05_21-33-34"
+    time: str = "2026-10-10_20-33-57"
 
     airport_list_icao: list[str] = [
         "CYVR",
@@ -29,16 +29,16 @@ if __name__ == "__main__":
     ]
 
     PRETRAINED_ENCODER_PATH: Path | None = Path(
-        f"results/multiple_airports_landing_action_ft_transformer_augmented/{time}/best_model.pth"
+        f"ml/results/multiple_airports_landing_action_ft_transformer/{time}/best_model.pth"
     )
-    USE_PRETRAINED_ENCODER: bool = True
+    USE_PRETRAINED_ENCODER: bool = False
 
     per_airport: list[tuple[MultiAircraftLandingActionDataset, list[int], list[int]]] = []
     all_train_X, all_train_Y = [], []
 
     for icao in airport_list_icao:
-        airport = Airport.load_from_folder(base_path=Path("../data/"), icao=icao)
-        flight_dataset = LazyFlightParquetDataset(f"../data/{icao}/train/{dataset_name}")
+        airport = Airport.load_from_folder(base_path=Path("./data/"), icao=icao)
+        flight_dataset = LazyFlightParquetDataset(f"./data/{icao}/train/{dataset_name}")
 
         dataset = MultiAircraftLandingActionDataset(
             flight_dataset=flight_dataset,
@@ -86,10 +86,10 @@ if __name__ == "__main__":
 
     trainer = MultiAircraftGNNTrainer(
         model=model,
-        optimizer=optim.Adam(model.parameters(), lr=1e-4),
+        optimizer=optim.AdamW(model.parameters(), lr=1e-4, weight_decay=1e-5),
         loss=nn.MSELoss(),
         device=device,
-        results_path=Path("results/multiple_airports_landing_action_ft_transformer_gnn"),
+        results_path=Path("ml/results/multiple_airports_landing_action_ft_transformer_gnn"),
         patience=10,
     )
 

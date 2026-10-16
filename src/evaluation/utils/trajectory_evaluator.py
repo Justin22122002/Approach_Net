@@ -28,6 +28,8 @@ class FlightEvaluation:
     landing_time_s: float | None = None
     s_needed: float = float("inf")
     s_needed_window: float = float("inf")
+    solve_time_s: float | None = None           # wall-clock time of the whole rollout / optimization (status log)
+    solve_time_per_step_s: float | None = None  # solve_time_s / number of rollout steps
 
 
 class TrajectorySuccessEvaluator:
@@ -149,6 +151,7 @@ class TrajectorySuccessEvaluator:
         converged: bool,
         goal: tuple[float, float, float, float],   # goal_x, goal_y, goal_h, heading_goal_deg from _project_goal()
         aircraft_dynamics: AircraftDynamics,
+        solve_time_s: float | None = None,
     ) -> FlightEvaluation:
 
         icao24 = str(df_traj_flight["icao24"].iloc[0])
@@ -242,6 +245,8 @@ class TrajectorySuccessEvaluator:
             landing_time_s=landing_time_s,
             s_needed=s_needed,
             s_needed_window=s_needed_window,
+            solve_time_s=solve_time_s,
+            solve_time_per_step_s=(solve_time_s / max(len(df_sorted) - 1, 1)) if solve_time_s is not None else None,
         )
 
     def evaluate_batch(
@@ -267,6 +272,9 @@ class TrajectorySuccessEvaluator:
                 continue
 
             converged = bool(status_row["success"].iloc[0])
+            solve_time_s = None
+            if "solve_time_s" in status_row and pd.notna(status_row["solve_time_s"].iloc[0]):
+                solve_time_s = float(status_row["solve_time_s"].iloc[0])
 
             try:
                 goal = self._project_goal(ds, str(icao24), int(flight_id))
@@ -274,7 +282,7 @@ class TrajectorySuccessEvaluator:
             except (KeyError, ValueError):  # no runway assignment / no approach / no aircraft data
                 continue
 
-            evaluation = self.evaluate_flight(group, converged, goal, aircraft_dynamics)
+            evaluation = self.evaluate_flight(group, converged, goal, aircraft_dynamics, solve_time_s)
             results.append(evaluation)
 
         return pd.DataFrame([vars(e) for e in results])
@@ -304,6 +312,8 @@ class TrajectorySuccessEvaluator:
             "velocity_dev_ms": cls._stats(df, "velocity_dev_ms"),
             "velocity_dev_pct": cls._stats(df, "velocity_dev_pct"),
             "landing_time_s": cls._stats(df, "landing_time_s"),
+            "solve_time_s": cls._stats(df, "solve_time_s"),
+            "solve_time_per_step_s": cls._stats(df, "solve_time_per_step_s"),
         }
 
     @staticmethod

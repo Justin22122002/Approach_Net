@@ -35,15 +35,22 @@ class AircraftSceneSeparationQPLayer(nn.Module):
       - a failing solve only affects its own scene: batched solve -> on error per-scene solves -> on error
         the scene keeps u_ref (= the already constrained stage-1 output)
 
+    Barrier (superellipsoid, same exponent n as SeparationGeometry, default n = 4):
+        q_h = (Δx² + Δy²) / D_h'²,   q_v = Δh² / D_v'²,   m = n / 2
+        h   = q_h^m + q_v^m − 1                      (h > 0 -> separated)
+        ḣ   = m q_h^(m−1) q̇_h + m q_v^(m−1) q̇_v
+        ḧ   = m(m−1) q_h^(m−2) q̇_h² + m q_h^(m−1) q̈_h + (same for v)
+        q̇_h = 2 (Δx Δẋ + Δy Δẏ) / D_h'²,          q̈_h = 2 (Δẋ² + Δẏ² + Δx Δẍ + Δy Δÿ) / D_h'²
+        q̇_v = 2 Δh Δḣ / D_v'²,                    q̈_v = 2 (Δḣ² + Δh Δḧ) / D_v'²
+      with D' = 2^(1/n) · D (contain_cylinder=True), so the FAA cylinder is fully contained.
+      ḧ is affine in the relative acceleration Δp̈ = p̈_i − p̈_j, which is affine in u -> HOCBF row is linear in u:
+        ḧ + (k1 + k2) ḣ + k1 k2 h >= 0
+
     QP per scene with n aircraft, u = [T~_1, uv_1, uh_1, ..., T~_n, uv_n, uh_n]:
         min  ||w (u - u_ref)||^2 + rho_slack ||s||^2
         s.t. box constraints per aircraft (thrust, load factor, roll)
              A_air u + b_air + s >= 0          (optional, per-aircraft rows, block diagonal)
              A_pair u + b_pair + s >= 0        (one HOCBF row per pair, gated by sep_activate_m)
-
-    use_resolution: TCAS-like reference shaping (speed / vertical bias) of AircraftJointSeparationQPLayer.
-    Meant for inference / closed loop. Keep it OFF for behaviour-cloning training, otherwise the network
-    is trained to compensate the bias.
     """
 
     def __init__(
@@ -51,28 +58,23 @@ class AircraftSceneSeparationQPLayer(nn.Module):
         solver: str | None = None,
         d_horizontal_m: float = 2.5 * NM_TO_M,
         d_vertical_m: float = 1000.0 * FT_TO_M,
+        sep_exponent: float = 4.0,
         contain_cylinder: bool = True,
         k_sep: tuple[float, float] = (0.1, 0.1),
         sep_activate_m: float = 10.0 * NM_TO_M,
         w_action: tuple[float, float, float] = (1.0, 1.0, 1.0),
         rho_slack: float = 1e5,
         normalize_rows: bool = True,        # scale every row to ||A_row|| = 1 (funnel rows ~1e3, separation rows ~1e-3)
-        use_resolution: bool = False,
-        lookahead_s: float = 120.0,
-        intrail_angle_deg: float = 45.0,
-        speed_bias: float = 0.2,
-        vertical_bias: float = 0.1,
-        vertical_rate_mps: float = 1500.0 * FT_TO_M / 60.0,
-        dh_tie_m: float = 15.0,
         solver_args: dict | None = None,
         debug: bool = False,
     ) -> None:
         super().__init__()
         geom: SeparationGeometry = SeparationGeometry(
             d_horizontal_m=d_horizontal_m, d_vertical_m=d_vertical_m,
-            n=4.0, contain_cylinder=contain_cylinder,
+            n=sep_exponent, contain_cylinder=contain_cylinder,
         )
         self.d_h_eff, self.d_v_eff = geom.d_h_eff, geom.d_v_eff
+        self.m_sep: float = geom.n / 2.0
         self.register_buffer(
             "scale",
             torch.tensor([1.0 / self.d_h_eff ** 2, 1.0 / self.d_h_eff ** 2, 1.0 / self.d_v_eff ** 2], dtype=torch.float32),
@@ -84,14 +86,6 @@ class AircraftSceneSeparationQPLayer(nn.Module):
         self.rho_slack: float = rho_slack
         self.normalize_rows: bool = normalize_rows
 
-        self.use_resolution: bool = use_resolution
-        self.lookahead_s: float = lookahead_s
-        self.intrail_rad: float = intrail_angle_deg * DEG2RAD
-        self.speed_bias: float = speed_bias
-        self.vertical_bias: float = vertical_bias
-        self.vertical_rate_mps: float = vertical_rate_mps
-        self.dh_tie_m: float = dh_tie_m
-
         self.solver: str | None = solver
         self.solver_args: dict = solver_args or {}
         self.debug: bool = debug
@@ -101,7 +95,6 @@ class AircraftSceneSeparationQPLayer(nn.Module):
 
         self.last_solved_mask: Tensor | None = None  # (N,) bool, False only for aircraft in a scene whose solve failed
         self.last_active_mask: Tensor | None = None  # (N,) bool, aircraft in a scene with >= 1 active pair (QP solved)
-        self.last_tags: list[str] = []
         self.last_stats: dict[str, int] = {}
 
     def _get_layer(self, n: int, r: int) -> CvxpyLayer:
@@ -168,6 +161,28 @@ class AircraftSceneSeparationQPLayer(nn.Module):
         a = torch.stack([a_x, a_y, a_h], dim=-2)  # (..., 3 [x,y,h], 3 [T~,uv,uh])
         return a, b_vec, vel
 
+    def _barrier_terms(self, dpos: Tensor, dvel: Tensor) -> tuple[Tensor, Tensor, Tensor, Tensor]:
+
+        m = self.m_sep
+        scale = self.scale.to(dpos)
+
+        q_h = (dpos[..., :2] ** 2).sum(-1) * scale[0]
+        q_v = dpos[..., 2] ** 2 * scale[2]
+        qd_h = 2.0 * (dpos[..., :2] * dvel[..., :2]).sum(-1) * scale[0]
+        qd_v = 2.0 * dpos[..., 2] * dvel[..., 2] * scale[2]
+
+        q_h_c, q_v_c = q_h.clamp(min=1e-12), q_v.clamp(min=1e-12)
+        g1_h, g1_v = m * q_h_c ** (m - 1.0), m * q_v_c ** (m - 1.0)              # ∂h/∂q
+        g2_h, g2_v = m * (m - 1.0) * q_h_c ** (m - 2.0), m * (m - 1.0) * q_v_c ** (m - 2.0)  # ∂²h/∂q²
+
+        h_val = q_h ** m + q_v ** m - 1.0                      # > 0 -> separated
+        h_dot = g1_h * qd_h + g1_v * qd_v
+
+        w = torch.stack([g1_h, g1_h, g1_v], dim=-1)
+        coef = 2.0 * w * dpos * scale                           # ∂ḧ/∂(p̈_i − p̈_j)
+        dot_sq = g2_h * qd_h ** 2 + g2_v * qd_v ** 2 + 2.0 * (w * dvel ** 2 * scale).sum(-1)
+        return h_val, h_dot, coef, dot_sq
+
     def _pair_rows(
         self, idx: Tensor, p_xyz: Tensor, a_all: Tensor, b_all: Tensor, vel_all: Tensor,
     ) -> tuple[Tensor, Tensor, Tensor, Tensor]:
@@ -177,14 +192,10 @@ class AircraftSceneSeparationQPLayer(nn.Module):
         I, J = pairs[:, 0], pairs[:, 1]
 
         p, vel, a, bv = p_xyz[idx], vel_all[idx], a_all[idx], b_all[idx]   # (S,n,3), (S,n,3), (S,n,3,3), (S,n,3)
-        scale = self.scale.to(p)
 
         dpos = p[:, I] - p[:, J]                     # (S, P, 3)
         dvel = vel[:, I] - vel[:, J]
-        h_val = (dpos ** 2 * scale).sum(-1) - 1.0    # > 0 -> separated
-        h_dot = 2.0 * (dpos * dvel * scale).sum(-1)
-        coef = 2.0 * dpos * scale
-        dot_sq = 2.0 * (dvel ** 2 * scale).sum(-1)
+        h_val, h_dot, coef, dot_sq = self._barrier_terms(dpos, dvel)
 
         row_i = torch.einsum("spk,spkc->spc", coef, a[:, I])     # (S, P, 3)
         row_j = -torch.einsum("spk,spkc->spc", coef, a[:, J])
@@ -193,6 +204,7 @@ class AircraftSceneSeparationQPLayer(nn.Module):
         A = (torch.einsum("spc,pn->spnc", row_i, onehot_i)
              + torch.einsum("spc,pn->spnc", row_j, onehot_j)).reshape(S, -1, 3 * n)
 
+        # HOCBF: ḧ + (k1 + k2) ḣ + k1 k2 h >= 0, with ḧ = coef · (a_i u_i - a_j u_j + b_i - b_j) + dot_sq
         b = (coef * (bv[:, I] - bv[:, J])).sum(-1) + dot_sq \
             + (self.k1_s + self.k2_s) * h_dot + self.k1_s * self.k2_s * h_val
 
@@ -222,58 +234,6 @@ class AircraftSceneSeparationQPLayer(nn.Module):
         thrust, n, roll = u_phys.unbind(dim=-1)
         phi = torch.deg2rad(roll)
         return torch.stack([thrust / t_max, n * torch.cos(phi), n * torch.sin(phi)], dim=-1)
-
-    @staticmethod
-    def _box_clamp(u: Tensor, n_min: Tensor, n_max: Tensor, tanphi: Tensor) -> Tensor:
-        uv = torch.maximum(torch.minimum(u[:, 1], n_max), n_min)
-        uh = torch.maximum(torch.minimum(u[:, 2], tanphi * uv), -tanphi * uv)
-        return torch.stack([torch.clamp(u[:, 0], 0.0, 1.0), uv, uh], dim=-1)
-
-    # --- stage 1 of AircraftJointSeparationQPLayer: conflict detection + resolution bias --------
-    def _predict_conflict(self, dpos: Tensor, dvel: Tensor) -> tuple[bool, float]:
-        scale = self.scale.to(dpos)
-        a = float((dvel ** 2 * scale).sum())
-        b = float(2.0 * (dpos * dvel * scale).sum())
-        c = float((dpos ** 2 * scale).sum() - 1.0)
-        if c <= 0.0:
-            return True, 0.0
-        disc = b * b - 4.0 * a * c
-        if a < 1e-12 or disc < 0.0:
-            return False, float("inf")
-        t_in = (-b - math.sqrt(disc)) / (2.0 * a)
-        return (0.0 < t_in < self.lookahead_s), t_in
-
-    def _resolution_bias(self, nodes: Tensor, p_xyz: Tensor, chi_deg: Tensor, vel_all: Tensor,
-                         bias: Tensor, tags: list[list[str]]) -> None:
-        """writes the bias of one scene (node indices `nodes`) into bias (N, 3) / tags, all detached"""
-        chi = torch.deg2rad(chi_deg)
-        for li, lj in combinations(range(nodes.numel()), 2):
-            i, j = int(nodes[li]), int(nodes[lj])
-            conflict, t_in = self._predict_conflict(p_xyz[i] - p_xyz[j], vel_all[i] - vel_all[j])
-            if not conflict:
-                continue
-
-            dchi = float(torch.atan2(torch.sin(chi[i] - chi[j]), torch.cos(chi[i] - chi[j])))
-            if abs(dchi) < self.intrail_rad:
-                # in-trail -> speed: leading aircraft faster, trailing aircraft slower
-                heading = torch.stack([torch.sin(chi[i]) + torch.sin(chi[j]), torch.cos(chi[i]) + torch.cos(chi[j])])
-                lead, fol = (i, j) if float((p_xyz[i, :2] - p_xyz[j, :2]) @ heading) > 0.0 else (j, i)
-                bias[lead, 0] += self.speed_bias
-                bias[fol, 0] -= self.speed_bias
-                tags[lead].append(f"SPD+({t_in:.0f}s)")
-                tags[fol].append(f"SPD-({t_in:.0f}s)")
-            else:
-                # crossing -> complementary vertical resolution: higher aircraft climbs, lower descends
-                dh = float(p_xyz[i, 2] - p_xyz[j, 2])
-                dhdot = float(vel_all[i, 2] - vel_all[j, 2])
-                up = (i if dh > 0.0 else j) if abs(dh) > self.dh_tie_m else min(i, j)
-                down = j if up == i else i
-                sign = 1.0 if up == i else -1.0
-                if sign * dhdot < 2.0 * self.vertical_rate_mps:
-                    bias[up, 1] += self.vertical_bias
-                    bias[down, 1] -= self.vertical_bias
-                tags[up].append(f"UP({t_in:.0f}s)")
-                tags[down].append(f"DOWN({t_in:.0f}s)")
 
     def _solve_group(self, layer: CvxpyLayer, args: list[Tensor]) -> tuple[Tensor, Tensor]:
         """args: batched (S, ...) cpu tensors -> u (S, 3n), solved (S,) bool. Errors only hit their own scene."""
@@ -313,7 +273,7 @@ class AircraftSceneSeparationQPLayer(nn.Module):
         b_air: Tensor | None = None,      # (N, r)
     ) -> Tensor:
         N = u_ref_phys.shape[0]
-        device, dtype = u_ref_phys.device, u_ref_phys.dtype
+        device = u_ref_phys.device
         if batch_idx is None:
             batch_idx = torch.zeros(N, dtype=torch.long, device=device)
 
@@ -330,22 +290,8 @@ class AircraftSceneSeparationQPLayer(nn.Module):
         p_xyz = torch.stack([aircraft_pos[:, 0], aircraft_pos[:, 1], h], dim=-1)
         groups = scene_groups(batch_idx)
 
-        # stage 1 (optional): TCAS-like reference shaping
-        tags: list[list[str]] = [[] for _ in range(N)]
+        # separation QP, only for scenes with at least one active pair
         touched = torch.zeros(N, dtype=torch.bool, device=device)
-        if self.use_resolution:
-            bias = torch.zeros(N, 3, dtype=dtype, device=device)
-            with torch.no_grad():
-                for n, idx in groups.items():
-                    if n < 2:
-                        continue
-                    for nodes in idx:
-                        self._resolution_bias(nodes, p_xyz.detach(), aircraft_pos[:, 2].detach(), vel_all.detach(), bias, tags)
-            touched = (bias != 0).any(dim=-1)
-            u_ref = torch.where(touched.unsqueeze(-1), self._box_clamp(u_ref + bias, n_min, n_max, tanphi), u_ref)
-        self.last_tags = [",".join(t) for t in tags]
-
-        # stage 2: separation QP, only for scenes with at least one active pair
         u_out = u_ref.clone()
         solved_mask = torch.ones(N, dtype=torch.bool, device=device)
         active_mask = torch.zeros(N, dtype=torch.bool, device=device)

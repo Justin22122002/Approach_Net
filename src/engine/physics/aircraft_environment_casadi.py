@@ -199,8 +199,10 @@ class AircraftEnvironmentCasadi:
         # γ_{k+1} = γ_k + γ̇ · dt
         self.state.gamma += (gamma_dot * self.dt) * (180.0 / ca.pi)
 
-        # 𝒳̇ = (g · tan(φ)) / v
-        chi_dot = (9.81 * ca.tan(roll * (ca.pi / 180.0))) / ca.fmax(self.state.v, 1e-6)
+        # 𝒳̇ = (v_y · v̇_x - v_x · v̇_y) / v_h²
+        v_h_sq = v_vec[0] ** 2 + v_vec[1] ** 2
+        chi_dot = (v_vec[1] * v_dot[0] - v_vec[0] * v_dot[1]) / ca.fmax(v_h_sq, 1e-6)
+
         # 𝒳̇ _{k+1} = 𝒳_k + 𝒳̇ · dt
         self.state.chi += (chi_dot * self.dt) * (180.0 / ca.pi)
 
@@ -216,7 +218,7 @@ class AircraftEnvironmentCasadi:
             v̇ = ((T - D) / m) · t̂ + (L / m) · n̂ + g⃗
             T = m · ((v̇ - g⃗) · t̂) + D
             n = ((v̇ - g⃗) · n̂) / g
-            φ = arctan( v · 𝒳̇ / g )
+            φ = atan2( v_h · 𝒳̇ , v · γ̇ + g · cos(γ) )
         """
         # v⃗_k , v⃗_{k+1}
         v_vec_k = self.state.velocity_vector()
@@ -230,8 +232,16 @@ class AircraftEnvironmentCasadi:
         d_chi = d_chi - 360.0 * ca.floor((d_chi + 180.0) / 360.0)
         chi_dot = (d_chi * (ca.pi / 180.0)) / self.dt
 
-        # φ = arctan( v · 𝒳̇ / g )
-        roll = ca.atan((self.state.v * chi_dot) / 9.81) * (180.0 / ca.pi)
+        # γ̇ ≈ Δγ / dt
+        gamma_dot = ((next_state.gamma - self.state.gamma) * (ca.pi / 180.0)) / self.dt
+
+        # v, γ, v_h = v · cos(γ) at state k
+        v = self.state.v
+        gamma = self.state.gamma * (ca.pi / 180.0)
+        v_h = v * ca.cos(gamma)
+
+        # φ = atan2( v_h · 𝒳̇ , v · γ̇ + g · cos(γ) )
+        roll = ca.atan2(v_h * chi_dot, v * gamma_dot + 9.81 * ca.cos(gamma)) * (180.0 / ca.pi)
 
         # t̂, n̂ at state_k under this roll
         t_hat, _, n_hat = self.unit_vectors_with_roll(roll)
@@ -248,66 +258,6 @@ class AircraftEnvironmentCasadi:
 
         return thrust, load_factor, roll
 
-    def autopilot(self) -> tuple[ca.MX, ca.MX, ca.MX]:
-        p0 = ca.vertcat(self.state.x, self.state.y, self.state.h)
-        v_vec = self.state.velocity_vector()
-
-        # ---- Regler system -> v_dot = np.array([goal.x, goal.y, goal.h]) - p0
-        pos_error = ca.vertcat(self.goal.x, self.goal.y, self.goal.h) - p0
-        dist = ca.norm_2(pos_error)
-
-        direction = pos_error / ca.fmax(dist, 1e-6)
-
-        K = ca.fmin(ca.fmax(dist * 0.0001, 0.2), 2.0)
-        v_desired = direction * ca.fmin(dist * 0.5, 250.0)
-        v_dot = K * (v_desired - v_vec)
-        # ----
-
-        desired_chi = ca.atan2(
-            self.goal.x - self.state.x,
-            self.goal.y - self.state.y
-        )
-
-        current_chi = ca.atan2(v_vec[0], v_vec[1])
-
-        chi_dot = desired_chi - current_chi
-
-        roll = ca.atan((self.state.v * chi_dot) / 9.81) * (180.0 / ca.pi)
-
-        # this can be done, but we can also input for roll and load_factor = 0.0
-        t_hat, _, n_hat = self.unit_vectors_with_roll(roll=roll)
-        g_vec = self.gravity
-
-        t_hat, _, n_hat = self.unit_vectors_with_roll(roll)
-        load_factor = ca.dot(
-            (v_dot - self.gravity),
-            n_hat
-        ) / 9.81
-
-        requested_cl = self.state.required_lift_coefficient(load_factor=load_factor)
-        actual_cl = ca.fmin(requested_cl, self.state.aircraft_type.cl_max)
-
-        drag = self.state.drag_force(actual_cl)
-
-        # v̇ = ((T - D) / m) · (v⃗ / ‖v⃗‖) + (L / m) · n⃗ + g⃗
-        # T = m ( v̇ · t̂ ) + D
-        thrust = self.state.aircraft_type.mass * ca.dot(v_dot, t_hat) + drag
-
-        # n = ((v̇ - g) · n̂) / g
-        load_factor = ca.dot((v_dot - g_vec), n_hat) / 9.81
-
-        # 𝒳̇ = (g · tan(φ)) / v
-        desired_chi = ca.atan2(self.goal.x - self.state.x, self.goal.y - self.state.y)
-
-        current_chi = ca.atan2(v_vec[0], v_vec[1])
-
-        chi_dot = (desired_chi - current_chi)
-
-        # φ = arctan( v · 𝒳̇ / g )
-        roll = ca.atan((self.state.v * chi_dot) / 9.81) * (180.0 / ca.pi)
-
-        return thrust, load_factor, roll
-
 def main():
     import numpy as np
     from physics.aircraft_kinematics_state_casadi import AircraftKinematicsStateCasadi
@@ -319,6 +269,10 @@ def main():
         mass=60000.0,
         C_D0=0.02,
         area=122.0,
+        max_thrust=80_000,
+        max_load_factor=1.5,
+        min_load_factor=0.5,
+        max_roll_angle=30,
     )
 
     state = AircraftKinematicsStateCasadi(
@@ -342,7 +296,6 @@ def main():
     env = AircraftEnvironmentCasadi(
         state=state,
         goal=goal,
-        constraints=constraints,
         dt=dt
     )
 

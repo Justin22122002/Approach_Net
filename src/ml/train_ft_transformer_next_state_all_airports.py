@@ -29,9 +29,9 @@ if __name__ == "__main__":
     train_X, train_Y = [], []
 
     for airport_icao in airport_list_icao:
-        airport = Airport.load_from_folder(base_path=Path("../data/"), icao=airport_icao)
+        airport = Airport.load_from_folder(base_path=Path("./data/"), icao=airport_icao)
 
-        flight_dataset = LazyFlightParquetDataset(f"../data/{airport_icao}/train/{dataset_name}")
+        flight_dataset = LazyFlightParquetDataset(f"./data/{airport_icao}/train/{dataset_name}")
         dataset = LandingNextStateDataset(
             flight_dataset=flight_dataset,
             mode="bspline_state",
@@ -79,10 +79,10 @@ if __name__ == "__main__":
 
     trainer = LandingActionTrainer(
         model=model,
-        optimizer=optim.Adam(model.parameters(), lr=1e-4),
+        optimizer=optim.AdamW(model.parameters(), lr=1e-4, weight_decay=1e-5),
         loss=nn.MSELoss(),
         device=device,
-        results_path=Path("results/multiple_airports_landing_next_state_ft_transformer"),
+        results_path=Path("ml/results/multiple_airports_landing_next_state_ft_transformer"),
         patience=5,
     )
 

@@ -101,7 +101,7 @@ class RolloutEvaluator(metaclass=ABCMeta):
     def state_feat(self, state: AircraftKinematicsStateCasadi) -> np.ndarray:
         return np.array(
             [float(state.x) - self.cx, float(state.y) - self.cy, float(state.h) - self.airport_elev,
-             float(state.v), float(state.gamma), float(state.chi)], dtype=np.float32)
+             float(state.v), float(state.gamma), float(state.chi) % 360.0], dtype=np.float32)
 
     def setup_flight(self, ds: LandingActionDataset, idx: int) -> None:
         X, _, L, AP = ds._cache[idx]
@@ -322,7 +322,7 @@ class NextStateRollout(RolloutEvaluator, metaclass=ABCMeta):
     def step(self, state, pred: np.ndarray) -> dict:
         nx, ny, nh_rel, nv, ngamma, nchi = pred.tolist()
         state.x, state.y, state.h = nx + self.cx, ny + self.cy, nh_rel + self.airport_elev
-        state.v, state.gamma, state.chi = nv, ngamma, nchi
+        state.v, state.gamma, state.chi = nv, ngamma, nchi % 360.0
         return {}
 
     @override

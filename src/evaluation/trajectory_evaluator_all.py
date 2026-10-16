@@ -155,15 +155,22 @@ def rollout_experiment(label: str, output_dir_name: str, name: str, run_id: str,
     )
 
 
-RUN_FT_ACTION = "2026-08-05_21-33-34"
-RUN_FT_ACTION_CONSTRAINT_TRAINING = "2026-10-04_01-07-00" # 2026-10-04_01-07-00 2026-10-03_15-01-43 2026-10-06_20-40-23
-RUN_RESNET_ACTION = "2026-08-05_14-54-31"
-RUN_RESNET_ACTION_CONSTRAINT_TRAINING = "2026-10-05_02-31-22" # 2026-10-05_02-31-22 2026-10-05_02-28-26
-RUN_FT_NEXT_STATE = "2026-08-06_13-05-37"
-RUN_RESNET_NEXT_STATE = "2026-08-06_13-05-41"
+RUN_FT_ACTION = "2026-10-10_20-33-57"
+RUN_FT_ACTION_CONSTRAINT_TRAINING = "2026-10-11_06-09-41"
 
-RUN_FT_GNN = "2026-10-01_15-35-49"
-RUN_FT_GNN_CONSTRAINT_TRAINING = "2026-10-06_17-51-44" # 2026-10-06_17-51-44 2026-10-03_17-50-09
+RUN_RESNET_ACTION = "2026-10-10_20-02-35"
+RUN_RESNET_ACTION_CONSTRAINT_TRAINING = "2026-10-11_05-34-36"
+
+RUN_FT_NEXT_STATE = "2026-10-11_16-49-30"
+RUN_RESNET_NEXT_STATE = "2026-10-11_18-23-44"
+
+# 2026-10-10_23-39-39, 2026-10-12_11-33-15
+RUN_FT_GNN = "2026-10-10_23-39-39"
+# 2026-10-11_17-13-54, 2026-10-12_18-10-46
+RUN_FT_GNN_CONSTRAINT_TRAINING = "2026-10-11_17-13-54"
+
+RUN_RESNET_GNN = "2026-10-12_21-14-14"
+RUN_RESNET_GNN_CONSTRAINT_TRAINING = "2026-10-13_12-57-59"
 
 EXPERIMENTS: list[dict] = [
     rollout_experiment(
@@ -256,6 +263,26 @@ EXPERIMENTS: list[dict] = [
         "multiple_airports_ft_transformer_gnn_rollout_constraint_training",
         "gnn",
         RUN_FT_GNN_CONSTRAINT_TRAINING,
+        constrained=True
+    ),
+    rollout_experiment(
+        "RESNET_GNN_BASELINE",
+        "multiple_airports_resnet_101_gnn_rollout",
+        "gnn",
+        RUN_RESNET_GNN
+    ),
+    rollout_experiment(
+        "RESNET_GNN_CONSTRAINT",
+        "multiple_airports_resnet_101_gnn_rollout_constraint",
+        "gnn",
+        RUN_RESNET_GNN,
+        constrained=True
+    ),
+    rollout_experiment(
+        "RESNET_GNN_CONSTRAINT_TRAINING",
+        "multiple_airports_resnet_101_gnn_rollout_constraint_training",
+        "gnn",
+        RUN_RESNET_GNN_CONSTRAINT_TRAINING,
         constrained=True
     ),
 ]
