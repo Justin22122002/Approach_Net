@@ -3,11 +3,14 @@ import os
 import re
 
 import requests
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 BASE_URL = "https://data.skylinkapi.com/v3.1"
 
-API_KEY = "07C087E2-39CA-4EAD-9022-1585523FC770"
+API_KEY = os.environ["APPROCH_PLATE_API_KEY"]
 
 HEADERS = {
     "x-api-key": API_KEY,
