@@ -99,9 +99,7 @@ if __name__ == "__main__":
         y_mean=y_mean,
         y_std=y_std,
         debug=False,
-        solver=cp.MOREAU, # cp.SCS
-        # parameter for training
-        # rho_track=0.01,
+        solver=cp.MOREAU,
     )
 
     optimizer = optim.AdamW(qp_layer.parameters(), lr=1e-5, weight_decay=1e-5) # lr=1e-4

@@ -33,22 +33,37 @@ generalize across multiple airports, runways, and aircraft types.
 
 ## Get started
 
-All experiments were conducted with Python 3.13 and the package versions specified in
-the `requirements.txt` file in the root folder of this project.
+All experiments were conducted with Python 3.13. The exact package versions are pinned in
+`src/pyproject.toml` / `src/uv.lock` (recommended, managed with [uv](https://docs.astral.sh/uv/))
+and additionally exported to `src/requirements.txt`. PyTorch is installed with CUDA 12.6
+from the PyTorch index. For the constraint training, CUDA 12 or 13 and a Linux environment
+(or WSL) is needed, otherwise the script will fail with `MOREAU not found`.
 
-1. Create and activate a virtual environment in the root folder of this project:
-    ```python -m venv venv```
-    Windows: ```venv\Scripts\activate```
-    Linux/macOS: ```source venv/bin/activate```
+1. Create a virtual environment in the src folder of this project, either with uv as the
+   package manager (recommended) or with pip and the requirements.txt file:
+    1. uv:
+```bash
+        curl -LsSf https://astral.sh/uv/install.sh | sh    # Windows: powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+        cd src
+        uv venv --python 3.13
+```
+    2. pip:
+```bash
+        cd src
+        python -m venv .venv
+```
+        Windows: ```.venv\Scripts\activate```  
+        Linux/macOS: ```source .venv/bin/activate```
 2. Install the required packages:
-    ```pip install -r requirements.txt```
-3. Always run the scripts with `src` as the working directory, either from the console
+    1. uv: ```uv sync --frozen```
+    2. pip: ```pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cu126```
+3. Always run the scripts with `src` as the working directory with ```python3``` / ```python``` or ```uv run ...```, either from the console
    (`cd src`) or in PyCharm / VS Code with the working directory set to `src`.
    All paths are relative to `src` (`./data`, `ml/results/...`).
 4. If you use the dataset provided with our paper, you can skip the
    [Login / Account requirements](#login--account-requirements) and the
    [Data Retrieval](#data-retrieval) and directly place the data under `src/data`. For that please download
-   the dataset form https://huggingface.co/datasets/Justin22122002/ApproachNet and go directly to [Experiments](#experiments).
+   the dataset from https://huggingface.co/datasets/Justin22122002/ApproachNet and go directly to [Experiments](#experiments).
 
 ### Login / Account requirements
 
@@ -136,14 +151,15 @@ downloaded test Trino dataset.
 
 ## Run the full pipeline
 
-`src/run_all_trainings.sh` runs all trainings (steps 1–5), all rollouts and the final
+`src/run_all.sh` runs all trainings (steps 1–5), all rollouts and the final
 evaluation in the right order. The result timestamp of every training is passed
-automatically to the dependent trainings and evaluations.
+automatically to the dependent trainings and evaluations. Note please source the python venv. 
+before running the script.
 
 ```bash
 cd src
-./run_all_trainings.sh --test                    # dry run, see below
-nohup ./run_all_trainings.sh --with-rnav > pipeline.log 2>&1 &
+./run_all.sh --test                    # dry run, see below
+nohup ./run_all.sh --with-rnav > pipeline.log 2>&1 &
 tail -f pipeline.log
 ```
 
