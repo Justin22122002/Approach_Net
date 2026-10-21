@@ -42,16 +42,16 @@ from the PyTorch index. For the constraint training, CUDA 12 or 13 and a Linux e
 1. Create a virtual environment in the src folder of this project, either with uv as the
    package manager (recommended) or with pip and the requirements.txt file:
     1. uv:
-```bash
-        curl -LsSf https://astral.sh/uv/install.sh | sh    # Windows: powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
-        cd src
-        uv venv --python 3.13
-```
+    ```bash
+            curl -LsSf https://astral.sh/uv/install.sh | sh    # Windows: powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+            cd src
+            uv venv --python 3.13
+    ```
     2. pip:
-```bash
-        cd src
-        python -m venv .venv
-```
+    ```bash
+            cd src
+            python -m venv .venv
+    ```
         Windows: ```.venv\Scripts\activate```  
         Linux/macOS: ```source .venv/bin/activate```
 2. Install the required packages:
