@@ -13,5 +13,8 @@ class ResNet101NextStateRollout(NextStateRollout):
 
 
 if __name__ == "__main__":
-    RESULT_DIR = "../ml/results/multiple_airports_landing_next_state_resnet101_torchvision/2026-10-11_18-23-44"
-    ResNet101NextStateRollout(RESULT_DIR).run_airports("multiple_airports_next_state_resnet101_rollout")
+    RESULT_DIR = "ml/results/multiple_airports_landing_next_state_resnet101_torchvision/2026-10-11_18-23-44"
+    ResNet101NextStateRollout(RESULT_DIR).run_airports(
+        output_folder="multiple_airports_next_state_resnet101_rollout",
+        data_root="./data",
+    )

@@ -39,7 +39,7 @@ if __name__ == "__main__":
     # --- warm start: complete pretrained MultiAircraftLandingGNN (encoder + GNN layers + head) ---
     # results folder of an unconstrained multi_aircraft_gnn run (BaseTrainer -> best_model.pth = gnn.state_dict()),
     # a constrained run works too with GNN_CHECKPOINT_NAME = "best_base_model.pth"
-    GNN_TIME: str = "2026-10-12_11-33-15" # 2026-10-10_23-39-39 2026-10-12_11-33-15
+    GNN_TIME: str = "2026-10-16_06-08-04" # 2026-10-10_23-39-39 2026-10-12_11-33-15 2026-10-16_06-08-04
     PRETRAINED_GNN_DIR: Path | None = Path(f"ml/results/multiple_airports_landing_action_ft_transformer_gnn/{GNN_TIME}")
     GNN_CHECKPOINT_NAME: str = "best_model.pth"
 

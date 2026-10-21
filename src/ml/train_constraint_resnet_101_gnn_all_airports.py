@@ -36,7 +36,7 @@ if __name__ == "__main__":
         # "CYEG",
     ]
 
-    GNN_TIME: str = "2026-10-12_21-14-14"
+    GNN_TIME: str = "2026-10-16_06-21-55"
     PRETRAINED_GNN_DIR: Path | None = Path(f"ml/results/multiple_airports_landing_action_resnet101_torchvision_gnn/{GNN_TIME}")
     GNN_CHECKPOINT_NAME: str = "best_model.pth"
 
@@ -81,8 +81,8 @@ if __name__ == "__main__":
     final_val_set = ConcatDataset(val_views)
     print(f"total train timesteps: {len(final_train_set)}, val timesteps: {len(final_val_set)}")
 
-    train_loader = DataLoader(final_train_set, batch_size=64, shuffle=True, collate_fn=graph_collate_fn)
-    val_loader = DataLoader(final_val_set, batch_size=64, shuffle=False, collate_fn=graph_collate_fn)
+    train_loader = DataLoader(final_train_set, batch_size=128, shuffle=True, collate_fn=graph_collate_fn)
+    val_loader = DataLoader(final_val_set, batch_size=128, shuffle=False, collate_fn=graph_collate_fn)
 
     device = ConstrainedMultiAircraftGNNTrainer.get_device()
 

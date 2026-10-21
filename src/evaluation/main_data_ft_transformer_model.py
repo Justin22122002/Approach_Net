@@ -15,5 +15,8 @@ class FTTransformerActionRollout(ActionRollout):
 if __name__ == "__main__":
     # 2026-08-05_21-33-34
     # new model
-    RESULT_DIR = "../ml/results/multiple_airports_landing_action_ft_transformer/2026-10-10_20-33-57"
-    FTTransformerActionRollout(RESULT_DIR).run_airports("multiple_airports_ft_transformer_rollout")
+    RESULT_DIR = "ml/results/multiple_airports_landing_action_ft_transformer/2026-10-10_20-33-57"
+    FTTransformerActionRollout(RESULT_DIR).run_airports(
+        output_folder="multiple_airports_ft_transformer_rollout",
+        data_root="./data",
+    )

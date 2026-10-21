@@ -103,13 +103,13 @@ coordinate standard / sphere projection: https://dataspace.copernicus.eu/sites/d
 -> (WGS84-G1150; EPSG 4326)
 -> The vertical reference datum is the Earth Gravitational Model 20081 (EGM2008; EPSG 3855).
 
-### flightplandatabase
+### X-Plane Scenery Gateway
 
-api: https://api.flightplandatabase.com/nav/airport -> https://flightplandatabase.com/dev/api
+api: https://gateway.x-plane.com/apiv1 -> https://gateway.x-plane.com
 
 coordinate standard / sphere projection: -> WGS84
 
-### airac.net
+### airac.net / AIRAC API
 
 api: https://airac.net/api/v1
 

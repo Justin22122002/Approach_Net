@@ -2,11 +2,11 @@ import cvxpy as cp
 
 from evaluation.utils.multi_rollout_evaluator import MultiAircraftRollout
 
-# 2026-10-11_17-13-54, 2026-10-12_18-10-46
-RESULT_DIR_CONSTRAINT_TRAINING = "ml/results/multiple_airports_landing_action_constraint_ft_transformer_gnn/2026-10-12_18-10-46"
-# 2026-10-10_23-39-39, 2026-10-12_11-33-15
-RESULT_DIR_CONSTRAINT = "ml/results/multiple_airports_landing_action_ft_transformer_gnn/2026-10-12_11-33-15"
-RESULT_DIR = "ml/results/multiple_airports_landing_action_ft_transformer_gnn/2026-10-12_11-33-15"
+# 2026-10-11_17-13-54, 2026-10-12_18-10-46, 2026-10-16_20-10-17
+RESULT_DIR_CONSTRAINT_TRAINING = "ml/results/multiple_airports_landing_action_constraint_ft_transformer_gnn/2026-10-16_20-10-17"
+# 2026-10-10_23-39-39, 2026-10-12_11-33-15, 2026-10-16_06-08-04
+RESULT_DIR_CONSTRAINT = "ml/results/multiple_airports_landing_action_ft_transformer_gnn/2026-10-16_06-08-04"
+RESULT_DIR = "ml/results/multiple_airports_landing_action_ft_transformer_gnn/2026-10-16_06-08-04"
 
 
 if __name__ == "__main__":

@@ -121,4 +121,8 @@ class RnavOptimizerRollout(RolloutEvaluator):
 
 if __name__ == "__main__":
     rollout = RnavOptimizerRollout(dataset_name=DATASET_NAME, N=200, T_min=60.0, T_max=1800.0)
-    rollout.run_airports("rnav_optimized", dataset_name=rollout.run_id)
+    rollout.run_airports(
+        output_folder="rnav_optimized",
+        dataset_name=rollout.run_id,
+        data_root="./data",
+    )
