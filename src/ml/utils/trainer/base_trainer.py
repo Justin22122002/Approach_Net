@@ -41,7 +41,8 @@ class BaseTrainer[INPUTS: Tensor, OUTPUTS: Tensor, LABELS: Tensor, METRICS: Base
         self.best_val_loss: float = float("inf")
         self.patience_counter: float = 0
         self.metrics_list: list[METRICS | TrainingMetrics] = []
-        self.results_path: Path | None = results_path / datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        self.results_folder_name: str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        self.results_path: Path | None = results_path / self.results_folder_name
         self.is_classification: bool = self._is_classification_loss(loss)
 
     @abstractmethod
