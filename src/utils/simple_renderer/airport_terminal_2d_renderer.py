@@ -4,7 +4,7 @@ import pygame
 from pygame import Surface
 
 from rendering.renderable import Renderable
-from src.utils.airport_terminal import AirportTerminal
+from utils.airport_terminal import AirportTerminal
 
 
 class AirportTerminal2dRenderer(Renderable):

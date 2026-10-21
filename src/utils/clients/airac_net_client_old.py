@@ -2,11 +2,11 @@ from typing import Any
 
 import requests
 
-from src.utils.approch import Approach
-from src.utils.clients.sqlite_airinc24_database_client import extract_runway_from_procedure
-from src.utils.fix_identifier import FixIdentifier
-from src.utils.arinc_runway import ArincRunway
-from src.utils.geo_types import Coordinate
+from utils.approch import Approach
+from utils.clients.sqlite_airinc24_database_client import extract_runway_from_procedure
+from utils.fix_identifier import FixIdentifier
+from utils.arinc_runway import ArincRunway
+from utils.geo_types import Coordinate
 
 
 class AiracNetClientOld:

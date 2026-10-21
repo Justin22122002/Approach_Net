@@ -5,7 +5,7 @@ import pygame
 from pygame import Surface
 
 from rendering.renderable import Renderable, GeoToScreenFunction
-from src.utils.terrain import Terrain
+from utils.terrain import Terrain
 
 
 class Terrain2dRenderer(Renderable):

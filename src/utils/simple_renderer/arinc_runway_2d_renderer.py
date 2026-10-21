@@ -4,8 +4,8 @@ import pygame
 from pygame import Surface
 
 from rendering.renderable import Renderable, GeoToScreenFunction
-from src.utils.arinc_runway import ArincRunway
-from src.utils.simple_renderer.approach_2d_renderer import Approach2dRenderer
+from utils.arinc_runway import ArincRunway
+from utils.simple_renderer.approach_2d_renderer import Approach2dRenderer
 
 
 class ArincRunway2dRenderer(Renderable):

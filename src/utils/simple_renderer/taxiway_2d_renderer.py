@@ -4,7 +4,7 @@ import pygame
 from pygame import Surface
 
 from rendering.renderable import Renderable
-from src.utils.taxiway import Taxiway
+from utils.taxiway import Taxiway
 
 
 class Taxiway2dRenderer(Renderable):

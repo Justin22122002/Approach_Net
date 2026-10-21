@@ -20,7 +20,6 @@ def main():
 
     frankfurt = Airport.load_from_folder(basePath, "EDDF")
     toronto = Airport.load_from_folder(basePath, "CYYZ")
-    jfk = Airport.load_from_folder(basePath, "KJFK")
 
     airport = toronto
 

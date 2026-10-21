@@ -4,12 +4,12 @@ import pygame
 from pygame import Surface
 
 from rendering.renderable import Renderable
-from src.utils.airport import Airport
-from src.utils.simple_renderer.airport_terminal_2d_renderer import AirportTerminal2dRenderer
-from src.utils.simple_renderer.arinc_runway_2d_renderer import ArincRunway2dRenderer
-from src.utils.simple_renderer.open_street_map_runway_2d_renderer import OpenStreetMapRunway2dRenderer
-from src.utils.simple_renderer.taxiway_2d_renderer import Taxiway2dRenderer
-from src.utils.simple_renderer.terrain_2d_renderer import Terrain2dRenderer
+from utils.airport import Airport
+from utils.simple_renderer.airport_terminal_2d_renderer import AirportTerminal2dRenderer
+from utils.simple_renderer.arinc_runway_2d_renderer import ArincRunway2dRenderer
+from utils.simple_renderer.open_street_map_runway_2d_renderer import OpenStreetMapRunway2dRenderer
+from utils.simple_renderer.taxiway_2d_renderer import Taxiway2dRenderer
+from utils.simple_renderer.terrain_2d_renderer import Terrain2dRenderer
 
 
 class Airport2dRenderer(Renderable):

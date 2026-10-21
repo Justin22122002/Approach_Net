@@ -16,16 +16,13 @@ HEADERS = {
     "x-api-key": API_KEY,
 }
 
-
 def sanitize_filename(name: str) -> str:
-    """Convert a chart name into a filesystem-safe filename."""
     name = re.sub(r'[<>:"/\\|?*]', "_", name)
     name = re.sub(r"\s+", " ", name).strip()
     return name
 
 
 def get_approach_charts(icao: str) -> list[dict]:
-    """Get all approach chart metadata for an airport."""
     icao = icao.upper().strip()
 
     response = requests.get(
@@ -48,7 +45,6 @@ def download_chart(
     chart: dict,
     output_dir: Path,
 ) -> Path:
-    """Download one approach chart PDF."""
     name = chart["name"]
     url = chart["url"]
 

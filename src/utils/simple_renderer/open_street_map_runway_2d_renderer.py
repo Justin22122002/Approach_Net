@@ -4,7 +4,7 @@ import pygame
 from pygame import Surface
 
 from rendering.renderable import Renderable
-from src.utils.open_street_map_runway import OpenStreetMapRunway
+from utils.open_street_map_runway import OpenStreetMapRunway
 
 
 class OpenStreetMapRunway2dRenderer(Renderable):

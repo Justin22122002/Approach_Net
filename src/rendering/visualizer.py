@@ -1,7 +1,7 @@
 import pygame
 from pyproj import Transformer
 
-from src.rendering.renderable import Renderable
+from rendering.renderable import Renderable
 
 transformer = Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)
 
