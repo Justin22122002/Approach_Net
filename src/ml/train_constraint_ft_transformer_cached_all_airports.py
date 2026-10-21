@@ -104,7 +104,7 @@ if __name__ == "__main__":
         results_path=Path("ml/results/multiple_airports_landing_action_constraint_ft_transformer"),
         patience=5,  # 5 10
         scheduler=optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=3), # 2
-        tau=2.7
+        tau=2.7,
     )
 
     trainer.save_normalization(x_mean, x_std, y_mean, y_std)

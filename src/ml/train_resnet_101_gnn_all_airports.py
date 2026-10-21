@@ -18,8 +18,6 @@ if __name__ == "__main__":
 
     dataset_name: str = "20260802_0920"
 
-    time: str = "2026-10-10_20-02-35"
-
     airport_list_icao: list[str] = [
         "CYVR",
         "CYUL",
@@ -27,11 +25,6 @@ if __name__ == "__main__":
         # "CYYC",
         # "CYEG",
     ]
-
-    PRETRAINED_ENCODER_PATH: Path | None = Path(
-        f"ml/results/multiple_airports_landing_action_resnet101_torchvision/{time}/best_model.pth"
-    )
-    USE_PRETRAINED_ENCODER: bool = False
 
     per_airport: list[tuple[MultiAircraftLandingActionDataset, list[int], list[int]]] = []
     all_train_X, all_train_Y = [], []
@@ -82,7 +75,6 @@ if __name__ == "__main__":
         input_dim=per_airport[0][0].input_dim,  # 15, same layout across airports
         action_dim=3,
         encoder_type="resnet101",
-        pretrained_encoder_path=PRETRAINED_ENCODER_PATH if USE_PRETRAINED_ENCODER else None,
     )
 
     trainer = MultiAircraftGNNTrainer(
