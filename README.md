@@ -184,8 +184,6 @@ At the end of the pipeline, the summary file is saved under `src/data/summary_ex
 To exactly recreate the tables, use `src/evaluation/main_table_generation.py`.
 
 Notes:
-- On Linux / WSL the `engine` folder must be on the `PYTHONPATH` (PyCharm does this
-  automatically when it is marked as *Sources Root*); the pipeline script sets it.
 - The pipeline stops at the first failing script. Search the log with
   `grep -E "ERROR|Traceback|\[WARN\]" pipeline.log`.
 - `--test` also executes all imports, so missing packages / modules are found before a long run.
