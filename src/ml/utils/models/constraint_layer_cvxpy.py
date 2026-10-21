@@ -122,9 +122,6 @@ class _QPLayerBase(nn.Module):
         parameters = [u_nn, n_min, n_max, tanphi, A, b]
 
         if n_track_rows > 0:
-            # soft centerline-tracking cost (FAF -> threshold line): NOT a barrier/constraint,
-            # so it can never make the QP infeasible - it only nudges u towards whatever
-            # action drives (e_y, e_z) and their rates back onto the nominal approach path.
             A_track = cp.Parameter((n_track_rows, 3))
             b_track = cp.Parameter(n_track_rows)
             objective_expr = objective_expr + self.rho_track * cp.sum_squares(A_track @ u + b_track)
@@ -184,7 +181,6 @@ class _QPLayerBase(nn.Module):
                 s_out[finite_idx] = s_sub
                 solved_mask[finite_idx] = True
             except Exception as e:
-                # todo: use best iteration of the solver
                 print(f"[qp] WARN: batched solve over {finite_idx.numel()} finite samples failed ({e}) " f"-> falling back to box-clamp for this subset")
 
         unsolved_idx = (~solved_mask).nonzero(as_tuple=True)[0]
@@ -405,13 +401,6 @@ class AircraftFunnelQPLayer(_QPLayerBase):
         thr_half_width_lat_m: float,
         lgsa_deg: float | None = None,
     ) -> tuple[Tensor, Tensor]:
-        """
-        per-sample (batched) version of the LPV lateral geometry from __init__.
-        runway_length_m: (B,) in meters, NaN / <= 0 -> 9023 ft FPAP floor (same as runway_length_m=None)
-        returns d_garp (B,) [m] and tan_lgsa (B,)
-          para. 3-1-5.c(1) + c(3)(a): FPAP = max(runway length, 9023 ft), GARP = FPAP + 1000 ft
-          Formula 3-1-1: course width at threshold = max(350 ft, tan(1.5 deg) * d_GARP) -> tan(LGSA_eff)
-        """
         length_ft = torch.nan_to_num(runway_length_m / 0.3048, nan=0.0, posinf=0.0, neginf=0.0)
         fpap_ft = torch.clamp(length_ft, min=9023.0)
         d_garp = (fpap_ft + 1000.0) * 0.3048
@@ -425,11 +414,6 @@ class AircraftFunnelQPLayer(_QPLayerBase):
 
     @staticmethod
     def fix_distance(fix_pos: Tensor, runway_pos: Tensor) -> Tensor:
-        """
-        distance [m] of an approach fix (FAF, IF, ...) to the runway fix, measured along the landing axis
-        (same definition as s_ in compute_rows, so it can directly be compared to s_).
-        fix_pos: (B, 2) = (x, y), runway_pos: (B, 3) = (fix_x, fix_y, chi_r_deg), same frame.
-        """
         x, y = fix_pos.unbind(dim=-1)
         fix_x, fix_y, chi_r_deg = runway_pos.unbind(dim=-1)
         chi_r = torch.deg2rad(chi_r_deg)
@@ -521,14 +505,8 @@ class AircraftFunnelQPLayer(_QPLayerBase):
         auhe = F.g * cdel
         be = -cos_g * sdel * drag / mass
 
-        # --- RNAV LPV funnel half-widths (replace the ILS-style linear c_y0 + kappa_y*s funnel) ---
-        # lateral: angular sector about the GARP, linear in s -> w_lat(s) = tan(LGSA)*(s + d_GARP)
-        #   [FAA Order 8260.58D, Formula 3-1-1 + para. 3-1-5.c(3)(b), p. 3-7/3-8]
         cy = tan_lgsa * (s_ + d_garp) # [-cy,+cy] -> allowed lateral corridor -> e.g. funnel
 
-        # vertical: angular FSD, clamped -> w_vert(s) = clamp(tan(0.25*GPA)*s, fsd_v_min, fsd_v_max)
-        #   [RTCA DO-229 (WAAS MOPS)] -> NOT linear anymore, so d(cz)/ds is tan(0.25*GPA) only
-        #   inside the ramp and 0 in the clamped flats (piecewise-linear -> a.e. differentiable)
         raw_wz = tan_fsdv * s_
         ramp_active = (raw_wz >= fsd_v_min) & (raw_wz <= fsd_v_max)
         cz = torch.clamp(raw_wz, min=fsd_v_min, max=fsd_v_max)
@@ -536,10 +514,6 @@ class AircraftFunnelQPLayer(_QPLayerBase):
 
         hy = cy ** 2 - e_y ** 2 # h_y > 0, am i inside of the lateral funnel, cause with cy grows s_
         hz = cz ** 2 - e_z ** 2
-        # clamp only what feeds into b: |hy|/|hz| grow quadratically with distance, so far
-        # outside the funnel they'd otherwise dominate b and make the QP ill-conditioned
-        # (SCS then tends to falsely report "infeasible" even though s can always absorb
-        # the gap). hy_dot/hz_dot below are unaffected - they don't depend on hy/hz.
         hy_c = torch.clamp(hy, min=-h_floor)
         hz_c = torch.clamp(hz, min=-h_floor)
         # first order derivatives of the barrier functions see 4 lines above for reference
@@ -563,35 +537,12 @@ class AircraftFunnelQPLayer(_QPLayerBase):
         A = torch.stack([r1a, r2a], dim=1)
         b = torch.stack([r1b, r2b], dim=1)
 
-        # Gating: activate the funnel constraint only within a valid distance
-        # window (s_min < s_ < s_activate_funnel) and heading cone (heading_ok).
-        # Outside that range the constraint would be geometrically meaningless
-        # or numerically fragile, but the QP still needs a fixed-size row, so
-        # instead of removing it, we neutralize it: A -> 0 and b -> 1 turn the
-        # row into "0*u + 1 + s >= 0", which is trivially satisfied for any u
-        # and any s=0, i.e. no effect on the solve.
         heading_ok = (cdel > cos_gate).float()
         active = ((s_ > s_min) & (s_ < s_activate_funnel)).float() * heading_ok
         gate = torch.stack([active, active], dim=1)
         A = A * gate.unsqueeze(-1)
         b = torch.where(gate > 0, b, torch.ones_like(b))
 
-        # --- soft centerline-tracking cost, NOT a barrier ---
-        # cost term in the QP objective (never makes the QP infeasible), activated once the
-        # aircraft is within s_activate_track of the threshold and roughly heading towards the runway.
-        # Independent of s_activate_funnel, so the 30 deg intercept can start earlier/later than the funnel.
-        #
-        # lateral: heading-reference (vector-field) guidance instead of a PD on e_y.
-        # A PD on e_y commands a lateral acceleration proportional to the offset, so far from
-        # the centerline the aircraft turns up to 90 deg towards it and overshoots. Here a
-        # commanded heading error delta_des is derived from e_y, saturated at
-        # +-intercept_angle_deg (localizer-style 30 deg intercept) and shrinking smoothly to 0
-        # near the centerline; the cost only asks the heading to follow delta_des:
-        #   delta_des = -chi_int * (2/pi) * atan(k_vf * e_y)
-        #   target:     delta_dot = -k_heading * wrap(delta - delta_des)
-        # with chi_dot = g * uh / (v cos gamma) this is linear in u; multiplied by v cos gamma the
-        # row is in m/s^2 (same units as the vertical row):
-        #   residual = g * uh + v cos gamma * k_heading * wrap(delta - delta_des)
         chi_int = intercept_angle_deg * DEG2RAD
         delta_des = -chi_int * (2.0 / math.pi) * torch.atan(k_vf * e_y)
         delta_err = torch.atan2(torch.sin(delta - delta_des), torch.cos(delta - delta_des))

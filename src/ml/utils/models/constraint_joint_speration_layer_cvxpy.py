@@ -23,36 +23,6 @@ def scene_groups(batch_idx: Tensor) -> dict[int, Tensor]:
 
 
 class AircraftSceneSeparationQPLayer(nn.Module):
-    """
-    Pairwise separation safety filter (HOCBF) for a batch of scenes with a VARIABLE number of aircraft.
-    Same barrier as AircraftJointSeparationQPLayer, but:
-      - no base_model: it filters a given reference action u_ref (e.g. the output of AircraftCombinedQPLayer)
-      - batched over scenes via batch_idx (same convention as MultiAircraftLandingGNN / the multi dataset),
-        scenes are grouped by aircraft count, one cvxpy problem per count (built lazily, cached)
-      - optionally keeps the per-aircraft rows (envelope + funnel, A_air/b_air) as constraints, so avoiding a
-        conflict can't silently break the stall/funnel constraints of stage 1
-      - scenes without an active pair (all pairs farther than sep_activate_m) are NOT solved -> output = u_ref
-      - a failing solve only affects its own scene: batched solve -> on error per-scene solves -> on error
-        the scene keeps u_ref (= the already constrained stage-1 output)
-
-    Barrier (superellipsoid, same exponent n as SeparationGeometry, default n = 4):
-        q_h = (Δx² + Δy²) / D_h'²,   q_v = Δh² / D_v'²,   m = n / 2
-        h   = q_h^m + q_v^m − 1                      (h > 0 -> separated)
-        ḣ   = m q_h^(m−1) q̇_h + m q_v^(m−1) q̇_v
-        ḧ   = m(m−1) q_h^(m−2) q̇_h² + m q_h^(m−1) q̈_h + (same for v)
-        q̇_h = 2 (Δx Δẋ + Δy Δẏ) / D_h'²,          q̈_h = 2 (Δẋ² + Δẏ² + Δx Δẍ + Δy Δÿ) / D_h'²
-        q̇_v = 2 Δh Δḣ / D_v'²,                    q̈_v = 2 (Δḣ² + Δh Δḧ) / D_v'²
-      with D' = 2^(1/n) · D (contain_cylinder=True), so the FAA cylinder is fully contained.
-      ḧ is affine in the relative acceleration Δp̈ = p̈_i − p̈_j, which is affine in u -> HOCBF row is linear in u:
-        ḧ + (k1 + k2) ḣ + k1 k2 h >= 0
-
-    QP per scene with n aircraft, u = [T~_1, uv_1, uh_1, ..., T~_n, uv_n, uh_n]:
-        min  ||w (u - u_ref)||^2 + rho_slack ||s||^2
-        s.t. box constraints per aircraft (thrust, load factor, roll)
-             A_air u + b_air + s >= 0          (optional, per-aircraft rows, block diagonal)
-             A_pair u + b_pair + s >= 0        (one HOCBF row per pair, gated by sep_activate_m)
-    """
-
     def __init__(
         self,
         solver: str | None = None,
@@ -139,7 +109,6 @@ class AircraftSceneSeparationQPLayer(nn.Module):
 
     @staticmethod
     def _accel_coeffs(h, v, gamma, chi, mass, C_D0, area, cl_max, k, t_max, n_ref):
-        """same as AircraftJointSeparationQPLayer._accel_coeffs: p_ddot = a @ u + b, velocity vector"""
         F = AircraftFormulasTorch
         gam, chir = torch.deg2rad(gamma), torch.deg2rad(chi)
         sing, cosg = torch.sin(gam), torch.cos(gam)
