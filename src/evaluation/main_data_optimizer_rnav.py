@@ -5,7 +5,7 @@ from typing_extensions import override
 from evaluation.utils.rollout_evaluator import DATASET_NAME, RolloutEvaluator
 from ml.utils.data_loader.landing_action_dataset import LandingActionDataset
 from ml.utils.run_cli import exit_if_test, parse_run_args
-from physics.landing_optimizer_rnav import LandingTrajectoryRnavOptimizer, state_to_casadi
+from engine.physics.landing_optimizer_rnav import LandingTrajectoryRnavOptimizer, state_to_casadi
 
 
 class RnavOptimizerRollout(RolloutEvaluator):
