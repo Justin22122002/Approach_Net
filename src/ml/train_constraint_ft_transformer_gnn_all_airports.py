@@ -16,6 +16,7 @@ from ml.utils.models.graph_attention_model import MultiAircraftLandingGNN
 from ml.utils.trainer.constrained_multi_aircraft_gnn_trainer import ConstrainedMultiAircraftGNNTrainer
 from ml.utils.trainer.multi_aircraft_GNN_trainer import graph_collate_fn
 from utils.airport import Airport
+from ml.utils.run_cli import exit_if_test, parse_run_args, report_results_folder
 
 
 def load_norm(path: Path) -> tuple[np.ndarray, np.ndarray]:
@@ -24,6 +25,8 @@ def load_norm(path: Path) -> tuple[np.ndarray, np.ndarray]:
 
 
 if __name__ == "__main__":
+    args = parse_run_args()
+
     ConstrainedMultiAircraftGNNTrainer.set_seed()
 
     dataset_name: str = "20260802_0920"
@@ -39,9 +42,11 @@ if __name__ == "__main__":
     # --- warm start: complete pretrained MultiAircraftLandingGNN (encoder + GNN layers + head) ---
     # results folder of an unconstrained multi_aircraft_gnn run (BaseTrainer -> best_model.pth = gnn.state_dict()),
     # a constrained run works too with GNN_CHECKPOINT_NAME = "best_base_model.pth"
-    GNN_TIME: str = "2026-10-16_06-08-04" # 2026-10-10_23-39-39 2026-10-12_11-33-15 2026-10-16_06-08-04
+    GNN_TIME: str = args.pretrained_dir or "2026-10-16_06-08-04" # 2026-10-10_23-39-39 2026-10-12_11-33-15 2026-10-16_06-08-04
     PRETRAINED_GNN_DIR: Path | None = Path(f"ml/results/multiple_airports_landing_action_ft_transformer_gnn/{GNN_TIME}")
     GNN_CHECKPOINT_NAME: str = "best_model.pth"
+
+    exit_if_test(args, __file__, GNN_TIME=GNN_TIME, PRETRAINED_GNN_CKPT=PRETRAINED_GNN_DIR / GNN_CHECKPOINT_NAME)
 
     per_airport: list[tuple[MultiAircraftLandingActionDataset, list[int], list[int]]] = []
     all_train_X, all_train_Y = [], []
@@ -116,6 +121,7 @@ if __name__ == "__main__":
         tau=2.7,
     )
 
+    report_results_folder(trainer.results_folder_name, args.result_file)
     trainer.save_normalization(x_mean, x_std, y_mean, y_std)
     trainer.train(train_loader, val_loader, epochs=200)
 

@@ -4,6 +4,7 @@ from typing_extensions import override
 
 from evaluation.utils.rollout_evaluator import DATASET_NAME, RolloutEvaluator
 from ml.utils.data_loader.landing_action_dataset import LandingActionDataset
+from ml.utils.run_cli import exit_if_test, parse_run_args
 from physics.landing_optimizer_rnav import LandingTrajectoryRnavOptimizer, state_to_casadi
 
 
@@ -120,6 +121,9 @@ class RnavOptimizerRollout(RolloutEvaluator):
 
 
 if __name__ == "__main__":
+    args = parse_run_args()
+    exit_if_test(args, __file__, dataset_name=DATASET_NAME)
+
     rollout = RnavOptimizerRollout(dataset_name=DATASET_NAME, N=200, T_min=60.0, T_max=1800.0)
     rollout.run_airports(
         output_folder="rnav_optimized",

@@ -1,14 +1,9 @@
-import os
 from pathlib import Path
 
 from pyproj import Transformer
 
-from utils.clients.open_airport_map_client import get_bbox_simple
-from utils.texture import Texture
 from utils.airport import Airport
 from utils.arinc_runway import ArincRunway
-from utils.clients.terrain_client import CopernicusDEMProvider
-
 from engine.utils.engine import Engine
 from engine.utils.color import Color
 from engine.utils.directionalLight import DirectionalLight
@@ -16,17 +11,15 @@ from engine.utils.camera import FlyCamera
 from engine.utils.vec3 import Vec3
 from engine.utils_project.approach_project_mesh import ApproachProjectMesh
 from engine.utils_project.geo_transformer import GeoTransformer
+from engine.utils_project.rnav_lpv_funnel_project_mesh import RnavLpvFunnelProjectMesh
 from engine.utils_project.runway_project_mesh import RunwayProjectMesh
+from engine.utils_project.separation_geometry import SeparationGeometry
+from engine.utils_project.separation_project_mesh import SeparationProjectMesh
 from engine.utils_project.taxiway_project_mesh import TaxiwayProjectMesh
 from engine.utils_project.terrain_project_mesh import TerrainProjectMesh
-from engine.utils.lineRenderer import LineRenderer
-
-from dotenv import load_dotenv
-
-load_dotenv()
 
 icao_vancouver = {
-    "icao": "CYVR", # CYYZ
+    "icao": "CYVR",
 }
 
 icao_frankfurt = {
@@ -36,11 +29,8 @@ icao_frankfurt = {
 icao = icao_vancouver
 
 # --- load airport data section ---
-basePath: Path = Path("../data")
+basePath: Path = Path("./data")
 airport = Airport.load_from_folder(basePath, icao["icao"])
-
-radius_km = 25.0  # depending on the airport choose -> 20 - 30 km
-bounds = get_bbox_simple(airport.lat, airport.lon, radius_km)
 
 crs_to: str = GeoTransformer.utm_epsg(airport.lat, airport.lon)
 
@@ -54,27 +44,6 @@ transformer: Transformer = Transformer.from_crs(
 # we load the pre saved data from the base path
 runways: list[ArincRunway] = airport.arinc_424_runway
 
-delta = 0.2
-
-LAT_MIN = airport.lat - delta
-LAT_MAX = airport.lat + delta
-LON_MIN = airport.lon - delta
-LON_MAX = airport.lon + delta
-
-provider = CopernicusDEMProvider(
-   os.environ["COPERNICUS_USERNAME"],
-   os.environ["COPERNICUS_PASSWORD"],
-)
-
-grid = provider.get_terrain(
-    lat_min=LAT_MIN,
-    lon_min=LON_MIN,
-    lat_max=LAT_MAX,
-    lon_max=LON_MAX,
-    width=1024,
-    height=1024
-)
-
 horizontal_scale = 0.01
 vertical_scale = 0.01
 
@@ -86,26 +55,15 @@ geo = GeoTransformer(
     transformer=transformer
 )
 
-sat_array = provider.get_satellite_image(
-    lat_min=LAT_MIN,
-    lon_min=LON_MIN,
-    lat_max=LAT_MAX,
-    lon_max=LON_MAX,
-    width=2048,
-    height=2048
-)
-sat_texture = Texture.from_array(sat_array)
-
 terrain_project_mesh = TerrainProjectMesh(
-    grid=grid,
-    lat_min=LAT_MIN,
-    lon_min=LON_MIN,
-    lat_max=LAT_MAX,
-    lon_max=LON_MAX,
+    grid=airport.terrain.elevation_grid,
+    lat_min=airport.terrain.lat_min,
+    lon_min=airport.terrain.lon_min,
+    lat_max=airport.terrain.lat_max,
+    lon_max=airport.terrain.lon_max,
     horizontal_scale=horizontal_scale,
     vertical_scale=vertical_scale,
-    transformer=transformer,
-    texture=sat_texture
+    transformer=transformer
 )
 
 engine = Engine(
@@ -119,7 +77,9 @@ scene = engine.scene
 terrain_project_mesh.spawn(scene=scene, geo=geo)
 
 rw = None
+spawned_separation = False
 for runway in runways:
+    runway.runway_altitude += 10
     runway_mesh_builder = RunwayProjectMesh(
         runway=runway,
         horizontal_scale=horizontal_scale,
@@ -139,6 +99,28 @@ for runway in runways:
 
         builder.spawn(scene, geo)
 
+        funnel_mesh = RnavLpvFunnelProjectMesh(
+            approach=approach,
+            transformer=transformer,
+            horizontal_scale=horizontal_scale,
+            vertical_scale=vertical_scale,
+            runway=runway,
+        )
+        funnel_mesh.spawn(scene, geo)
+
+        _e, faf_fix, _rw = approach.get_final_approach_fixes()
+        if faf_fix is not None and not spawned_separation:
+            faf_x, faf_y = transformer.transform(faf_fix.longitude, faf_fix.latitude)
+            SeparationProjectMesh(
+                center_xy=(faf_x, faf_y),
+                center_h=faf_fix.altitude * 0.3048,
+                transformer=transformer,
+                horizontal_scale=horizontal_scale,
+                vertical_scale=vertical_scale,
+                separation=SeparationGeometry(),
+            ).spawn(scene, geo)
+            spawned_separation = True
+
 for taxiway in airport.taxiways:
     if len(taxiway.coordinates) < 2:
         continue
@@ -147,10 +129,11 @@ for taxiway in airport.taxiways:
         coordinates=taxiway.coordinates,
         airport_lat=airport.lat,
         airport_lon=airport.lon,
-        airport_altitude_ft=runways[0].runway_altitude if runways else 0.0,
+        airport_altitude_ft=runways[0].runway_altitude - 10 if runways else 0.0,
         horizontal_scale=horizontal_scale,
         vertical_scale=vertical_scale,
         transformer=transformer,
+        use_mesh=True,
     )
 
     builder.spawn(scene, geo)
@@ -170,27 +153,6 @@ engine.camera.position = Vec3(
     geo.altitude_to_local(terrain_project_mesh.altitude) + 50,
     rw.z
 )
-
-bbox_lat_min, bbox_lon_min, bbox_lat_max, bbox_lon_max = bounds  # get_bbox_simple: (lat_min, lon_min, lat_max, lon_max)
-
-bbox_corners_latlon = [
-    (bbox_lat_min, bbox_lon_min),
-    (bbox_lat_min, bbox_lon_max),
-    (bbox_lat_max, bbox_lon_max),
-    (bbox_lat_max, bbox_lon_min),
-    (bbox_lat_min, bbox_lon_min),
-]
-
-bbox_height = geo.altitude_to_local(terrain_project_mesh.altitude + 100.0)
-
-bbox_points = []
-for lat, lon in bbox_corners_latlon:
-    local_x, local_z = geo.to_local(lat, lon)
-    bbox_points.append(Vec3(local_x, bbox_height, local_z))
-
-bbox_go = scene.spawn("DataBoundingBox")
-bbox_lr = LineRenderer.strip(bbox_points, color=Color(1.0, 1.0, 0.0))
-bbox_go.add_component(bbox_lr)
 
 def on_gui():
     hud = engine.hud

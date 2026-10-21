@@ -30,7 +30,7 @@ from OpenGL.GL.shaders import compileProgram, compileShader, ShaderProgram
 from engine.utils.color import Color
 from engine.utils.directionalLight import DirectionalLight
 from engine.utils.vec3 import Vec3
-from utils.simplematerial import load_shader_source
+from engine.utils.simplematerial import load_shader_source
 
 
 class Sky:

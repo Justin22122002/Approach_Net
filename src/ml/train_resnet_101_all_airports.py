@@ -11,9 +11,13 @@ from ml.utils.data_loader.lazy_flight_parquet_dataset import LazyFlightParquetDa
 from ml.utils.models.landing_resnet_101 import LandingActionResNet101
 from ml.utils.trainer.mlp_trainer import LandingActionTrainer
 from utils.airport import Airport
+from ml.utils.run_cli import exit_if_test, parse_run_args, report_results_folder
 
 
 if __name__ == "__main__":
+    args = parse_run_args()
+    exit_if_test(args, __file__)
+
     LandingActionTrainer.set_seed()
 
     dataset_name: str = "20260802_0920"
@@ -89,6 +93,7 @@ if __name__ == "__main__":
         patience=5,
     )
 
+    report_results_folder(trainer.results_folder_name, args.result_file)
     trainer.train(train_loader, val_loader, epochs=200)
 
     trainer.save_normalization(x_mean, x_std, y_mean, y_std)

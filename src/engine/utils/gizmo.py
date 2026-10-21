@@ -23,7 +23,7 @@ from engine.utils.mesh import Mesh
 from engine.utils.color import Color
 from engine.utils.vec3 import Vec3
 from engine.utils.helpers import _mat4_translate, _mat4_rotate_x, _mat4_rotate_z, _mat4_identity
-from utils.simplematerial import load_shader_source
+from engine.utils.simplematerial import load_shader_source
 
 
 class _GizmoShader:

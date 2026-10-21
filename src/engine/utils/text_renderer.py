@@ -52,7 +52,7 @@ from typing_extensions import override
 from engine.utils.color import Color
 from engine.utils.component import Component
 from engine.utils.renderer import Renderer
-from utils.simplematerial import load_shader_source
+from engine.utils.simplematerial import load_shader_source
 
 # Layout: x  y  u  v  (per 4 floats)
 _QUAD_DATA = np.array([

@@ -8,8 +8,12 @@ from evaluation.utils.trajectory_evaluator import TrajectorySuccessEvaluator
 from utils.airport import Airport
 from ml.utils.data_loader.lazy_flight_parquet_dataset import LazyFlightParquetDataset
 from ml.utils.data_loader.landing_action_dataset import LandingActionDataset
+from ml.utils.run_cli import exit_if_test, parse_run_args
 
 FT_TO_M = 0.3048
+
+# src/data -> works from the IDE (cwd = src/evaluation) and from the pipeline (cwd = src)
+DATA_ROOT: Path = Path(__file__).resolve().parent.parent / "data"
 
 
 def plot_sample_trajectories(
@@ -20,6 +24,8 @@ def plot_sample_trajectories(
     n_samples: int = 6,
     seed: int = 42,
     label: str = "",
+    save_path: Path | None = None,
+    show: bool = True,
 ) -> None:
     df_traj = pd.read_parquet(trajectories_path)
 
@@ -72,7 +78,12 @@ def plot_sample_trajectories(
 
     fig.suptitle(f"{label} sample trajectories (ground track)")
     fig.tight_layout()
-    plt.show()
+
+    if save_path is not None:
+        fig.savefig(save_path, dpi=150)
+    if show:
+        plt.show()
+    plt.close(fig)
 
 
 def flatten_stats(icao: str, layer_mode: str, stats: dict) -> dict:
@@ -116,6 +127,7 @@ def evaluate_dir(
     icao: str,
     layer_mode: str,
     n_samples: int = 6,
+    show: bool = True,
 ) -> dict:
     print(f"\n {label} ({output_dir})")
 
@@ -125,7 +137,8 @@ def evaluate_dir(
         ds=ds,
     )
 
-    eval_df.to_csv(output_dir / f"{Path(traj_filename).stem}_evaluation.csv", index=False)
+    stem = Path(traj_filename).stem
+    eval_df.to_csv(output_dir / f"{stem}_evaluation.csv", index=False)
     print(eval_df)
 
     stats = evaluator.aggregate(eval_df)
@@ -138,6 +151,8 @@ def evaluate_dir(
         eval_df=eval_df,
         n_samples=n_samples,
         label=label,
+        save_path=output_dir / f"{stem}_samples.png",
+        show=show,
     )
 
     return flatten_stats(icao, layer_mode, stats)
@@ -155,142 +170,156 @@ def rollout_experiment(label: str, output_dir_name: str, name: str, run_id: str,
     )
 
 
-RUN_FT_ACTION = "2026-10-10_20-33-57"
-RUN_FT_ACTION_CONSTRAINT_TRAINING = "2026-10-11_06-09-41"
-
-RUN_RESNET_ACTION = "2026-10-10_20-02-35"
-RUN_RESNET_ACTION_CONSTRAINT_TRAINING = "2026-10-11_05-34-36"
-
-RUN_FT_NEXT_STATE = "2026-10-11_16-49-30"
-RUN_RESNET_NEXT_STATE = "2026-10-11_18-23-44"
-
-# 2026-10-10_23-39-39, 2026-10-12_11-33-15, 2026-10-16_06-08-04
-RUN_FT_GNN = "2026-10-10_23-39-39"
-# 2026-10-11_17-13-54, 2026-10-12_18-10-46, 2026-10-16_20-10-17
-RUN_FT_GNN_CONSTRAINT_TRAINING = "2026-10-11_17-13-54"
-
-# 2026-10-12_21-14-14, 2026-10-16_06-21-55
-RUN_RESNET_GNN = "2026-10-12_21-14-14"
-# 2026-10-13_12-57-59, 2026-10-16_22-17-12
-RUN_RESNET_GNN_CONSTRAINT_TRAINING = "2026-10-13_12-57-59"
-
-EXPERIMENTS: list[dict] = [
-    rollout_experiment(
-        "RESNET101_ACTION_BASELINE",
-        "multiple_airports_resnet101_rollout",
-        "resnet101",
-        RUN_RESNET_ACTION
-    ),
-    rollout_experiment(
-        "RESNET101_ACTION_CONSTRAINT",
-        "multiple_airports_resnet101_rollout_constraint",
-        "resnet101",
-        RUN_RESNET_ACTION,
-        constrained=True
-    ),
-    rollout_experiment(
-        "RESNET101_ACTION_CONSTRAINT_TRAINING",
-        "multiple_airports_resnet101_rollout_constraint_training",
-         "resnet101",
-        RUN_RESNET_ACTION_CONSTRAINT_TRAINING,
-        constrained=True
-    ),
-    rollout_experiment(
-        "FT_TRANSFORMER_ACTION_BASELINE",
-        "multiple_airports_ft_transformer_rollout",
-        "ft_transformer",
-        RUN_FT_ACTION
-    ),
-    rollout_experiment(
-        "FT_TRANSFORMER_ACTION_CONSTRAINT",
-        "multiple_airports_ft_transformer_rollout_constraint",
-        "ft_transformer",
-        RUN_FT_ACTION,
-        constrained=True
-    ),
-    rollout_experiment(
-        "FT_TRANSFORMER_ACTION_CONSTRAINT_TRAINING",
-        "multiple_airports_ft_transformer_rollout_constraint_training",
-        "ft_transformer",
-        RUN_FT_ACTION_CONSTRAINT_TRAINING,
-        constrained=True
-    ),
-    rollout_experiment(
-        "RESNET101_NEXT_STATE_BASELINE",
-        "multiple_airports_next_state_resnet101_rollout",
-        "resnet101_next_state",
-        RUN_RESNET_NEXT_STATE
-    ),
-    rollout_experiment(
-        "RESNET101_NEXT_STATE_CONSTRAINT",
-        "multiple_airports_next_state_resnet101_rollout_constraint",
-        "resnet101_next_state",
-        RUN_RESNET_NEXT_STATE,
-        constrained=True
-    ),
-    rollout_experiment(
-        "FT_TRANSFORMER_NEXT_STATE_BASELINE",
-        "multiple_airports_ft_transformer_next_state_rollout",
-        "ft_transformer_next_state",
-        RUN_FT_NEXT_STATE
-    ),
-    rollout_experiment(
-        "FT_TRANSFORMER_NEXT_STATE_CONSTRAINT",
-        "multiple_airports_ft_transformer_next_state_rollout_constraint",
-        "ft_transformer_next_state",
-        RUN_FT_NEXT_STATE,
-        constrained=True
-    ),
-    rollout_experiment(
-        "RNAV_OPTIMIZER",
-        "rnav_optimized",
-        "rnav_optimizer",
-        "20261005_1406",
-    ),
-    rollout_experiment(
-        "FT_GNN_BASELINE",
-        "multiple_airports_ft_transformer_gnn_rollout",
-        "gnn",
-        RUN_FT_GNN
-    ),
-    rollout_experiment(
-        "FT_GNN_CONSTRAINT",
-        "multiple_airports_ft_transformer_gnn_rollout_constraint",
-        "gnn",
-        RUN_FT_GNN,
-        constrained=True
-    ),
-    rollout_experiment(
-        "FT_GNN_CONSTRAINT_TRAINING",
-        "multiple_airports_ft_transformer_gnn_rollout_constraint_training",
-        "gnn",
-        RUN_FT_GNN_CONSTRAINT_TRAINING,
-        constrained=True
-    ),
-    rollout_experiment(
-        "RESNET_GNN_BASELINE",
-        "multiple_airports_resnet_101_gnn_rollout",
-        "gnn",
-        RUN_RESNET_GNN
-    ),
-    rollout_experiment(
-        "RESNET_GNN_CONSTRAINT",
-        "multiple_airports_resnet_101_gnn_rollout_constraint",
-        "gnn",
-        RUN_RESNET_GNN,
-        constrained=True
-    ),
-    rollout_experiment(
-        "RESNET_GNN_CONSTRAINT_TRAINING",
-        "multiple_airports_resnet_101_gnn_rollout_constraint_training",
-        "gnn",
-        RUN_RESNET_GNN_CONSTRAINT_TRAINING,
-        constrained=True
-    ),
-]
+RUN_ARGS: tuple[str, ...] = (
+    "ft-action", "ft-action-constraint",
+    "resnet-action", "resnet-action-constraint",
+    "ft-next-state", "resnet-next-state",
+    "ft-gnn", "ft-gnn-constraint",
+    "resnet-gnn", "resnet-gnn-constraint",
+)
 
 
 if __name__ == "__main__":
+    args = parse_run_args(RUN_ARGS)
+
+    RUN_FT_ACTION: str = args.ft_action or "2026-10-10_20-33-57"
+    RUN_FT_ACTION_CONSTRAINT_TRAINING: str = args.ft_action_constraint or "2026-10-11_06-09-41"
+
+    RUN_RESNET_ACTION: str = args.resnet_action or "2026-10-10_20-02-35"
+    RUN_RESNET_ACTION_CONSTRAINT_TRAINING: str = args.resnet_action_constraint or "2026-10-11_05-34-36"
+
+    RUN_FT_NEXT_STATE: str = args.ft_next_state or "2026-10-11_16-49-30"
+    RUN_RESNET_NEXT_STATE: str = args.resnet_next_state or "2026-10-11_18-23-44"
+
+    # 2026-10-10_23-39-39, 2026-10-12_11-33-15, 2026-10-16_06-08-04
+    RUN_FT_GNN: str = args.ft_gnn or "2026-10-10_23-39-39"
+    # 2026-10-11_17-13-54, 2026-10-12_18-10-46, 2026-10-16_20-10-17
+    RUN_FT_GNN_CONSTRAINT_TRAINING: str = args.ft_gnn_constraint or "2026-10-11_17-13-54"
+
+    # 2026-10-12_21-14-14, 2026-10-16_06-21-55
+    RUN_RESNET_GNN: str = args.resnet_gnn or "2026-10-12_21-14-14"
+    # 2026-10-13_12-57-59, 2026-10-16_22-17-12
+    RUN_RESNET_GNN_CONSTRAINT_TRAINING: str = args.resnet_gnn_constraint or "2026-10-13_12-57-59"
+
+    RUN_RNAV: str = "20261005_1406"
+
+    EXPERIMENTS: list[dict] = [
+        rollout_experiment(
+            "RESNET101_ACTION_BASELINE",
+            "multiple_airports_resnet101_rollout",
+            "resnet101",
+            RUN_RESNET_ACTION
+        ),
+        rollout_experiment(
+            "RESNET101_ACTION_CONSTRAINT",
+            "multiple_airports_resnet101_rollout_constraint",
+            "resnet101",
+            RUN_RESNET_ACTION,
+            constrained=True
+        ),
+        rollout_experiment(
+            "RESNET101_ACTION_CONSTRAINT_TRAINING",
+            "multiple_airports_resnet101_rollout_constraint_training",
+            "resnet101",
+            RUN_RESNET_ACTION_CONSTRAINT_TRAINING,
+            constrained=True
+        ),
+        rollout_experiment(
+            "FT_TRANSFORMER_ACTION_BASELINE",
+            "multiple_airports_ft_transformer_rollout",
+            "ft_transformer",
+            RUN_FT_ACTION
+        ),
+        rollout_experiment(
+            "FT_TRANSFORMER_ACTION_CONSTRAINT",
+            "multiple_airports_ft_transformer_rollout_constraint",
+            "ft_transformer",
+            RUN_FT_ACTION,
+            constrained=True
+        ),
+        rollout_experiment(
+            "FT_TRANSFORMER_ACTION_CONSTRAINT_TRAINING",
+            "multiple_airports_ft_transformer_rollout_constraint_training",
+            "ft_transformer",
+            RUN_FT_ACTION_CONSTRAINT_TRAINING,
+            constrained=True
+        ),
+        rollout_experiment(
+            "RESNET101_NEXT_STATE_BASELINE",
+            "multiple_airports_next_state_resnet101_rollout",
+            "resnet101_next_state",
+            RUN_RESNET_NEXT_STATE
+        ),
+        rollout_experiment(
+            "RESNET101_NEXT_STATE_CONSTRAINT",
+            "multiple_airports_next_state_resnet101_rollout_constraint",
+            "resnet101_next_state",
+            RUN_RESNET_NEXT_STATE,
+            constrained=True
+        ),
+        rollout_experiment(
+            "FT_TRANSFORMER_NEXT_STATE_BASELINE",
+            "multiple_airports_ft_transformer_next_state_rollout",
+            "ft_transformer_next_state",
+            RUN_FT_NEXT_STATE
+        ),
+        rollout_experiment(
+            "FT_TRANSFORMER_NEXT_STATE_CONSTRAINT",
+            "multiple_airports_ft_transformer_next_state_rollout_constraint",
+            "ft_transformer_next_state",
+            RUN_FT_NEXT_STATE,
+            constrained=True
+        ),
+        rollout_experiment(
+            "RNAV_OPTIMIZER",
+            "rnav_optimized",
+            "rnav_optimizer",
+            RUN_RNAV,
+        ),
+        rollout_experiment(
+            "FT_GNN_BASELINE",
+            "multiple_airports_ft_transformer_gnn_rollout",
+            "gnn",
+            RUN_FT_GNN
+        ),
+        rollout_experiment(
+            "FT_GNN_CONSTRAINT",
+            "multiple_airports_ft_transformer_gnn_rollout_constraint",
+            "gnn",
+            RUN_FT_GNN,
+            constrained=True
+        ),
+        rollout_experiment(
+            "FT_GNN_CONSTRAINT_TRAINING",
+            "multiple_airports_ft_transformer_gnn_rollout_constraint_training",
+            "gnn",
+            RUN_FT_GNN_CONSTRAINT_TRAINING,
+            constrained=True
+        ),
+        rollout_experiment(
+            "RESNET_GNN_BASELINE",
+            "multiple_airports_resnet_101_gnn_rollout",
+            "gnn",
+            RUN_RESNET_GNN
+        ),
+        rollout_experiment(
+            "RESNET_GNN_CONSTRAINT",
+            "multiple_airports_resnet_101_gnn_rollout_constraint",
+            "gnn",
+            RUN_RESNET_GNN,
+            constrained=True
+        ),
+        rollout_experiment(
+            "RESNET_GNN_CONSTRAINT_TRAINING",
+            "multiple_airports_resnet_101_gnn_rollout_constraint_training",
+            "gnn",
+            RUN_RESNET_GNN_CONSTRAINT_TRAINING,
+            constrained=True
+        ),
+    ]
+
+    exit_if_test(args, __file__, DATA_ROOT=DATA_ROOT, **{exp["label"]: exp["traj_filename"] for exp in EXPERIMENTS})
+
     evaluator = TrajectorySuccessEvaluator(
         lateral_tol_m=15.0,
         vertical_tol_up_m=20.0,
@@ -318,9 +347,9 @@ if __name__ == "__main__":
     summary_rows: list[dict] = []
 
     for airport_icao in airport_list_icao:
-        airport_obj: Airport = Airport.load_from_folder(base_path=Path("../data/"), icao=airport_icao)
+        airport_obj: Airport = Airport.load_from_folder(base_path=DATA_ROOT, icao=airport_icao)
         ds = LandingActionDataset(
-            LazyFlightParquetDataset(f"../data/{airport_icao}/test/{dataset_name}"),
+            LazyFlightParquetDataset(f"{DATA_ROOT}/{airport_icao}/test/{dataset_name}"),
             mode="bspline_state",
             airport_center_latlon=(airport_obj.lat, airport_obj.lon),
             airport_elevation_m=airport_obj.get_mean_runway_elevation_ft() * FT_TO_M,
@@ -330,20 +359,21 @@ if __name__ == "__main__":
             try:
                 row = evaluate_dir(
                     evaluator, ds,
-                    output_dir=Path(f"../data/{airport_icao}/{exp['output_dir_name']}"),
+                    output_dir=DATA_ROOT / airport_icao / exp["output_dir_name"],
                     traj_filename=exp["traj_filename"],
                     status_filename=exp["status_filename"],
                     label=exp["label"],
                     icao=airport_icao,
                     layer_mode=exp["layer_mode"],
                     n_samples=6,
+                    show=not args.no_show,
                 )
                 summary_rows.append(row)
             except Exception as e:
                 print(f"[WARN] skipping {exp['label']} @ {airport_icao}: {e}")
 
     summary_df = pd.DataFrame(summary_rows)
-    summary_path = Path("../data/summary_experiments.csv")
+    summary_path = DATA_ROOT / "summary_experiments.csv"
     summary_df.to_csv(summary_path, index=False)
     print(f"\n[SUMMARY] {summary_path}")
     print(summary_df)

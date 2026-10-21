@@ -27,13 +27,11 @@ plt.rcParams.update({
 
 
 def project(funnel: LpvFunnelGeometry, x: float, y: float) -> tuple[float, float]:
-    """world (x, y) -> (along-track, lateral) in the funnel frame"""
     dx, dy = x - funnel.thr_x, y - funnel.thr_y
     return dx * funnel.along[0] + dy * funnel.along[1], dx * funnel.lateral[0] + dy * funnel.lateral[1]
 
 
 def bisect(pred, lo: float, hi: float, iters: int = 60) -> float:
-    """first s in [lo, hi] where pred(s) switches from False to True"""
     for _ in range(iters):
         mid = 0.5 * (lo + hi)
         lo, hi = (lo, mid) if pred(mid) else (mid, hi)
@@ -79,13 +77,22 @@ def plot_plan_view(funnel: LpvFunnelGeometry, runway_length: float, out_path: Pa
     ax.plot([-d_garp * km, funnel.s_max * km + 0.5], [0, 0], color=C_CENTER, lw=1.0, zorder=3)
     draw_runway(ax, -runway_length * km, 0.0, 0.5 * RUNWAY_WIDTH, label_y=-0.5 * RUNWAY_WIDTH - 20)
 
-    ax.text(0.62 * funnel.s_max * km, 0.25 * upper[-1, 1], "Lateral protection area\n(LPV course width)",
-            ha="center", va="center", fontsize=8.5, color=C_FUNNEL)
-    ax.annotate("Lateral guidance sector\n(LGSA about the GARP)", xy=(-0.5 * d_garp * km, 0.5 * sec_up[10, 1]),
-                xytext=(-0.62 * d_garp * km, 260), ha="center", fontsize=8, color=C_FUNNEL,
-                arrowprops=dict(arrowstyle="->", color=C_FUNNEL, lw=0.7))
-    ax.annotate("Final approach course", xy=(0.82 * funnel.s_max * km, 0), xytext=(0.82 * funnel.s_max * km, -170),
-                ha="center", fontsize=8, color=C_CENTER, arrowprops=dict(arrowstyle="->", color=C_CENTER, lw=0.7))
+    ax.text(
+        0.62 * funnel.s_max * km, 0.25 * upper[-1, 1],
+        "Lateral protection area\n(LPV course width)",
+        ha="center", va="center", fontsize=8.5, color=C_FUNNEL
+    )
+    ax.annotate(
+        "Lateral guidance sector\n(LGSA about the GARP)",
+        xy=(-0.5 * d_garp * km, 0.5 * sec_up[10, 1]),
+        xytext=(-0.62 * d_garp * km, 260), ha="center", fontsize=8, color=C_FUNNEL,
+        arrowprops=dict(arrowstyle="->", color=C_FUNNEL, lw=0.7)
+    )
+    ax.annotate(
+        "Final approach course", xy=(0.82 * funnel.s_max * km, 0),
+        xytext=(0.82 * funnel.s_max * km, -170),
+        ha="center", fontsize=8, color=C_CENTER, arrowprops=dict(arrowstyle="->", color=C_CENTER, lw=0.7)
+    )
 
     label_point(ax, (-d_garp * km, 0), "GARP", offset=(-5, -4), ha="right", va="top")
     label_point(ax, (-d_fpap * km, 0), "FPAP", offset=(0, 8))
@@ -132,12 +139,10 @@ def plot_vertical(funnel: LpvFunnelGeometry, h_ltp: float, runway_length: float,
                 "--", color=C_FUNNEL, lw=0.7, alpha=0.7)
     ax.plot(s_all * km, h_c, color=C_CENTER, lw=1.5)
 
-    # ground and runway (runway lies behind the threshold, s < 0)
     ax.axhline(h_ltp, color="0.35", lw=0.8)
     ax.add_patch(Rectangle((-runway_length * km, h_ltp - 8), runway_length * km, 16, fc="0.55", ec=C_RUNWAY, lw=0.8, zorder=4))
     ax.text(-0.5 * runway_length * km, h_ltp - 16, "Runway", ha="center", va="top", fontsize=8.5, fontweight="bold", color=C_RUNWAY)
 
-    # clamp regions
     top = up.max() * 1.12
     for sv in (s_45, s_150):
         if sv <= funnel.s_max * 1.2:
@@ -147,14 +152,20 @@ def plot_vertical(funnel: LpvFunnelGeometry, h_ltp: float, runway_length: float,
     ax.text(s_150 * km + 0.15, top, "150 m clamp", ha="left", fontsize=8)
 
     # terms
-    ax.annotate("Glidepath", xy=(0.55 * funnel.s_max * km, funnel.centerline_height(0.55 * funnel.s_max)),
-                xytext=(0.66 * funnel.s_max * km, funnel.centerline_height(0.4 * funnel.s_max) - 60), ha="center",
-                fontsize=8.5, color=C_CENTER, arrowprops=dict(arrowstyle="->", color=C_CENTER, lw=0.7))
-    ax.annotate("Vertical protection area\n(full-scale deflection)", xy=(0.78 * funnel.s_max * km, up[int(0.78 * len(up))] - 20),
-                xytext=(0.36 * funnel.s_max * km, up.max() * 0.92), ha="center", fontsize=8, color=C_FUNNEL,
-                arrowprops=dict(arrowstyle="->", color=C_FUNNEL, lw=0.7))
-    ax.annotate("Ground floor", xy=(0.5 * s_cut * km, funnel.thr_h - funnel.ground_margin - 2), xytext=(1.6, h_ltp - 110),
-                fontsize=8, color=C_GROUND, arrowprops=dict(arrowstyle="->", color=C_GROUND, lw=0.7))
+    ax.annotate(
+        "Glidepath", xy=(0.55 * funnel.s_max * km, funnel.centerline_height(0.55 * funnel.s_max)),
+        xytext=(0.66 * funnel.s_max * km, funnel.centerline_height(0.4 * funnel.s_max) - 60), ha="center",
+        fontsize=8.5, color=C_CENTER, arrowprops=dict(arrowstyle="->", color=C_CENTER, lw=0.7)
+    )
+    ax.annotate(
+        "Vertical protection area\n(full-scale deflection)", xy=(0.78 * funnel.s_max * km, up[int(0.78 * len(up))] - 20),
+        xytext=(0.36 * funnel.s_max * km, up.max() * 0.92), ha="center", fontsize=8, color=C_FUNNEL,
+        arrowprops=dict(arrowstyle="->", color=C_FUNNEL, lw=0.7)
+    )
+    ax.annotate(
+        "Ground floor", xy=(0.5 * s_cut * km, funnel.thr_h - funnel.ground_margin - 2), xytext=(1.6, h_ltp - 110),
+        fontsize=8, color=C_GROUND, arrowprops=dict(arrowstyle="->", color=C_GROUND, lw=0.7)
+    )
 
     label_point(ax, (0, funnel.thr_h), "FPCP\n(Threshold + TCH)", offset=(-6, 8), ha="right")
     label_point(ax, (funnel.s_max * km, h_c[-1]), "PFAF", offset=(6, 0), ha="left", va="center")

@@ -2,6 +2,7 @@ from typing_extensions import override
 
 from evaluation.utils.rollout_evaluator import ActionRollout
 from ml.utils.models.landing_resnet_101 import LandingActionResNet101
+from ml.utils.run_cli import exit_if_test, parse_run_args
 
 
 class ResNet101ActionRollout(ActionRollout):
@@ -13,7 +14,13 @@ class ResNet101ActionRollout(ActionRollout):
 
 
 if __name__ == "__main__":
-    RESULT_DIR = "ml/results/multiple_airports_landing_action_resnet101_torchvision/2026-10-10_20-02-35"
+    args = parse_run_args(("run",))
+
+    RUN: str = args.run or "2026-10-10_20-02-35"
+    RESULT_DIR = f"ml/results/multiple_airports_landing_action_resnet101_torchvision/{RUN}"
+
+    exit_if_test(args, __file__, RESULT_DIR=RESULT_DIR)
+
     ResNet101ActionRollout(RESULT_DIR).run_airports(
         output_folder="multiple_airports_resnet101_rollout",
         data_root="./data",

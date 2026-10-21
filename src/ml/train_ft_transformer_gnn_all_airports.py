@@ -12,8 +12,12 @@ from ml.utils.data_loader.multi_aircraft_landing_action_dataset import (
 from ml.utils.models.graph_attention_model import MultiAircraftLandingGNN
 from ml.utils.trainer.multi_aircraft_GNN_trainer import MultiAircraftGNNTrainer, graph_collate_fn
 from utils.airport import Airport
+from ml.utils.run_cli import exit_if_test, parse_run_args, report_results_folder
 
 if __name__ == "__main__":
+    args = parse_run_args()
+    exit_if_test(args, __file__)
+
     MultiAircraftGNNTrainer.set_seed()
 
     dataset_name: str = "20260802_0920"
@@ -86,6 +90,7 @@ if __name__ == "__main__":
         patience=10,
     )
 
+    report_results_folder(trainer.results_folder_name, args.result_file)
     trainer.save_normalization(x_mean, x_std, y_mean, y_std)  # global stats, fit across all airports
     trainer.train(train_loader, val_loader, epochs=200)
 

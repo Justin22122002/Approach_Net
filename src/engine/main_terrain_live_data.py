@@ -40,8 +40,7 @@ icao_frankfurt = {
 
 icao = icao_frankfurt
 
-# --- load airport data section ---
-basePath: Path = Path("../data")
+basePath: Path = Path("./data")
 airport = Airport.load_from_folder(basePath, icao["icao"])
 
 crs_to: str = GeoTransformer.utm_epsg(airport.lat, airport.lon)
@@ -63,20 +62,6 @@ LAT_MAX = airport.lat + delta
 LON_MIN = airport.lon - delta
 LON_MAX = airport.lon + delta
 
-provider = CopernicusDEMProvider(
-   os.environ["COPERNICUS_USERNAME"],
-   os.environ["COPERNICUS_PASSWORD"],
-)
-
-grid = provider.get_terrain(
-    lat_min=LAT_MIN,
-    lon_min=LON_MIN,
-    lat_max=LAT_MAX,
-    lon_max=LON_MAX,
-    width=1024,
-    height=1024
-)
-
 horizontal_scale = 0.01
 vertical_scale = 0.01
 
@@ -89,11 +74,11 @@ geo = GeoTransformer(
 )
 
 terrain_project_mesh = TerrainProjectMesh(
-    grid=grid,
-    lat_min=LAT_MIN,
-    lon_min=LON_MIN,
-    lat_max=LAT_MAX,
-    lon_max=LON_MAX,
+    grid=airport.terrain.elevation_grid,
+    lat_min=airport.terrain.lat_min,
+    lon_min=airport.terrain.lon_min,
+    lat_max=airport.terrain.lat_max,
+    lon_max=airport.terrain.lon_max,
     horizontal_scale=horizontal_scale,
     vertical_scale=vertical_scale,
     transformer=transformer

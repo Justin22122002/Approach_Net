@@ -10,8 +10,8 @@ from engine.utils.meshRenderer import MeshRenderer
 from engine.utils.vec3 import Vec3
 from engine.utils.boxCollider import BoxCollider
 from engine.utils.shadow_map import ShadowMap
-from utils.mesh import Mesh
-from utils.renderer import Renderer
+from engine.utils.mesh import Mesh
+from engine.utils.renderer import Renderer
 
 
 class Scene:

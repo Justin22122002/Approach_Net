@@ -23,8 +23,10 @@ from engine.utils_project.terminal_project_mesh import TerminalProjectMesh
 from engine.utils_project.terrain_project_mesh import TerrainProjectMesh
 from engine.utils_project.road_project_mesh import RoadProjectMesh
 from engine.utils_project.water_texture_renderer import WaterTextureRenderer
+from engine.utils_project.rnav_lpv_funnel_project_mesh import RnavLpvFunnelProjectMesh
 
 from dotenv import load_dotenv
+
 
 load_dotenv()
 
@@ -40,7 +42,7 @@ TERRAIN_TEX_SIZE = 8192
 
 PREFERRED_BEARING_DEG = -90.0
 
-basePath: Path = Path("../data")
+basePath: Path = Path("./data")
 airport = Airport.load_from_folder(basePath, ICAO)
 
 crs_to: str = GeoTransformer.utm_epsg(airport.lat, airport.lon)
@@ -87,12 +89,24 @@ runways_one_per_direction: list[ArincRunway] = [
 ]
 
 for runway in runways_one_per_direction:
+    runway.runway_altitude += 10
     RunwayProjectMesh(
         runway=runway,
         horizontal_scale=horizontal_scale,
         vertical_scale=vertical_scale,
         transformer=to_utm,
     ).spawn(scene, geo)
+
+for runway in runways:
+    for approach in runway.approaches:
+        funnel_mesh = RnavLpvFunnelProjectMesh(
+            approach=approach,
+            transformer=to_utm,
+            horizontal_scale=horizontal_scale,
+            vertical_scale=vertical_scale,
+            runway=runway,
+        )
+        funnel_mesh.spawn(scene, geo)
 
 for taxiway in airport.taxiways:
     if len(taxiway.coordinates) < 2:

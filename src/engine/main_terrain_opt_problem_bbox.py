@@ -1,18 +1,15 @@
-import os
 from pathlib import Path
 import numpy as np
 from pyproj import Transformer, Geod
+
+from utils.airport import Airport
 from utils.clients.open_airport_map_client import get_bbox_simple
+from utils.arinc_runway import ArincRunway
 
 from engine.physics.aircraft_environment_casadi import AircraftEnvironmentCasadi
 from engine.physics.aircraft_dynamics import AircraftDynamics
 from engine.physics.aircraft_kinematics_state_casadi import AircraftKinematicsStateCasadi
 from engine.physics.landing_optimizer import LandingTrajectoryOptimizer, state_to_casadi
-
-from utils.airport import Airport
-from utils.arinc_runway import ArincRunway
-from utils.clients.terrain_client import CopernicusDEMProvider
-
 from engine.utils.engine import Engine
 from engine.utils.color import Color
 from engine.utils.directionalLight import DirectionalLight
@@ -24,10 +21,6 @@ from engine.utils_project.geo_transformer import GeoTransformer
 from engine.utils_project.runway_project_mesh import RunwayProjectMesh
 from engine.utils_project.terrain_project_mesh import TerrainProjectMesh
 
-from dotenv import load_dotenv
-
-load_dotenv()
-
 icao_vancouver = {
     "icao": "CYVR",
 }
@@ -38,8 +31,7 @@ icao_frankfurt = {
 
 icao = icao_vancouver
 
-# load airport data section
-basePath: Path = Path("../data")
+basePath: Path = Path("./data")
 airport = Airport.load_from_folder(basePath, icao["icao"])
 
 crs_to      = GeoTransformer.utm_epsg(airport.lat, airport.lon)
@@ -50,32 +42,22 @@ bounds = get_bbox_simple(airport.lat, airport.lon, radius_km)
 
 runways: list[ArincRunway] = airport.arinc_424_runway
 
-provider = CopernicusDEMProvider(
-   os.environ["COPERNICUS_USERNAME"],
-   os.environ["COPERNICUS_PASSWORD"],
-)
-delta    = 0.2
-grid     = provider.get_terrain(
-    airport.lat - delta, airport.lon - delta,
-    airport.lat + delta, airport.lon + delta,
-    1024, 1024,
-)
-
 horizontal_scale = 0.01
 vertical_scale   = 0.01
 geo = GeoTransformer(airport.lat, airport.lon, horizontal_scale, vertical_scale, transformer)
 
 engine = Engine(1280, 720, "CasADi Landing")
 scene  = engine.scene
-TerrainProjectMesh(
-    grid=grid,
-    lat_min=airport.lat - delta,
-    lon_min=airport.lon - delta,
-    lat_max=airport.lat + delta,
-    lon_max=airport.lon + delta,
+
+terrain_project_mesh = TerrainProjectMesh(
+    grid=airport.terrain.elevation_grid,
+    lat_min=airport.terrain.lat_min,
+    lon_min=airport.terrain.lon_min,
+    lat_max=airport.terrain.lat_max,
+    lon_max=airport.terrain.lon_max,
     horizontal_scale=horizontal_scale,
     vertical_scale=vertical_scale,
-    transformer=transformer,
+    transformer=transformer
 ).spawn(scene, geo)
 
 scene.ambient_light     = Color(0.25, 0.25, 0.3)

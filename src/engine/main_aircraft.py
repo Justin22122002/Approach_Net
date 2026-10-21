@@ -1,10 +1,3 @@
-"""
-coordinate-Mapping  (Aircraft → Engine):
-    East    (x)  →  world-X
-    Altitude(h)  →  world-Y
-    North   (y)  →  world-Z (negative, cause opeGl is right handed with z in front)
-"""
-
 import math
 import pygame
 

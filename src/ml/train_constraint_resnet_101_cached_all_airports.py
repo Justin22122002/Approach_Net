@@ -11,8 +11,11 @@ from ml.pre_process_datasets import load_or_build_dataset
 from ml.utils.models.landing_resnet_101 import LandingActionResNet101
 from ml.utils.models.constraint_layer_cvxpy import AircraftCombinedQPLayer
 from ml.utils.trainer.constrained_landing_action_trainer import ConstrainedLandingActionTrainer
+from ml.utils.run_cli import exit_if_test, parse_run_args, report_results_folder
 
 if __name__ == "__main__":
+    args = parse_run_args()
+
     ConstrainedLandingActionTrainer.set_seed()
 
     dataset_name: str = "20260802_0920"  # 20260709_1207 20260802_0920
@@ -28,12 +31,14 @@ if __name__ == "__main__":
 
     folder_path: Path = Path("./data/")  # "../data/"
 
-    TIME_STAMP: str = "2026-10-10_20-02-35"
+    TIME_STAMP: str = args.pretrained_dir or "2026-10-10_20-02-35"
 
     PRETRAINED_MODEL_PATH: Path | None = Path(
         f"ml/results/multiple_airports_landing_action_resnet101_torchvision/{TIME_STAMP}/best_model.pth"
     )
     USE_PRETRAINED_MODEL: bool = True
+
+    exit_if_test(args, __file__, TIME_STAMP=TIME_STAMP, PRETRAINED_MODEL_PATH=PRETRAINED_MODEL_PATH)
 
     all_datasets, per_airport_split, train_X, train_Y = [], [], [], []
 
@@ -110,6 +115,7 @@ if __name__ == "__main__":
         tau=2.7,
     )
 
+    report_results_folder(trainer.results_folder_name, args.result_file)
     trainer.save_normalization(x_mean, x_std, y_mean, y_std)
     trainer.train(train_loader, val_loader, epochs=200)  # 30
 
