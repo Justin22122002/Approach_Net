@@ -43,14 +43,14 @@ from the PyTorch index. For the constraint training, CUDA 12 or 13 and a Linux e
    package manager (recommended) or with pip and the requirements.txt file:
     1. uv:
     ```bash
-            curl -LsSf https://astral.sh/uv/install.sh | sh    # Windows: powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
-            cd src
-            uv venv --python 3.13
+    curl -LsSf https://astral.sh/uv/install.sh | sh    # Windows: powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+    cd src
+    uv venv --python 3.13
     ```
     2. pip:
     ```bash
-            cd src
-            python -m venv .venv
+    cd src
+    python -m venv .venv
     ```
         Windows: ```.venv\Scripts\activate```  
         Linux/macOS: ```source .venv/bin/activate```
@@ -73,8 +73,27 @@ from the PyTorch index. For the constraint training, CUDA 12 or 13 and a Linux e
     COPERNICUS_USERNAME="example@example.com"
     COPERNICUS_PASSWORD="password"
     ```
-2. OpenSky Trino Client (historical flight data) -> https://openskynetwork.github.io/opensky-api/trino.html
-    see the docs for the credential setup
+2. OpenSky Trino Client (historical flight data) -> https://mode-s.org/pyopensky/credentials.html#configuration
+   see the docs for the credential setup. Also see https://openskynetwork.github.io/opensky-api/trino.html for 
+   additional information about the Trino API. By default an empty configuration file is created on 
+   1. Windows under
+      `D:\Users\<username>\AppData\Local\pyopensky\pyopensky\settings.conf`
+   2. Linux under `~/.pyopensky/settings.conf` or `/home/<username>/.config/pyopensky/settings.conf`
+   
+   with the following content:
+   ```
+   [default]
+   username =
+   password =
+   client_id =
+   client_secret =
+   ```
+   
+    help: if those paths dont apply to you, then type the following command in the console and you will
+   get the right path to the config file
+   ```bash
+   python -c "from pyopensky.config import opensky_config_dir; print(opensky_config_dir)"
+   ```
 
 ### Data Retrieval
 
