@@ -2,3 +2,4 @@
 .env
 PROPOSAL.md
 thesis/**
+/src/data/CIFP_260319/
