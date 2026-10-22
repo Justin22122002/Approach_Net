@@ -99,6 +99,15 @@ CLOSE_CYL_COLOR = Color(0.2, 0.9, 0.4)
 CLOSE_ELLIP_COLOR = Color(1.0, 0.9, 0.2)
 CLOSE_LINK_COLOR = Color(1.0, 1.0, 1.0)
 
+# close-up layering: rendered as separate passes and composited in this order (bottom -> top),
+# so the active pair is always fully in front, independent of depth / engine alpha support
+CLOSE_INACTIVE_COLOR = Color(0.80, 0.80, 0.80)   # other trajectories of the scene
+CLOSE_INACTIVE_ALPHA: float = 0.30
+CLOSE_INACTIVE_WIDTH: float = 2.0
+CLOSE_SEP_ALPHA: float = 0.80                     # separation cylinders / ellipsoids
+CLOSE_ACTIVE_WIDTH: float = 4.0                   # the two trajectories of the closest pair
+CLOSE_DIFF_THRESHOLD: int = 4                     # pixel difference that counts as "drawn by this layer"
+
 SHOW_CLOSE_RING: bool = True
 CLOSE_RING_COLOR = Color(1.0, 1.0, 1.0)
 CLOSE_RING_WIDTH: float = 3.0
@@ -644,14 +653,16 @@ def closest_pair(s: SnapScene) -> dict | None:
 _n_cyl = len(SEP_HALF.cylinder_edges((0.0, 0.0, 0.0)))
 _n_ell = len(SEP_HALF.ellipsoid_rings((0.0, 0.0, 0.0)))
 
-def _hidden_line(name: str, color: Color) -> LineRenderer:
-    lr = LineRenderer.strip([HIDDEN, HIDDEN], color=color)
+def _hidden_line(name: str, color: Color, width: float | None = None) -> LineRenderer:
+    lr = (LineRenderer.strip([HIDDEN, HIDDEN], color=color) if width is None
+          else LineRenderer.strip([HIDDEN, HIDDEN], color=color, line_width=width))
     scene.spawn(name).add_component(lr)
     return lr
 
 close_cyl = [[_hidden_line(f"close_cyl_{k}_{i}", CLOSE_CYL_COLOR) for i in range(_n_cyl)] for k in range(2)]
 close_ell = [[_hidden_line(f"close_ell_{k}_{i}", CLOSE_ELLIP_COLOR) for i in range(_n_ell)] for k in range(2)]
-close_trail = [_hidden_line(f"close_trail_{k}", FALLBACK_COLOR) for k in range(2)]
+close_trail = [_hidden_line(f"close_trail_{k}", FALLBACK_COLOR, CLOSE_ACTIVE_WIDTH) for k in range(2)]
+close_inactive: list[LineRenderer] = []   # grows on demand: other trajectories of the scene
 close_link = _hidden_line("close_link", CLOSE_LINK_COLOR)
 close_points = PointRenderer(points=[HIDDEN, HIDDEN], color=CLOSE_LINK_COLOR, size=CLOSE_POINT_SIZE)
 scene.spawn("close_points").add_component(close_points)
@@ -660,43 +671,58 @@ scene.spawn("close_markers").add_component(close_markers)
 
 closeup_camera = OrbitCamera(distance=1.0)
 
-def show_close(c: dict | None, s: SnapScene) -> None:
+def show_close(c: dict | None, s: SnapScene, layers: tuple[str, ...] = ("inactive", "sep", "active")) -> None:
+    for lr in [*close_cyl[0], *close_cyl[1], *close_ell[0], *close_ell[1], *close_trail, *close_inactive, close_link]:
+        set_lines(lr, [], [])
+    set_points(close_points, [HIDDEN, HIDDEN], [FALLBACK_COLOR] * 2)
+    set_points(close_markers, [HIDDEN], [FALLBACK_COLOR])
     if c is None:
-        for lr in [*close_cyl[0], *close_cyl[1], *close_ell[0], *close_ell[1], *close_trail, close_link]:
-            set_lines(lr, [], [])
-        set_points(close_points, [HIDDEN, HIDDEN], [FALLBACK_COLOR] * 2)
-        set_points(close_markers, [HIDDEN], [FALLBACK_COLOR])
         return
 
     t = c["t"]
+    pair = (c["a"], c["b"])
     centers = [c["a"].position(t), c["b"].position(t)]
-    marker_pts: list[Vec3] = []
-    marker_cols: list[Color] = []
-    for k, (f, center) in enumerate(zip((c["a"], c["b"]), centers)):
-        for lr, edge in zip(close_cyl[k], SEP_HALF.cylinder_edges(center)):
-            pts = [to_local(*p) for p in edge]
-            set_lines(lr, pts, [CLOSE_CYL_COLOR] * len(pts))
-        for lr, ring in zip(close_ell[k], SEP_HALF.ellipsoid_rings(center)):
-            pts = [to_local(*p) for p in ring]
-            set_lines(lr, pts, [CLOSE_ELLIP_COLOR] * len(pts))
 
-        idx = drawn_indices(f, s)
-        pts = [to_local(f.x[i], f.y[i], f.h[i]) for i in idx]
-        set_lines(close_trail[k], pts, [time_color(s, f.t[i]) for i in idx])
+    if "inactive" in layers:
+        others = [f for f in s.flights if f is not c["a"] and f is not c["b"]]
+        while len(close_inactive) < len(others):
+            close_inactive.append(_hidden_line(f"close_inactive_{len(close_inactive)}",
+                                               CLOSE_INACTIVE_COLOR, CLOSE_INACTIVE_WIDTH))
+        for lr, f in zip(close_inactive, others):
+            idx = drawn_indices(f, s)
+            pts = [to_local(f.x[i], f.y[i], f.h[i]) for i in idx]
+            set_lines(lr, pts, [CLOSE_INACTIVE_COLOR] * len(pts))
 
-        if CLOSE_MARKER_SIZE > 0 and len(idx):
-            t_first, t_last = float(f.t[idx[0]]), float(f.t[idx[-1]])
-            for t_m, u in zip(s.marker_times, marker_fractions()):
-                if t_first <= t_m <= t_last:
-                    marker_pts.append(to_local(*f.position(t_m)))
-                    marker_cols.append(Color(*gradient(u)))
+    if "sep" in layers:
+        for k, center in enumerate(centers):
+            for lr, edge in zip(close_cyl[k], SEP_HALF.cylinder_edges(center)):
+                pts = [to_local(*p) for p in edge]
+                set_lines(lr, pts, [CLOSE_CYL_COLOR] * len(pts))
+            for lr, ring in zip(close_ell[k], SEP_HALF.ellipsoid_rings(center)):
+                pts = [to_local(*p) for p in ring]
+                set_lines(lr, pts, [CLOSE_ELLIP_COLOR] * len(pts))
 
-    local = [to_local(*p) for p in centers]
-    set_lines(close_link, local, [CLOSE_LINK_COLOR] * 2)
-    point_color = time_color(s, t)
-    set_points(close_points, local, [point_color, point_color])
-    if marker_pts:
-        set_points(close_markers, marker_pts, marker_cols)
+    if "active" in layers:
+        marker_pts: list[Vec3] = []
+        marker_cols: list[Color] = []
+        for k, f in enumerate(pair):
+            idx = drawn_indices(f, s)
+            pts = [to_local(f.x[i], f.y[i], f.h[i]) for i in idx]
+            set_lines(close_trail[k], pts, [time_color(s, f.t[i]) for i in idx])
+
+            if CLOSE_MARKER_SIZE > 0 and len(idx):
+                t_first, t_last = float(f.t[idx[0]]), float(f.t[idx[-1]])
+                for t_m, u in zip(s.marker_times, marker_fractions()):
+                    if t_first <= t_m <= t_last:
+                        marker_pts.append(to_local(*f.position(t_m)))
+                        marker_cols.append(Color(*gradient(u)))
+
+        local = [to_local(*p) for p in centers]
+        set_lines(close_link, local, [CLOSE_LINK_COLOR] * 2)
+        point_color = time_color(s, t)
+        set_points(close_points, local, [point_color, point_color])
+        if marker_pts:
+            set_points(close_markers, marker_pts, marker_cols)
 
 
 def render_offscreen(camera, size: int) -> np.ndarray:
@@ -746,9 +772,16 @@ def save_closeup(k: int, base: Path) -> None:
     closeup_camera.yaw = CLOSE_YAW_DEG
 
     hide_scene(k)
-    show_close(c, s)
     size = min(engine.width, engine.height)
-    img = render_offscreen(closeup_camera, size)
+    show_close(None, s)
+    base_img = render_offscreen(closeup_camera, size).astype(np.float32)
+    comp = base_img.copy()
+    for layer, alpha in (("inactive", CLOSE_INACTIVE_ALPHA), ("sep", CLOSE_SEP_ALPHA), ("active", 1.0)):
+        show_close(c, s, layers=(layer,))
+        img_layer = render_offscreen(closeup_camera, size).astype(np.float32)
+        mask = np.abs(img_layer - base_img).max(axis=2) > CLOSE_DIFF_THRESHOLD
+        comp[mask] = (1.0 - alpha) * comp[mask] + alpha * img_layer[mask]
+    img = np.clip(comp, 0, 255).astype(np.uint8)
     show_close(None, s)
     show_scene(k)
     glViewport(0, 0, engine.width, engine.height)

@@ -60,7 +60,8 @@ from the PyTorch index. For the constraint training, CUDA 12 or 13 and a Linux e
 3. Always run the scripts with `src` as the working directory with ```python3``` / ```python``` or ```uv run ...```, either from the console
    (`cd src`) or in PyCharm / VS Code with the working directory set to `src`.
    All paths are relative to `src` (`./data`, `ml/results/...`).
-4. If you use the dataset provided with our paper, you can skip the
+4. If you use the dataset provided with our paper and just want to recreate the provided table numbers,
+   (note: some visualisation scripts may require the account credencials) you can skip the
    [Login / Account requirements](#login--account-requirements) and the
    [Data Retrieval](#data-retrieval) and directly place the data under `src/data`. For that please download
    the dataset from https://huggingface.co/datasets/Justin22122002/ApproachNet and go directly to [Experiments](#experiments).
