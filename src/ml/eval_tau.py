@@ -12,7 +12,7 @@ from ml.utils.models.constraint_layer_cvxpy import AircraftCombinedQPLayer
 from ml.utils.trainer.constrained_landing_action_trainer import ConstrainedLandingActionTrainer
 
 HIGH_Q: float = 0.9
-W_AT_HIGH: float = 0.1
+W_AT_HIGH: float = 0.15
 
 USE_APPROACH_INFO: bool = True
 
@@ -80,6 +80,7 @@ def project_labels(
                     faf_pos,
                     if_pos,
                     runway_length_m,
+                    h_thr=x_raw[:, 13],
                 )
                 Y_proj[s:s + n] = out_phys[:n].cpu().numpy()
                 pbar.update(1)
