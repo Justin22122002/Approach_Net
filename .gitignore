@@ -1,0 +1,6 @@
+.idea/**
+.env
+PROPOSAL.md
+thesis/**
+/src/data/CIFP_260319/
+/src/FAACIFP18

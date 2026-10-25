@@ -1,0 +1,191 @@
+from typing import override
+
+from pyproj import Geod
+
+from rendering.renderable import JsonSerializable
+from utils.approch import Approach
+from utils.fix_identifier import FixIdentifier
+from utils.open_street_map_runway import Coordinate
+
+geod = Geod(ellps="WGS84")
+
+class ArincRunway(JsonSerializable):
+    def __init__(
+        self,
+        runway_identifier: str,
+        latitude: float,
+        longitude: float,
+        length: float,
+        bearing: float,
+        width: float,
+        stopway: float,
+        displaced_threshold: float,
+        magnetic_variation: float,
+        runway_altitude: float,
+        approaches: list[Approach] = None,
+        *args,
+        **kwargs
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self.runway_identifier: str = runway_identifier
+        self.latitude: float = latitude
+        self.longitude: float = longitude
+        self.length: float = length
+        self.bearing: float = bearing
+        self.width: float = width
+        self.stopway: float = stopway
+        self.displaced_threshold: float = displaced_threshold
+        self.magnetic_variation: float = magnetic_variation
+        self.runway_altitude: float = runway_altitude
+        self.approaches: list[Approach] = approaches if approaches is not None else []
+
+        self.centerline_coordinates: tuple[Coordinate, Coordinate] = self._compute_centerline()
+        self.polygon_coordinates: list[Coordinate] = self._compute_polygon()
+
+    def _compute_centerline(self) -> tuple[Coordinate, Coordinate]:
+        bearing = self.bearing / 10.0 + self.magnetic_variation # this is for the faa database
+        bearing = self.bearing # this is for api.flightplandatabase.com
+
+        # for faa database, this is the start of the runway -> [displaced_threshold - length - stopway]
+        #                                                                           ^ start for lat and lon
+        # for api.flightplandatabase.com, this is the start of the runway -> [displaced_threshold - length - stopway]
+        #                                                                     ^ start for lat and lon
+        start_lat = self.latitude
+        start_lon = self.longitude
+
+        end_lon, end_lat, _ = geod.fwd( # this is for the faa database
+            start_lon,
+            start_lat,
+            bearing,
+            self.ft_to_m(self.length - self.displaced_threshold - self.stopway)
+        )
+
+        start_lon, start_lat, _ = geod.fwd( # this is for api.flightplandatabase.com
+            start_lon,
+            start_lat,
+            bearing,
+            self.ft_to_m(self.displaced_threshold)
+        )
+
+        end_lon, end_lat, _ = geod.fwd( # this is for api.flightplandatabase.com
+            start_lon,
+            start_lat,
+            bearing,
+            self.ft_to_m(self.length - self.displaced_threshold - self.stopway)
+        )
+
+        return (
+            Coordinate(lat=start_lat, lon=start_lon),
+            Coordinate(lat=end_lat, lon=end_lon),
+        )
+
+    def _compute_polygon(self) -> list[Coordinate]:
+        start, end = self.centerline_coordinates
+
+        half_width = self.ft_to_m(self.width) / 2
+
+        az12, _, _ = geod.inv(start.lon, start.lat, end.lon, end.lat)
+
+        left_az = az12 - 90
+        right_az = az12 + 90
+
+        left_start_lon, left_start_lat, _ = geod.fwd(start.lon, start.lat, left_az, half_width)
+        right_start_lon, right_start_lat, _ = geod.fwd(start.lon, start.lat, right_az, half_width)
+
+        left_end_lon, left_end_lat, _ = geod.fwd(end.lon, end.lat, left_az, half_width)
+        right_end_lon, right_end_lat, _ = geod.fwd(end.lon, end.lat, right_az, half_width)
+
+        return [
+            Coordinate(lat=left_start_lat, lon=left_start_lon),
+            Coordinate(lat=left_end_lat, lon=left_end_lon),
+            Coordinate(lat=right_end_lat, lon=right_end_lon),
+            Coordinate(lat=right_start_lat, lon=right_start_lon),
+        ]
+
+
+    @staticmethod
+    def ft_to_m(value: float) -> float:
+        return value * 0.3048
+
+    @override
+    @classmethod
+    def from_dict(cls: type["ArincRunway"], data: dict) -> "ArincRunway":
+        approaches_data = data.get("approaches", [])
+        approaches: list[Approach] = []
+        for app in approaches_data:
+            fixes_data = app.get("fixes", [])
+            fixes: list[FixIdentifier] = [
+                FixIdentifier(
+                    fix_identifier=f.get("fix_identifier"),
+                    path_terminator=f.get("path_terminator"),
+                    latitude=f.get("latitude"),
+                    longitude=f.get("longitude"),
+                    altitude=f.get("altitude"),
+                    sequence_number=f.get("sequence_number"),
+                    course=f.get("course", None),
+                    speed_kts=f.get("speed_kts", None),
+                    turn_direction=f.get("turn_direction", None),
+                    altitude_restriction=f.get("altitude_restriction", None),
+                    description_code=f.get("description_code", None),
+                )
+                for f in fixes_data
+            ]
+            approaches.append(
+                Approach(
+                    procedure_identifier=app.get("procedure_identifier"),
+                    route_type=app.get("route_type"),
+                    fixes=fixes,
+                )
+            )
+
+        return cls(
+            runway_identifier=data["runway_identifier"],
+            latitude=data["latitude"],
+            longitude=data["longitude"],
+            length=data["length"],
+            bearing=data["bearing"],
+            width=data["width"],
+            stopway=data.get("stopway", 0.0),
+            displaced_threshold=data.get("displaced_threshold", 0.0),
+            magnetic_variation=data.get("magnetic_variation", 0.0),
+            runway_altitude=data.get("runway_altitude", 0.0),
+            approaches=approaches,
+        )
+
+    @override
+    def to_dict(self) -> dict:
+        return {
+            "runway_identifier": self.runway_identifier,
+            "latitude": self.latitude,
+            "longitude": self.longitude,
+            "length": self.length,
+            "bearing": self.bearing,
+            "width": self.width,
+            "stopway": self.stopway,
+            "displaced_threshold": self.displaced_threshold,
+            "magnetic_variation": self.magnetic_variation,
+            "runway_altitude": self.runway_altitude,
+            "approaches": [
+                {
+                    "procedure_identifier": app.procedure_identifier,
+                    "route_type": app.route_type,
+                    "fixes": [
+                        {
+                            "fix_identifier": f.fix_identifier,
+                            "path_terminator": f.path_terminator,
+                            "latitude": f.latitude,
+                            "longitude": f.longitude,
+                            "altitude": f.altitude,
+                            "sequence_number": f.sequence_number,
+                            "course": f.course,
+                            "speed_kts": f.speed_kts,
+                            "turn_direction": f.turn_direction,
+                            "altitude_restriction": f.altitude_restriction,
+                            "description_code": f.description_code,
+                        }
+                        for f in app.fixes
+                    ],
+                }
+                for app in self.approaches
+            ],
+        }

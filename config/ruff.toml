@@ -1,0 +1,14 @@
+line-length = 120 # Allow lines to be as long as 120.
+
+[lint]
+select = ["ALL"]
+ignore = [
+    "D", # Checks documentation styles
+    "T", # Prohibits print statements
+    "S311", # Enforce cryptographic random number generation
+    "INP001", # Checks for packages that are missing an __init__.py file.
+    "RUF001", "RUF003", # Warns when using greek letters that have a similar appeareance as normal letters 
+]
+
+[lint.per-file-ignores]
+"test_*.py" = ["ANN201", "S101"]
