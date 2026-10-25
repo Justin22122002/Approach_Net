@@ -46,7 +46,6 @@ class CopernicusDEMProvider:
             "Content-Type": "application/json"
         }
 
-    # todo: write a loop for iterative pulling terrain data for 5km segments
     def get_terrain(
             self,
             lat_min: float,
